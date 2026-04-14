@@ -43,7 +43,9 @@
 1. 在 Supabase 项目中，点击左侧 **Settings** → **API**
 2. 记下以下两个值：
    - **Project URL**: 类似 `https://xxxxx.supabase.co`
-   - **anon public key**: 以 `eyJ` 开头的长字符串
+   https://eylrztkwmpgaawdvdcjj.supabase.co
+   - **anon public key**: 以 `eyJ` 开头的长字符串 
+   eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5bHJ6dGt3bXBnYWF3ZHZkY2pqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxNTg2MjAsImV4cCI6MjA5MTczNDYyMH0.Hx7WuKPbBiyTp8xWmivKxJ5003JfP-bHPlYQOlbkE84
 
 ## 第四步：部署到 Vercel
 
