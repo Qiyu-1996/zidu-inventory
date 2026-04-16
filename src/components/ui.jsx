@@ -69,6 +69,30 @@ export function exportCSV(headers, rows, filename) {
   URL.revokeObjectURL(url);
 }
 
+export const PAYMENT_STATUS_MAP = {
+  UNPAID: { label: "未付", cls: "bg-gray-100 text-gray-600" },
+  PARTIAL: { label: "部分付", cls: "bg-yellow-100 text-yellow-700" },
+  PAID: { label: "已付", cls: "bg-green-100 text-green-700" }
+};
+
+export const PO_STATUS_MAP = {
+  DRAFT: { label: "草稿", cls: "bg-gray-100 text-gray-600" },
+  ORDERED: { label: "已下单", cls: "bg-blue-100 text-blue-700" },
+  PARTIAL_RECEIVED: { label: "部分收货", cls: "bg-yellow-100 text-yellow-700" },
+  RECEIVED: { label: "已收货", cls: "bg-green-100 text-green-700" },
+  CANCELLED: { label: "已取消", cls: "bg-red-100 text-red-700" }
+};
+
+export function PaymentBadge({ status }) {
+  const s = PAYMENT_STATUS_MAP[status];
+  return <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${s?.cls}`}>{s?.label || status}</span>;
+}
+
+export function POBadge({ status }) {
+  const s = PO_STATUS_MAP[status];
+  return <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${s?.cls}`}>{s?.label || status}</span>;
+}
+
 export function LoadingScreen() {
   return (
     <div className="flex items-center justify-center h-screen" style={{ background: "#f5f4f7" }}>

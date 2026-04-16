@@ -1,15 +1,28 @@
 import { useState, useMemo } from 'react';
-import { Search, Plus, Minus, X, ShoppingCart, ArrowLeft } from 'lucide-react';
+import { Search, Plus, Minus, X, ShoppingCart, ArrowLeft, Layers, Tag } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, fmtY, today, now16, SERIES_LIST, CUSTOMER_TYPES } from '../components/ui';
 
 // ═══ SHOP CATALOG ═══
 export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, onCheckout }) {
-  const { products } = useData();
+  const { products, scenarioPackages } = useData();
   const [search, setSearch] = useState('');
   const [sf, setSf] = useState('ALL');
   const [showCart, setShowCart] = useState(false);
+  const [showScenarios, setShowScenarios] = useState(false);
+
+  const applyScenario = (pkg) => {
+    let added = 0;
+    pkg.items.forEach(it => {
+      const p = products.find(pr => pr.id === it.productId);
+      const s = p?.specs.find(sp => sp.id === it.specId);
+      if (p && s) { addToCart(p, s, it.quantity); added++; }
+    });
+    if (added > 0) alert(`已添加【${pkg.name}】${added}件商品到购物车`);
+    else alert('该方案暂未配置产品，请联系管理员');
+    setShowScenarios(false);
+  };
 
   const filtered = products.filter(p => {
     if (sf !== 'ALL' && p.series !== sf) return false;
@@ -31,6 +44,11 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
             <option value="ALL">全部系列</option>
             {SERIES_LIST.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
+          {scenarioPackages?.length > 0 && (
+            <button onClick={() => setShowScenarios(!showScenarios)} className="flex items-center gap-1 px-3 py-2 text-sm border rounded-lg text-purple-700 border-purple-200 hover:bg-purple-50">
+              <Layers size={14} />场景方案
+            </button>
+          )}
         </div>
         {cart.length > 0 && (
           <button onClick={() => setShowCart(!showCart)} className="flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium shadow" style={{ background: "#4a3560" }}>
@@ -39,6 +57,28 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
           </button>
         )}
       </div>
+
+      {/* Scenario packages */}
+      {showScenarios && scenarioPackages?.length > 0 && (
+        <Card className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-sm font-semibold text-gray-700 flex items-center gap-2"><Layers size={16} />场景方案套餐 — 一键加购</div>
+            <button onClick={() => setShowScenarios(false)} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {scenarioPackages.filter(p => p.isActive !== false).map(pkg => (
+              <div key={pkg.id} className="border rounded-lg p-3 hover:border-purple-300 cursor-pointer" onClick={() => applyScenario(pkg)}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-mono text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">{pkg.code}</span>
+                  <span className="text-xs text-gray-400">{pkg.items.length}件</span>
+                </div>
+                <div className="font-medium text-gray-800">{pkg.name}</div>
+                <div className="text-xs text-gray-500 mt-1 line-clamp-2">{pkg.description}</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {/* Cart panel */}
       {showCart && cart.length > 0 && (
@@ -119,13 +159,23 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
 // ═══ CHECKOUT ═══
 export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
   const { user } = useAuth();
-  const { customers } = useData();
+  const { customers, getCustomerTier } = useData();
   const myCustomers = user.role === "ADMIN" ? customers : customers.filter(c => c.salesId === user.id);
 
   const [customerId, setCustomerId] = useState('');
   const [discount, setDiscount] = useState(0);
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [tierInfo, setTierInfo] = useState(null);
+
+  const onSelectCustomer = (id) => {
+    setCustomerId(id);
+    if (id && getCustomerTier) {
+      const tier = getCustomerTier(Number(id));
+      setTierInfo(tier);
+      if (tier.discount > 0) setDiscount(tier.discount);
+    } else setTierInfo(null);
+  };
 
   const subtotal = cart.reduce((s, c) => s + c.unitPrice * c.quantity, 0);
   const discountAmount = Math.round(subtotal * discount / 100);
@@ -191,7 +241,7 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
         <div>
           <label className="block text-xs text-gray-500 mb-1.5">选择客户 *</label>
           <div className="flex gap-2">
-            <select value={customerId} onChange={e => setCustomerId(e.target.value)} className="flex-1 border rounded-lg px-3 py-2.5 text-sm bg-white">
+            <select value={customerId} onChange={e => onSelectCustomer(e.target.value)} className="flex-1 border rounded-lg px-3 py-2.5 text-sm bg-white">
               <option value="">请选择</option>
               {myCustomers.map(c => <option key={c.id} value={c.id}>{c.name} ({c.type})</option>)}
             </select>
@@ -199,6 +249,11 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
               <Plus size={14} className="inline -mt-0.5" /> 新建
             </button>
           </div>
+          {tierInfo && tierInfo.discount > 0 && (
+            <div className="mt-2 inline-flex items-center gap-1 text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
+              <Tag size={12} />{tierInfo.label} · 年消费{fmtY(tierInfo.annualSpend)} · 自动应用{tierInfo.discount}%折扣
+            </div>
+          )}
         </div>
 
         <div>

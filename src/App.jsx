@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Home, ShoppingBag, ShoppingCart, Users, Package, Truck, TrendingUp, Settings, LogOut, X, Menu } from 'lucide-react';
+import { Home, ShoppingBag, ShoppingCart, Users, Package, Truck, TrendingUp, Settings, LogOut, X, Menu, ClipboardList } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import { useData } from './contexts/DataContext';
 import { LoadingScreen } from './components/ui';
@@ -12,6 +12,7 @@ import Inventory from './pages/Inventory';
 import ShippingWorkbench from './pages/Shipping';
 import Analytics from './pages/Analytics';
 import SettingsPage from './pages/Settings';
+import { PurchaseOrderList, PurchaseOrderCreate, PurchaseOrderDetail } from './pages/PurchaseOrders';
 
 export default function App() {
   const { user, logout } = useAuth();
@@ -45,6 +46,7 @@ export default function App() {
     { key: "orders", icon: ShoppingCart, label: "订单管理" },
     ...(user.role !== "WAREHOUSE" ? [{ key: "customers", icon: Users, label: "客户管理" }] : []),
     { key: "inventory", icon: Package, label: "库存查看" },
+    ...(user.role === "ADMIN" || user.role === "WAREHOUSE" ? [{ key: "purchase", icon: ClipboardList, label: "采购管理" }] : []),
     ...(user.role === "WAREHOUSE" ? [{ key: "shipping", icon: Truck, label: "发货管理" }] : []),
     ...(user.role !== "WAREHOUSE" ? [{ key: "analytics", icon: TrendingUp, label: "数据分析" }] : []),
     ...(user.role === "ADMIN" ? [{ key: "settings", icon: Settings, label: "系统管理" }] : []),
@@ -136,6 +138,9 @@ export default function App() {
           {page === "customers" && subView === "newcust" && <CustomerCreate onSave={handleNewCustomerFromList} onCancel={() => setSubView(null)} />}
           {page === "customerDetail" && <CustomerDetail customerId={subView} onBack={() => nav("customers")} />}
           {page === "inventory" && <Inventory />}
+          {page === "purchase" && !subView && <PurchaseOrderList nav={nav} />}
+          {page === "purchaseCreate" && <PurchaseOrderCreate onBack={() => nav('purchase')} />}
+          {page === "purchaseDetail" && <PurchaseOrderDetail poId={subView} onBack={() => nav('purchase')} />}
           {page === "shipping" && <ShippingWorkbench />}
           {page === "analytics" && <Analytics />}
           {page === "settings" && <SettingsPage />}

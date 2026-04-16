@@ -10,106 +10,113 @@ export function DataProvider({ children }) {
   const [customers, setCustomers] = useState([]);
   const [orders, setOrders] = useState([]);
   const [users, setUsers] = useState([]);
+  const [purchaseOrders, setPurchaseOrders] = useState([]);
+  const [pricingTiers, setPricingTiers] = useState([]);
+  const [scenarioPackages, setScenarioPackages] = useState([]);
+  const [stockLog, setStockLog] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const loadAll = useCallback(async () => {
     if (!user) return;
-    setLoading(true);
-    setError('');
+    setLoading(true); setError('');
     try {
-      const [p, c, o, u] = await Promise.all([
-        api.fetchProducts(),
-        api.fetchCustomers(),
-        api.fetchOrders(),
-        api.fetchUsers()
+      const [p, c, o, u, po, tiers, scenarios] = await Promise.all([
+        api.fetchProducts(), api.fetchCustomers(), api.fetchOrders(), api.fetchUsers(),
+        api.fetchPurchaseOrders().catch(() => []),
+        api.fetchPricingTiers().catch(() => []),
+        api.fetchScenarioPackages().catch(() => [])
       ]);
-      setProducts(p);
-      setCustomers(c);
-      setOrders(o);
-      setUsers(u);
-    } catch (e) {
-      setError(e.message);
-      console.error('Data load error:', e);
-    } finally {
-      setLoading(false);
-    }
+      setProducts(p); setCustomers(c); setOrders(o); setUsers(u);
+      setPurchaseOrders(po); setPricingTiers(tiers); setScenarioPackages(scenarios);
+    } catch (e) { setError(e.message); } finally { setLoading(false); }
   }, [user]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  // ═══ Products ═══
-  const addProduct = useCallback(async (product) => {
-    const created = await api.createProduct(product);
-    setProducts(prev => [...prev, created]);
-    return created;
+  // Products
+  const addProduct = useCallback(async (product) => { const r = await api.createProduct(product); setProducts(p => [...p, r]); return r; }, []);
+  const editProduct = useCallback(async (product) => { const r = await api.updateProduct(product); setProducts(p => p.map(x => x.id === r.id ? r : x)); return r; }, []);
+  const removeProduct = useCallback(async (id) => { await api.deleteProduct(id); setProducts(p => p.filter(x => x.id !== id)); }, []);
+
+  // Customers
+  const addCustomer = useCallback(async (c) => { const r = await api.createCustomer(c); setCustomers(p => [...p, r]); return r; }, []);
+  const editCustomer = useCallback(async (id, fields) => {
+    const r = await api.updateCustomer(id, fields);
+    setCustomers(p => p.map(c => c.id === id ? { ...c, name: r.name, contact: r.contact, phone: r.phone, address: r.address, type: r.type, salesId: r.sales_id } : c));
+  }, []);
+  const addCustomerNote = useCallback(async (cid, text, name) => {
+    const n = await api.addCustomerNote(cid, text, name);
+    setCustomers(p => p.map(c => c.id === cid ? { ...c, notes: [...c.notes, n] } : c));
   }, []);
 
-  const removeProduct = useCallback(async (productId) => {
-    await api.deleteProduct(productId);
-    setProducts(prev => prev.filter(p => p.id !== productId));
-  }, []);
-
-  // ═══ Customers ═══
-  const addCustomer = useCallback(async (customer) => {
-    const created = await api.createCustomer(customer);
-    setCustomers(prev => [...prev, created]);
-    return created;
-  }, []);
-
-  const addCustomerNote = useCallback(async (customerId, text, userName) => {
-    const note = await api.addCustomerNote(customerId, text, userName);
-    setCustomers(prev => prev.map(c =>
-      c.id === customerId ? { ...c, notes: [...c.notes, note] } : c
-    ));
-  }, []);
-
-  // ═══ Orders ═══
+  // Orders
   const addOrder = useCallback(async (order) => {
-    const orderId = await api.createOrder(order);
-    // Reload orders and products (stock changed)
-    const [newOrders, newProducts] = await Promise.all([
-      api.fetchOrders(),
-      api.fetchProducts()
-    ]);
-    setOrders(newOrders);
-    setProducts(newProducts);
-    return orderId;
+    await api.createOrder(order);
+    const [newOrders, newProducts] = await Promise.all([api.fetchOrders(), api.fetchProducts()]);
+    setOrders(newOrders); setProducts(newProducts);
   }, []);
-
   const updateOrderStatus = useCallback(async (orderId, newStatus, logEntry, shipmentData) => {
     await api.updateOrderStatus(orderId, newStatus, logEntry, shipmentData);
-    // Update local state
-    setOrders(prev => prev.map(o => {
-      if (o.id !== orderId) return o;
-      return {
-        ...o,
-        status: newStatus,
-        logs: [...o.logs, logEntry],
-        ...(shipmentData ? { shipment: shipmentData } : {})
-      };
-    }));
-    // Reload products if cancelled (stock restored)
-    if (newStatus === 'CANCELLED') {
-      const newProducts = await api.fetchProducts();
-      setProducts(newProducts);
-    }
+    setOrders(p => p.map(o => o.id !== orderId ? o : { ...o, status: newStatus, logs: [...o.logs, logEntry], ...(shipmentData ? { shipment: shipmentData } : {}) }));
+    if (newStatus === 'CANCELLED') { const np = await api.fetchProducts(); setProducts(np); }
+  }, []);
+  const recordPayment = useCallback(async (orderId, amount, method, note, recordedBy) => {
+    const result = await api.recordPayment(orderId, amount, method, note, recordedBy);
+    setOrders(p => p.map(o => o.id !== orderId ? o : { ...o, paymentStatus: result.status, paidAmount: result.totalPaid, payments: [...(o.payments || []), { amount, method, note, recordedBy, createdAt: new Date().toISOString() }] }));
   }, []);
 
-  // ═══ Users ═══
-  const addUser = useCallback(async (name, phone, password, role) => {
-    const created = await api.createUser(name, phone, password, role);
-    setUsers(prev => [...prev, created]);
-    return created;
+  // Users
+  const addUser = useCallback(async (n, ph, pw, r) => { const u = await api.createUser(n, ph, pw, r); setUsers(p => [...p, u]); return u; }, []);
+  const resetUserPassword = useCallback(async (targetId, newPw) => { await api.adminResetPassword(user.id, targetId, newPw); }, [user]);
+  const toggleUserStatus = useCallback(async (targetId, newStatus) => {
+    await api.toggleUserStatus(user.id, targetId, newStatus);
+    setUsers(p => p.map(u => u.id === targetId ? { ...u, status: newStatus } : u));
+  }, [user]);
+
+  // Stock
+  const adjustStock = useCallback(async (specId, productId, type, reason, qty, note) => {
+    const result = await api.adjustStock(specId, productId, type, reason, qty, note, user.name);
+    setProducts(p => p.map(pr => pr.id === productId ? { ...pr, specs: pr.specs.map(s => s.id === specId ? { ...s, stock: result.after } : s) } : pr));
+    return result;
+  }, [user]);
+  const loadStockLog = useCallback(async () => { const log = await api.fetchStockLog(); setStockLog(log); return log; }, []);
+
+  // Purchase Orders
+  const addPurchaseOrder = useCallback(async (po) => { const id = await api.createPurchaseOrder(po); await loadAll(); return id; }, [loadAll]);
+  const updatePOStatus = useCallback(async (poId, status) => { await api.updatePurchaseOrderStatus(poId, status); setPurchaseOrders(p => p.map(po => po.id === poId ? { ...po, status } : po)); }, []);
+  const receivePOItems = useCallback(async (poId, items) => {
+    const po = purchaseOrders.find(p => p.id === poId);
+    await api.receivePurchaseItems(poId, items, user.name);
+    // Reload everything since stock changed
+    const [newProducts, newPOs] = await Promise.all([api.fetchProducts(), api.fetchPurchaseOrders()]);
+    setProducts(newProducts); setPurchaseOrders(newPOs);
+  }, [user, purchaseOrders]);
+
+  // Pricing Tiers
+  const updateTiers = useCallback(async (tiers) => { const r = await api.updatePricingTiers(tiers); setPricingTiers(r); }, []);
+  const getCustomerTier = useCallback((customerId) => api.calculateCustomerTier(customerId, orders, pricingTiers), [orders, pricingTiers]);
+
+  // Scenario Packages
+  const updatePackageItems = useCallback(async (pkgId, items) => {
+    await api.updateScenarioPackageItems(pkgId, items);
+    const fresh = await api.fetchScenarioPackages();
+    setScenarioPackages(fresh);
   }, []);
 
   return (
     <DataContext.Provider value={{
-      products, customers, orders, users, loading, error,
-      addProduct, removeProduct,
-      addCustomer, addCustomerNote,
-      addOrder, updateOrderStatus,
-      addUser, reload: loadAll
+      products, customers, orders, users, purchaseOrders, pricingTiers, scenarioPackages, stockLog,
+      loading, error,
+      addProduct, editProduct, removeProduct,
+      addCustomer, editCustomer, addCustomerNote,
+      addOrder, updateOrderStatus, recordPayment,
+      addUser, resetUserPassword, toggleUserStatus,
+      adjustStock, loadStockLog,
+      addPurchaseOrder, updatePOStatus, receivePOItems,
+      updateTiers, getCustomerTier,
+      updatePackageItems,
+      reload: loadAll
     }}>
       {children}
     </DataContext.Provider>
