@@ -1,8 +1,9 @@
-import { useState } from 'react';
-import { Plus, UserPlus, X, Edit2, Key, UserX, UserCheck, Layers, Tag } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Plus, UserPlus, X, Edit2, Key, UserX, UserCheck, Layers, Tag, Truck, ClipboardCheck, Target, FileText } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, fmtY, SERIES_LIST, CUSTOMER_TYPES, DEFAULT_SPEC_OPTIONS } from '../components/ui';
+import * as api from '../lib/api';
 
 export default function SettingsPage() {
   const [tab, setTab] = useState("users");
@@ -12,25 +13,24 @@ export default function SettingsPage() {
         {[
           { k: "users", l: "人员管理" },
           { k: "products", l: "产品管理" },
+          { k: "suppliers", l: "供应商" },
           { k: "pricing", l: "阶梯定价" },
+          { k: "targets", l: "销售目标" },
           { k: "scenarios", l: "场景方案" },
-          { k: "config", l: "基础设置" }
+          { k: "config", l: "基础设置" },
+          { k: "audit", l: "操作日志" }
         ].map(t => (
           <button key={t.k} onClick={() => setTab(t.k)} className={`px-4 py-2 text-sm rounded-lg border ${tab === t.k ? "bg-purple-100 border-purple-300 text-purple-700" : "bg-white text-gray-600"}`}>{t.l}</button>
         ))}
       </div>
       {tab === "users" && <UserMgmt />}
       {tab === "products" && <ProductMgmt />}
+      {tab === "suppliers" && <SupplierMgmt />}
       {tab === "pricing" && <PricingMgmt />}
+      {tab === "targets" && <TargetMgmt />}
       {tab === "scenarios" && <ScenarioMgmt />}
-      {tab === "config" && (
-        <Card className="p-4 space-y-4">
-          <div className="text-sm font-semibold text-gray-700">客户类型</div>
-          <div className="flex flex-wrap gap-2">{CUSTOMER_TYPES.map(t => <span key={t} className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700">{t}</span>)}</div>
-          <div className="text-sm font-semibold text-gray-700 mt-4">产品系列</div>
-          <div className="flex flex-wrap gap-2">{SERIES_LIST.map(s => <span key={s} className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700">{s}</span>)}</div>
-        </Card>
-      )}
+      {tab === "config" && <ConfigMgmt />}
+      {tab === "audit" && <AuditLogView />}
     </div>
   );
 }
@@ -410,6 +410,285 @@ function ScenarioMgmt() {
           ))}
         </div>
       )}
+    </Card>
+  );
+}
+
+function SupplierMgmt() {
+  const { suppliers, addSupplier, editSupplier, removeSupplier } = useData();
+  const [show, setShow] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState({ name: '', contact: '', phone: '', email: '', address: '', category: '', paymentTerms: '', note: '', isActive: true });
+  const [saving, setSaving] = useState(false);
+
+  const reset = () => { setShow(false); setEditingId(null); setForm({ name: '', contact: '', phone: '', email: '', address: '', category: '', paymentTerms: '', note: '', isActive: true }); };
+
+  const startEdit = (s) => { setEditingId(s.id); setForm({ ...s }); setShow(true); };
+
+  const handleSave = async () => {
+    if (!form.name.trim()) return;
+    setSaving(true);
+    try {
+      if (editingId) await editSupplier(editingId, form);
+      else await addSupplier(form);
+      reset();
+    } catch (e) { alert(e.message); } finally { setSaving(false); }
+  };
+
+  const handleDelete = async (s) => {
+    if (!confirm(`确定删除供应商 "${s.name}"？`)) return;
+    try { await removeSupplier(s.id); }
+    catch (e) { alert(e.message); }
+  };
+
+  return (
+    <Card className="p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2"><Truck size={16} className="text-purple-600" /><div className="text-sm font-semibold text-gray-700">供应商管理（{suppliers.length}）</div></div>
+        <button onClick={() => show ? reset() : setShow(true)} className="flex items-center gap-1 text-sm font-medium text-purple-700"><Plus size={16} />添加供应商</button>
+      </div>
+
+      {show && (
+        <div className="bg-purple-50 rounded-lg p-4 mb-4 space-y-3">
+          <div className="text-sm font-medium">{editingId ? '编辑供应商' : '新建供应商'}</div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="block text-xs text-gray-500 mb-1">名称 *</label><input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+            <div><label className="block text-xs text-gray-500 mb-1">分类</label><input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} placeholder="如：精油原料/包材/物流" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+            <div><label className="block text-xs text-gray-500 mb-1">联系人</label><input value={form.contact} onChange={e => setForm({ ...form, contact: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+            <div><label className="block text-xs text-gray-500 mb-1">电话</label><input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+            <div><label className="block text-xs text-gray-500 mb-1">邮箱</label><input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+            <div><label className="block text-xs text-gray-500 mb-1">付款条款</label><input value={form.paymentTerms} onChange={e => setForm({ ...form, paymentTerms: e.target.value })} placeholder="如：月结30天" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+          </div>
+          <div><label className="block text-xs text-gray-500 mb-1">地址</label><input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+          <div><label className="block text-xs text-gray-500 mb-1">备注</label><textarea value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} rows="2" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+          <div className="flex gap-2">
+            <button onClick={reset} className="px-3 py-1.5 text-sm border rounded-lg">取消</button>
+            <button onClick={handleSave} disabled={!form.name.trim() || saving} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#4a3560" }}>{saving ? '保存中...' : '保存'}</button>
+          </div>
+        </div>
+      )}
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead><tr className="border-b bg-gray-50/80">
+            <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">名称</th>
+            <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">分类</th>
+            <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">联系人</th>
+            <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium hidden md:table-cell">付款条款</th>
+            <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">操作</th>
+          </tr></thead>
+          <tbody>{suppliers.map(s => (
+            <tr key={s.id} className="border-b last:border-0 hover:bg-gray-50">
+              <td className="py-2 px-3"><div className="font-medium">{s.name}</div><div className="text-xs text-gray-400">{s.address}</div></td>
+              <td className="py-2 px-3 text-xs text-gray-600">{s.category}</td>
+              <td className="py-2 px-3 text-xs">{s.contact}<br /><span className="text-gray-400">{s.phone}</span></td>
+              <td className="py-2 px-3 text-xs text-gray-600 hidden md:table-cell">{s.paymentTerms}</td>
+              <td className="py-2 px-3 text-right space-x-2">
+                <button onClick={() => startEdit(s)} className="text-gray-500 hover:text-purple-600"><Edit2 size={14} /></button>
+                <button onClick={() => handleDelete(s)} className="text-gray-500 hover:text-red-500"><X size={14} /></button>
+              </td>
+            </tr>
+          ))}{suppliers.length === 0 && <tr><td colSpan="5" className="text-center py-12 text-gray-400 text-sm">暂无供应商</td></tr>}</tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+function TargetMgmt() {
+  const { users, salesTargets, orders, setTarget } = useData();
+  const now = new Date();
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [editing, setEditing] = useState({});
+  const salesUsers = users.filter(u => u.role === 'SALES');
+
+  const monthOrders = useMemo(() => {
+    const yk = String(year);
+    const mk = String(month).padStart(2, '0');
+    return orders.filter(o => o.status !== 'CANCELLED' && o.createdAt?.startsWith(`${yk}-${mk}`));
+  }, [orders, year, month]);
+
+  const getActual = (sId) => monthOrders.filter(o => o.salesId === sId).reduce((s, o) => s + o.total, 0);
+  const getTarget = (sId) => salesTargets.find(t => t.salesId === sId && t.year === year && t.month === month);
+
+  const handleSave = async (sId) => {
+    const data = editing[sId];
+    if (!data) return;
+    try {
+      await setTarget({ salesId: sId, year, month, targetAmount: Number(data.targetAmount) || 0, commissionRate: Number(data.commissionRate) || 0, note: data.note || '' });
+      setEditing(e => ({ ...e, [sId]: null }));
+      alert('保存成功');
+    } catch (e) { alert(e.message); }
+  };
+
+  return (
+    <Card className="p-4">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div className="flex items-center gap-2"><Target size={16} className="text-purple-600" /><div className="text-sm font-semibold text-gray-700">销售业绩目标</div></div>
+        <div className="flex gap-2 items-center text-sm">
+          <select value={year} onChange={e => setYear(Number(e.target.value))} className="border rounded-lg px-3 py-1.5 bg-white">
+            {[now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1].map(y => <option key={y} value={y}>{y}年</option>)}
+          </select>
+          <select value={month} onChange={e => setMonth(Number(e.target.value))} className="border rounded-lg px-3 py-1.5 bg-white">
+            {Array.from({ length: 12 }, (_, i) => i + 1).map(m => <option key={m} value={m}>{m}月</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="text-xs text-gray-500 mb-4">设定每月销售目标，自动追踪完成度。提成 = 实际销售额 × 提成比例。</div>
+
+      <div className="space-y-3">
+        {salesUsers.map(u => {
+          const actual = getActual(u.id);
+          const target = getTarget(u.id);
+          const targetAmt = target?.targetAmount || 0;
+          const pct = targetAmt > 0 ? Math.round(actual / targetAmt * 100) : 0;
+          const commission = Math.round(actual * (target?.commissionRate || 0) / 100);
+          const ed = editing[u.id];
+          return (
+            <div key={u.id} className="border rounded-lg p-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="font-medium">{u.name}</div>
+                {!ed && (
+                  <button onClick={() => setEditing(e => ({ ...e, [u.id]: { targetAmount: targetAmt, commissionRate: target?.commissionRate || 0, note: target?.note || '' } }))} className="text-purple-600 text-xs"><Edit2 size={12} className="inline" /> 设置目标</button>
+                )}
+              </div>
+              {ed ? (
+                <div className="grid grid-cols-3 gap-2 items-end">
+                  <div><label className="block text-xs text-gray-500 mb-1">目标金额</label><input type="number" value={ed.targetAmount} onChange={e => setEditing(x => ({ ...x, [u.id]: { ...ed, targetAmount: e.target.value } }))} className="w-full border rounded px-2 py-1 text-sm" /></div>
+                  <div><label className="block text-xs text-gray-500 mb-1">提成 %</label><input type="number" step="0.1" value={ed.commissionRate} onChange={e => setEditing(x => ({ ...x, [u.id]: { ...ed, commissionRate: e.target.value } }))} className="w-full border rounded px-2 py-1 text-sm" /></div>
+                  <div className="flex gap-1"><button onClick={() => setEditing(x => ({ ...x, [u.id]: null }))} className="px-2 py-1 text-xs border rounded">取消</button><button onClick={() => handleSave(u.id)} className="flex-1 px-2 py-1 text-xs text-white rounded" style={{ background: '#4a3560' }}>保存</button></div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-3 gap-3 text-sm">
+                    <div><span className="text-xs text-gray-400">目标</span><div className="font-medium">{fmtY(targetAmt)}</div></div>
+                    <div><span className="text-xs text-gray-400">实际</span><div className="font-medium" style={{ color: '#4a3560' }}>{fmtY(actual)}</div></div>
+                    <div><span className="text-xs text-gray-400">预估提成</span><div className="font-medium text-green-600">{fmtY(commission)} ({target?.commissionRate || 0}%)</div></div>
+                  </div>
+                  {targetAmt > 0 && (
+                    <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+                      <div className={`h-full ${pct >= 100 ? 'bg-green-500' : pct >= 80 ? 'bg-blue-500' : pct >= 50 ? 'bg-yellow-500' : 'bg-orange-400'}`} style={{ width: `${Math.min(100, pct)}%` }}></div>
+                    </div>
+                  )}
+                  {targetAmt > 0 && <div className="text-xs text-gray-500">完成度 {pct}%</div>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {salesUsers.length === 0 && <div className="text-center py-8 text-gray-400 text-sm">暂无销售人员，请先在"人员管理"中创建</div>}
+      </div>
+    </Card>
+  );
+}
+
+function AuditLogView() {
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState('');
+
+  useEffect(() => {
+    setLoading(true);
+    api.fetchAuditLogs(500).then(setLogs).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const filtered = filter ? logs.filter(l => `${l.user_name} ${l.action} ${l.entity_type} ${l.details}`.toLowerCase().includes(filter.toLowerCase())) : logs;
+
+  return (
+    <Card className="p-4">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div className="flex items-center gap-2"><FileText size={16} className="text-purple-600" /><div className="text-sm font-semibold text-gray-700">系统操作日志（最近 500 条）</div></div>
+        <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="搜索用户/操作/实体" className="border rounded-lg px-3 py-1.5 text-sm w-64" />
+      </div>
+      {loading && <div className="text-center py-8 text-gray-400 text-sm">加载中...</div>}
+      {!loading && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="border-b bg-gray-50/80">
+              <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">时间</th>
+              <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">用户</th>
+              <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">操作</th>
+              <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">对象</th>
+              <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">详情</th>
+            </tr></thead>
+            <tbody>{filtered.map(l => (
+              <tr key={l.id} className="border-b last:border-0 hover:bg-gray-50">
+                <td className="py-2 px-3 text-xs text-gray-500 whitespace-nowrap">{l.created_at?.slice(0, 19).replace('T', ' ')}</td>
+                <td className="py-2 px-3 text-xs">{l.user_name}</td>
+                <td className="py-2 px-3 text-xs"><span className="bg-purple-50 text-purple-700 px-2 py-0.5 rounded">{l.action}</span></td>
+                <td className="py-2 px-3 text-xs text-gray-600">{l.entity_type}{l.entity_id ? ` #${l.entity_id}` : ''}</td>
+                <td className="py-2 px-3 text-xs text-gray-500">{l.details}</td>
+              </tr>
+            ))}{filtered.length === 0 && <tr><td colSpan="5" className="text-center py-12 text-gray-400 text-sm">暂无日志</td></tr>}</tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function ConfigMgmt() {
+  const { configOptions, addConfig, removeConfig } = useData();
+  const [newVal, setNewVal] = useState({ CUSTOMER_TYPE: '', PRODUCT_SERIES: '', SPEC_OPTION: '' });
+  const [saving, setSaving] = useState(null);
+
+  const byCategory = (cat) => configOptions.filter(o => o.category === cat);
+
+  const handleAdd = async (cat) => {
+    const value = newVal[cat]?.trim();
+    if (!value) return;
+    setSaving(cat);
+    try {
+      await addConfig(cat, value);
+      setNewVal(v => ({ ...v, [cat]: '' }));
+    } catch (e) { alert(e.message); } finally { setSaving(null); }
+  };
+
+  const handleRemove = async (id, value) => {
+    if (!confirm(`确定删除 "${value}"？已使用此值的记录不受影响。`)) return;
+    try { await removeConfig(id); }
+    catch (e) { alert(e.message); }
+  };
+
+  const Section = ({ title, category, placeholder }) => (
+    <div className="space-y-3">
+      <div className="text-sm font-semibold text-gray-700">{title}</div>
+      <div className="flex flex-wrap gap-2 mb-2">
+        {byCategory(category).map(opt => (
+          <span key={opt.id} className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 flex items-center gap-1.5 group">
+            {opt.value}
+            <button onClick={() => handleRemove(opt.id, opt.value)} className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"><X size={12} /></button>
+          </span>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <input
+          value={newVal[category]}
+          onChange={e => setNewVal(v => ({ ...v, [category]: e.target.value }))}
+          onKeyDown={e => { if (e.key === 'Enter') handleAdd(category); }}
+          placeholder={placeholder}
+          className="flex-1 max-w-xs border rounded-lg px-3 py-1.5 text-sm"
+        />
+        <button
+          onClick={() => handleAdd(category)}
+          disabled={!newVal[category]?.trim() || saving === category}
+          className="px-3 py-1.5 text-sm text-white rounded-lg disabled:opacity-40"
+          style={{ background: "#4a3560" }}
+        >
+          {saving === category ? '添加中...' : '+ 添加'}
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <Card className="p-4 space-y-6">
+      <div className="text-xs text-gray-500 -mb-2">在此处可添加/删除下拉选项。鼠标悬停在选项上会显示删除按钮。</div>
+      <Section title="客户类型" category="CUSTOMER_TYPE" placeholder="如：连锁美容院" />
+      <Section title="产品系列" category="PRODUCT_SERIES" placeholder="如：礼盒装系列" />
+      <Section title="产品规格（下拉选项）" category="SPEC_OPTION" placeholder="如：200ml" />
     </Card>
   );
 }

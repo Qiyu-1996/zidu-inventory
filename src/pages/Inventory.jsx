@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Search, Edit2, Download, Plus, Minus } from 'lucide-react';
+import { Search, Edit2, Download, Plus, Minus, Package, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
-import { Card, fmtY, SERIES_LIST, exportCSV } from '../components/ui';
+import { Card, fmtY, SERIES_LIST, exportCSV, today } from '../components/ui';
+import * as api from '../lib/api';
 
 const REASONS = {
   PURCHASE: '采购入库',
@@ -18,20 +19,28 @@ const TYPE_CLS = { IN: 'bg-green-100 text-green-700', OUT: 'bg-red-100 text-red-
 
 export default function Inventory() {
   const { user } = useAuth();
-  const { products, stockLog, loadStockLog, adjustStock } = useData();
+  const { products, stockLog, loadStockLog, adjustStock, addBatch, removeBatch } = useData();
   const [tab, setTab] = useState('list');
   const [search, setSearch] = useState('');
   const [sf, setSf] = useState('ALL');
 
   // Adjust form state
-  const [adjustFor, setAdjustFor] = useState(null); // { product, spec }
+  const [adjustFor, setAdjustFor] = useState(null);
   const [adjType, setAdjType] = useState('IN');
   const [adjReason, setAdjReason] = useState('PURCHASE');
   const [adjQty, setAdjQty] = useState('');
   const [adjNote, setAdjNote] = useState('');
   const [adjusting, setAdjusting] = useState(false);
 
+  // Batch form state
+  const [batchFor, setBatchFor] = useState(null);
+  const [batchData, setBatchData] = useState({ batchNo: '', gcmsNo: '', receivedDate: today(), expiryDate: '', quantity: '', unitCost: '', supplier: '', note: '' });
+  const [savingBatch, setSavingBatch] = useState(false);
+  const [batchList, setBatchList] = useState([]);
+  const [loadingBatches, setLoadingBatches] = useState(false);
+
   useEffect(() => { if (tab === 'log') loadStockLog(); }, [tab, loadStockLog]);
+  useEffect(() => { if (tab === 'batches') { setLoadingBatches(true); api.fetchBatches().then(setBatchList).finally(() => setLoadingBatches(false)); } }, [tab]);
 
   const canAdjust = user.role === 'ADMIN' || user.role === 'WAREHOUSE';
 
@@ -57,6 +66,37 @@ export default function Inventory() {
     } catch (e) { alert('调整失败: ' + e.message); } finally { setAdjusting(false); }
   };
 
+  const startBatch = (product, spec) => {
+    setBatchFor({ product, spec });
+    setBatchData({ batchNo: '', gcmsNo: '', receivedDate: today(), expiryDate: '', quantity: '', unitCost: '', supplier: '', note: '' });
+  };
+
+  const handleSaveBatch = async () => {
+    const qty = Number(batchData.quantity);
+    if (!batchData.batchNo || !batchData.receivedDate || !qty || qty <= 0) return;
+    setSavingBatch(true);
+    try {
+      await addBatch({
+        productId: batchFor.product.id, specId: batchFor.spec.id,
+        batchNo: batchData.batchNo, gcmsNo: batchData.gcmsNo,
+        receivedDate: batchData.receivedDate, expiryDate: batchData.expiryDate || null,
+        quantity: qty, unitCost: Number(batchData.unitCost) || 0,
+        supplier: batchData.supplier, note: batchData.note
+      });
+      setBatchFor(null);
+      alert('入库成功');
+      if (tab === 'batches') { const fresh = await api.fetchBatches(); setBatchList(fresh); }
+    } catch (e) { alert('入库失败: ' + e.message); } finally { setSavingBatch(false); }
+  };
+
+  const handleDeleteBatch = async (b) => {
+    if (!confirm(`确定删除批次 ${b.batchNo}？剩余库存 ${b.remainingQty} 将被扣除。`)) return;
+    try {
+      await removeBatch(b.id, b.productId, b.specId, b.remainingQty);
+      const fresh = await api.fetchBatches(); setBatchList(fresh);
+    } catch (e) { alert(e.message); }
+  };
+
   const exportLog = () => exportCSV(
     ['时间', '产品ID', '规格ID', '类型', '原因', '数量', '前库存', '后库存', '操作人', '备注'],
     stockLog.map(l => [l.created_at, l.product_id, l.spec_id, TYPE_LABEL[l.type], REASONS[l.reason] || l.reason, l.quantity, l.before_stock, l.after_stock, l.operator_name, l.note]),
@@ -65,8 +105,9 @@ export default function Inventory() {
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
         <button onClick={() => setTab('list')} className={`px-4 py-2 text-sm rounded-lg border ${tab === 'list' ? 'bg-purple-100 border-purple-300 text-purple-700' : 'bg-white text-gray-600'}`}>库存概览</button>
+        <button onClick={() => setTab('batches')} className={`px-4 py-2 text-sm rounded-lg border ${tab === 'batches' ? 'bg-purple-100 border-purple-300 text-purple-700' : 'bg-white text-gray-600'}`}>批次/GC-MS 追溯</button>
         <button onClick={() => setTab('log')} className={`px-4 py-2 text-sm rounded-lg border ${tab === 'log' ? 'bg-purple-100 border-purple-300 text-purple-700' : 'bg-white text-gray-600'}`}>出入库记录</button>
       </div>
 
@@ -82,6 +123,33 @@ export default function Inventory() {
               {SERIES_LIST.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
+
+          {batchFor && (
+            <Card className="p-4 bg-green-50 border-green-200">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-sm font-medium">
+                  批次入库：{batchFor.product.name} ({batchFor.spec.spec}) · 当前库存 {batchFor.spec.stock}
+                </div>
+                <button onClick={() => setBatchFor(null)} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div><label className="block text-xs text-gray-500 mb-1">批次号 *</label><input value={batchData.batchNo} onChange={e => setBatchData({ ...batchData, batchNo: e.target.value })} placeholder="如：LAV202604" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+                <div><label className="block text-xs text-gray-500 mb-1">GC-MS 编号</label><input value={batchData.gcmsNo} onChange={e => setBatchData({ ...batchData, gcmsNo: e.target.value })} placeholder="可选" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+                <div><label className="block text-xs text-gray-500 mb-1">入库数量 *</label><input type="number" min="1" value={batchData.quantity} onChange={e => setBatchData({ ...batchData, quantity: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+                <div><label className="block text-xs text-gray-500 mb-1">入库日期 *</label><input type="date" value={batchData.receivedDate} onChange={e => setBatchData({ ...batchData, receivedDate: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+                <div><label className="block text-xs text-gray-500 mb-1">保质期至</label><input type="date" value={batchData.expiryDate} onChange={e => setBatchData({ ...batchData, expiryDate: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+                <div><label className="block text-xs text-gray-500 mb-1">单位成本</label><input type="number" min="0" step="0.01" value={batchData.unitCost} onChange={e => setBatchData({ ...batchData, unitCost: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+                <div><label className="block text-xs text-gray-500 mb-1">供应商</label><input value={batchData.supplier} onChange={e => setBatchData({ ...batchData, supplier: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+                <div className="col-span-2"><label className="block text-xs text-gray-500 mb-1">备注</label><input value={batchData.note} onChange={e => setBatchData({ ...batchData, note: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+              </div>
+              <div className="flex gap-2 mt-3">
+                <button onClick={() => setBatchFor(null)} className="px-3 py-1.5 text-sm border rounded-lg">取消</button>
+                <button onClick={handleSaveBatch} disabled={!batchData.batchNo || !batchData.quantity || savingBatch} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: '#4a3560' }}>
+                  {savingBatch ? '保存中...' : '确认入库'}
+                </button>
+              </div>
+            </Card>
+          )}
 
           {adjustFor && (
             <Card className="p-4 bg-purple-50 border-purple-200">
@@ -143,7 +211,10 @@ export default function Inventory() {
                             <span>· {s.stock}</span>
                             {s.stock <= s.safeStock && <span>⚠</span>}
                             {canAdjust && (
-                              <button onClick={() => startAdjust(p, s)} className="ml-1 text-purple-600 hover:text-purple-800"><Edit2 size={10} /></button>
+                              <>
+                                <button onClick={() => startAdjust(p, s)} title="调整库存" className="ml-1 text-purple-600 hover:text-purple-800"><Edit2 size={10} /></button>
+                                <button onClick={() => startBatch(p, s)} title="批次入库" className="text-green-600 hover:text-green-800"><Package size={10} /></button>
+                              </>
                             )}
                           </div>
                         ))}
@@ -151,6 +222,49 @@ export default function Inventory() {
                     </td>
                   </tr>
                 ))}</tbody>
+              </table>
+            </div>
+          </Card>
+        </>
+      )}
+
+      {tab === 'batches' && (
+        <>
+          <div className="text-sm text-gray-500">共 {batchList.length} 个批次 · 按入库日期降序</div>
+          <Card>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b bg-gray-50/80">
+                  <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">批次号</th>
+                  <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">产品/规格</th>
+                  <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">GC-MS</th>
+                  <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">入库日期</th>
+                  <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">保质期</th>
+                  <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">入库/剩余</th>
+                  <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium hidden md:table-cell">供应商</th>
+                  {canAdjust && <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">操作</th>}
+                </tr></thead>
+                <tbody>
+                  {loadingBatches && <tr><td colSpan="8" className="text-center py-12 text-gray-400 text-sm">加载中...</td></tr>}
+                  {!loadingBatches && batchList.map(b => {
+                    const product = products.find(p => p.id === b.productId);
+                    const spec = product?.specs.find(s => s.id === b.specId);
+                    const expiringSoon = b.expiryDate && (new Date(b.expiryDate).getTime() - Date.now()) < 90 * 86400000;
+                    return (
+                      <tr key={b.id} className="border-b last:border-0 hover:bg-gray-50">
+                        <td className="py-2 px-3 font-mono text-xs">{b.batchNo}</td>
+                        <td className="py-2 px-3"><div>{product?.name || `ID ${b.productId}`}</div><div className="text-xs text-gray-400">{spec?.spec || ''}</div></td>
+                        <td className="py-2 px-3 text-xs font-mono text-gray-600">{b.gcmsNo || '—'}</td>
+                        <td className="py-2 px-3 text-xs text-gray-600">{b.receivedDate}</td>
+                        <td className={`py-2 px-3 text-xs ${expiringSoon ? 'text-red-500 font-medium' : 'text-gray-600'}`}>{b.expiryDate || '—'}{expiringSoon && ' ⚠'}</td>
+                        <td className="py-2 px-3 text-right">{b.initialQty} / <span className={b.remainingQty === 0 ? 'text-gray-400' : 'font-medium'}>{b.remainingQty}</span></td>
+                        <td className="py-2 px-3 text-xs text-gray-500 hidden md:table-cell">{b.supplier}</td>
+                        {canAdjust && <td className="py-2 px-3 text-right"><button onClick={() => handleDeleteBatch(b)} className="text-gray-400 hover:text-red-500"><X size={14} /></button></td>}
+                      </tr>
+                    );
+                  })}
+                  {!loadingBatches && batchList.length === 0 && <tr><td colSpan="8" className="text-center py-12 text-gray-400 text-sm">暂无批次记录。在"库存概览"点产品规格旁的 📦 图标即可入库。</td></tr>}
+                </tbody>
               </table>
             </div>
           </Card>

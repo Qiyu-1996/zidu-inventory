@@ -14,6 +14,10 @@ export function DataProvider({ children }) {
   const [pricingTiers, setPricingTiers] = useState([]);
   const [scenarioPackages, setScenarioPackages] = useState([]);
   const [stockLog, setStockLog] = useState([]);
+  const [configOptions, setConfigOptions] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
+  const [salesTasks, setSalesTasks] = useState([]);
+  const [salesTargets, setSalesTargets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -21,14 +25,19 @@ export function DataProvider({ children }) {
     if (!user) return;
     setLoading(true); setError('');
     try {
-      const [p, c, o, u, po, tiers, scenarios] = await Promise.all([
+      const [p, c, o, u, po, tiers, scenarios, configs, sup, tasks, targets] = await Promise.all([
         api.fetchProducts(), api.fetchCustomers(), api.fetchOrders(), api.fetchUsers(),
         api.fetchPurchaseOrders().catch(() => []),
         api.fetchPricingTiers().catch(() => []),
-        api.fetchScenarioPackages().catch(() => [])
+        api.fetchScenarioPackages().catch(() => []),
+        api.fetchConfigOptions().catch(() => []),
+        api.fetchSuppliers().catch(() => []),
+        api.fetchSalesTasks().catch(() => []),
+        api.fetchSalesTargets().catch(() => [])
       ]);
       setProducts(p); setCustomers(c); setOrders(o); setUsers(u);
       setPurchaseOrders(po); setPricingTiers(tiers); setScenarioPackages(scenarios);
+      setConfigOptions(configs); setSuppliers(sup); setSalesTasks(tasks); setSalesTargets(targets);
     } catch (e) { setError(e.message); } finally { setLoading(false); }
   }, [user]);
 
@@ -104,9 +113,69 @@ export function DataProvider({ children }) {
     setScenarioPackages(fresh);
   }, []);
 
+  // Config Options
+  const addConfig = useCallback(async (category, value) => {
+    const o = await api.addConfigOption(category, value);
+    setConfigOptions(p => [...p, o]);
+    return o;
+  }, []);
+  const removeConfig = useCallback(async (id) => {
+    await api.deleteConfigOption(id);
+    setConfigOptions(p => p.filter(c => c.id !== id));
+  }, []);
+
+  // Suppliers
+  const addSupplier = useCallback(async (s) => { const r = await api.createSupplier(s); setSuppliers(p => [...p, r]); return r; }, []);
+  const editSupplier = useCallback(async (id, s) => { const r = await api.updateSupplier(id, s); setSuppliers(p => p.map(x => x.id === id ? r : x)); }, []);
+  const removeSupplier = useCallback(async (id) => { await api.deleteSupplier(id); setSuppliers(p => p.filter(x => x.id !== id)); }, []);
+
+  // Sales Tasks
+  const addTask = useCallback(async (task) => {
+    const t = await api.createSalesTask({ ...task, createdBy: user.name });
+    setSalesTasks(p => [...p, t]);
+    return t;
+  }, [user]);
+  const completeTask = useCallback(async (taskId, note) => {
+    const t = await api.completeSalesTask(taskId, note);
+    setSalesTasks(p => p.map(x => x.id === taskId ? t : x));
+  }, []);
+  const removeTask = useCallback(async (id) => { await api.deleteSalesTask(id); setSalesTasks(p => p.filter(x => x.id !== id)); }, []);
+
+  // Sales Targets
+  const setTarget = useCallback(async (target) => {
+    await api.upsertSalesTarget(target);
+    const fresh = await api.fetchSalesTargets();
+    setSalesTargets(fresh);
+  }, []);
+
+  // Audit Logs
+  const log = useCallback((action, entityType, entityId, details) => {
+    if (!user) return;
+    api.logAudit(user.id, user.name, action, entityType, entityId, details);
+  }, [user]);
+
+  // Batches
+  const addBatch = useCallback(async (batch) => {
+    const b = await api.createBatch({ ...batch, operatorName: user.name });
+    // Update product stock locally
+    setProducts(p => p.map(pr => pr.id === batch.productId ? {
+      ...pr,
+      specs: pr.specs.map(s => s.id === batch.specId ? { ...s, stock: s.stock + batch.quantity } : s)
+    } : pr));
+    return b;
+  }, [user]);
+  const removeBatch = useCallback(async (batchId, productId, specId, remainingQty) => {
+    await api.deleteBatch(batchId);
+    setProducts(p => p.map(pr => pr.id === productId ? {
+      ...pr,
+      specs: pr.specs.map(s => s.id === specId ? { ...s, stock: Math.max(0, s.stock - remainingQty) } : s)
+    } : pr));
+  }, []);
+
   return (
     <DataContext.Provider value={{
-      products, customers, orders, users, purchaseOrders, pricingTiers, scenarioPackages, stockLog,
+      products, customers, orders, users, purchaseOrders, pricingTiers, scenarioPackages, stockLog, configOptions,
+      suppliers, salesTasks, salesTargets,
       loading, error,
       addProduct, editProduct, removeProduct,
       addCustomer, editCustomer, addCustomerNote,
@@ -116,6 +185,12 @@ export function DataProvider({ children }) {
       addPurchaseOrder, updatePOStatus, receivePOItems,
       updateTiers, getCustomerTier,
       updatePackageItems,
+      addConfig, removeConfig,
+      addBatch, removeBatch,
+      addSupplier, editSupplier, removeSupplier,
+      addTask, completeTask, removeTask,
+      setTarget,
+      log,
       reload: loadAll
     }}>
       {children}

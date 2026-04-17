@@ -381,6 +381,96 @@ export function calculateCustomerTier(customerId, orders, tiers) {
   return { annualSpend, discount: tier.discount, label: tier.label };
 }
 
+// ═══ CONFIG OPTIONS (可编辑的基础设置) ═══
+export async function fetchConfigOptions() {
+  const { data, error } = await supabase.from('config_options')
+    .select('*').eq('is_active', true).order('category').order('sort_order');
+  if (error) throw new Error(error.message);
+  return data.map(c => ({ id: c.id, category: c.category, value: c.value, sortOrder: c.sort_order }));
+}
+
+export async function addConfigOption(category, value) {
+  const { data, error } = await supabase.from('config_options')
+    .insert({ category, value, sort_order: 999 }).select().single();
+  if (error) throw new Error(error.message);
+  return { id: data.id, category: data.category, value: data.value, sortOrder: data.sort_order };
+}
+
+export async function deleteConfigOption(id) {
+  const { error } = await supabase.from('config_options').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+// ═══ PRODUCT BATCHES (批次/GC-MS 追溯) ═══
+function mapBatch(b) {
+  return {
+    id: b.id, batchNo: b.batch_no, productId: b.product_id, specId: b.spec_id,
+    gcmsNo: b.gcms_no || '', receivedDate: b.received_date, expiryDate: b.expiry_date,
+    initialQty: b.initial_qty, remainingQty: b.remaining_qty,
+    unitCost: Number(b.unit_cost || 0), supplier: b.supplier || '', note: b.note || ''
+  };
+}
+
+export async function fetchBatches(specId) {
+  let query = supabase.from('product_batches').select('*').order('received_date', { ascending: false });
+  if (specId) query = query.eq('spec_id', specId);
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  return data.map(mapBatch);
+}
+
+export async function fetchBatchesWithStock(specId) {
+  // 只返回仍有库存的批次（按入库时间排序，先进先出）
+  const { data, error } = await supabase.from('product_batches')
+    .select('*').eq('spec_id', specId).gt('remaining_qty', 0)
+    .order('received_date', { ascending: true });
+  if (error) throw new Error(error.message);
+  return data.map(mapBatch);
+}
+
+export async function createBatch(batch) {
+  const { data, error } = await supabase.from('product_batches').insert({
+    batch_no: batch.batchNo, product_id: batch.productId, spec_id: batch.specId,
+    gcms_no: batch.gcmsNo || null, received_date: batch.receivedDate,
+    expiry_date: batch.expiryDate || null, initial_qty: batch.quantity,
+    remaining_qty: batch.quantity, unit_cost: batch.unitCost || 0,
+    supplier: batch.supplier || '', note: batch.note || ''
+  }).select().single();
+  if (error) throw new Error(error.message);
+
+  // 同时增加 spec 库存
+  const { data: spec } = await supabase.from('product_specs').select('stock').eq('id', batch.specId).single();
+  const newStock = (spec?.stock || 0) + batch.quantity;
+  await supabase.from('product_specs').update({ stock: newStock }).eq('id', batch.specId);
+
+  // 记录库存调整
+  await supabase.from('stock_adjustments').insert({
+    spec_id: batch.specId, product_id: batch.productId, type: 'IN', reason: 'PURCHASE',
+    quantity: batch.quantity, before_stock: spec?.stock || 0, after_stock: newStock,
+    note: `批次 ${batch.batchNo}${batch.gcmsNo ? ` · GC-MS ${batch.gcmsNo}` : ''}`,
+    operator_name: batch.operatorName || '', batch_id: data.id
+  });
+
+  return mapBatch(data);
+}
+
+export async function deleteBatch(batchId) {
+  const { data: batch } = await supabase.from('product_batches').select('*').eq('id', batchId).single();
+  if (batch) {
+    // 扣减对应库存
+    const { data: spec } = await supabase.from('product_specs').select('stock').eq('id', batch.spec_id).single();
+    const newStock = Math.max(0, (spec?.stock || 0) - batch.remaining_qty);
+    await supabase.from('product_specs').update({ stock: newStock }).eq('id', batch.spec_id);
+    await supabase.from('stock_adjustments').insert({
+      spec_id: batch.spec_id, product_id: batch.product_id, type: 'OUT', reason: 'OTHER',
+      quantity: batch.remaining_qty, before_stock: spec?.stock || 0, after_stock: newStock,
+      note: `删除批次 ${batch.batch_no}`, operator_name: ''
+    });
+  }
+  const { error } = await supabase.from('product_batches').delete().eq('id', batchId);
+  if (error) throw new Error(error.message);
+}
+
 // ═══ SCENARIO PACKAGES ═══
 export async function fetchScenarioPackages() {
   const { data, error } = await supabase.from('scenario_packages')
@@ -391,6 +481,180 @@ export async function fetchScenarioPackages() {
     isActive: pkg.is_active, sortOrder: pkg.sort_order,
     items: (pkg.items || []).map(it => ({ id: it.id, productId: it.product_id, specId: it.spec_id, quantity: it.quantity }))
   }));
+}
+
+// ═══ SUPPLIERS ═══
+function mapSupplier(s) {
+  return {
+    id: s.id, name: s.name, contact: s.contact || '', phone: s.phone || '',
+    email: s.email || '', address: s.address || '', category: s.category || '',
+    paymentTerms: s.payment_terms || '', note: s.note || '',
+    isActive: s.is_active, createdAt: s.created_at
+  };
+}
+
+export async function fetchSuppliers() {
+  const { data, error } = await supabase.from('suppliers').select('*').order('id');
+  if (error) throw new Error(error.message);
+  return data.map(mapSupplier);
+}
+
+export async function createSupplier(s) {
+  const { data, error } = await supabase.from('suppliers').insert({
+    name: s.name, contact: s.contact, phone: s.phone, email: s.email,
+    address: s.address, category: s.category, payment_terms: s.paymentTerms, note: s.note
+  }).select().single();
+  if (error) throw new Error(error.message);
+  return mapSupplier(data);
+}
+
+export async function updateSupplier(id, s) {
+  const { data, error } = await supabase.from('suppliers').update({
+    name: s.name, contact: s.contact, phone: s.phone, email: s.email,
+    address: s.address, category: s.category, payment_terms: s.paymentTerms, note: s.note,
+    is_active: s.isActive
+  }).eq('id', id).select().single();
+  if (error) throw new Error(error.message);
+  return mapSupplier(data);
+}
+
+export async function deleteSupplier(id) {
+  const { error } = await supabase.from('suppliers').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+// ═══ SALES TASKS ═══
+function mapTask(t) {
+  return {
+    id: t.id, customerId: t.customer_id, salesId: t.sales_id,
+    title: t.title, description: t.description || '', dueDate: t.due_date,
+    priority: t.priority, status: t.status, completedAt: t.completed_at,
+    completedNote: t.completed_note || '', createdBy: t.created_by, createdAt: t.created_at
+  };
+}
+
+export async function fetchSalesTasks(salesId) {
+  let q = supabase.from('sales_tasks').select('*').order('due_date', { ascending: true });
+  if (salesId) q = q.eq('sales_id', salesId);
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  return data.map(mapTask);
+}
+
+export async function createSalesTask(task) {
+  const { data, error } = await supabase.from('sales_tasks').insert({
+    customer_id: task.customerId, sales_id: task.salesId,
+    title: task.title, description: task.description,
+    due_date: task.dueDate, priority: task.priority || 'NORMAL',
+    status: 'PENDING', created_by: task.createdBy
+  }).select().single();
+  if (error) throw new Error(error.message);
+  return mapTask(data);
+}
+
+export async function completeSalesTask(taskId, note) {
+  const { data, error } = await supabase.from('sales_tasks').update({
+    status: 'DONE', completed_at: new Date().toISOString(), completed_note: note || ''
+  }).eq('id', taskId).select().single();
+  if (error) throw new Error(error.message);
+  return mapTask(data);
+}
+
+export async function deleteSalesTask(id) {
+  const { error } = await supabase.from('sales_tasks').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+// ═══ SALES TARGETS ═══
+export async function fetchSalesTargets(year) {
+  let q = supabase.from('sales_targets').select('*');
+  if (year) q = q.eq('year', year);
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  return data.map(t => ({
+    id: t.id, salesId: t.sales_id, year: t.year, month: t.month,
+    targetAmount: Number(t.target_amount), commissionRate: Number(t.commission_rate),
+    note: t.note || ''
+  }));
+}
+
+export async function upsertSalesTarget(target) {
+  const { data: existing } = await supabase.from('sales_targets')
+    .select('id').eq('sales_id', target.salesId).eq('year', target.year).eq('month', target.month).maybeSingle();
+  if (existing) {
+    const { error } = await supabase.from('sales_targets').update({
+      target_amount: target.targetAmount, commission_rate: target.commissionRate || 0, note: target.note || ''
+    }).eq('id', existing.id);
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await supabase.from('sales_targets').insert({
+      sales_id: target.salesId, year: target.year, month: target.month,
+      target_amount: target.targetAmount, commission_rate: target.commissionRate || 0, note: target.note || ''
+    });
+    if (error) throw new Error(error.message);
+  }
+}
+
+// ═══ AUDIT LOGS ═══
+export async function logAudit(userId, userName, action, entityType, entityId, details) {
+  try {
+    await supabase.from('audit_logs').insert({
+      user_id: userId, user_name: userName, action, entity_type: entityType,
+      entity_id: entityId || null, details: details || ''
+    });
+  } catch (e) { console.error('Audit log failed:', e); }
+}
+
+export async function fetchAuditLogs(limit = 200) {
+  const { data, error } = await supabase.from('audit_logs')
+    .select('*').order('created_at', { ascending: false }).limit(limit);
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+// ═══ SHIPMENT NOTIFICATIONS ═══
+export async function recordShipmentNotification(orderId, customerId, method, status, note) {
+  const { error } = await supabase.from('shipment_notifications').insert({
+    order_id: orderId, customer_id: customerId, method, status, note: note || ''
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function fetchShipmentNotifications(orderId) {
+  const { data, error } = await supabase.from('shipment_notifications')
+    .select('*').eq('order_id', orderId).order('sent_at', { ascending: false });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+// ═══ RESTOCK SUGGESTIONS (纯前端计算) ═══
+export function calculateRestockSuggestions(products, orders) {
+  const now = Date.now();
+  const d30 = 30 * 86400000;
+  const d60 = 60 * 86400000;
+  const recent = orders.filter(o => o.status !== 'CANCELLED' && now - new Date(o.createdAt).getTime() < d30);
+  const prior = orders.filter(o => { const age = now - new Date(o.createdAt).getTime(); return o.status !== 'CANCELLED' && age >= d30 && age < d60; });
+
+  const suggestions = [];
+  products.forEach(p => p.specs.forEach(s => {
+    let recentQty = 0, priorQty = 0;
+    recent.forEach(o => o.items.forEach(it => { if (it.productId === p.id && it.spec === s.spec) recentQty += it.quantity; }));
+    prior.forEach(o => o.items.forEach(it => { if (it.productId === p.id && it.spec === s.spec) priorQty += it.quantity; }));
+    if (recentQty === 0 && priorQty === 0) return;
+    const forecast = Math.round((recentQty + priorQty) / 2);
+    const suggestedQty = Math.max(0, forecast + s.safeStock - s.stock);
+    if (suggestedQty > 0) {
+      const trend = priorQty > 0 ? Math.round((recentQty / priorQty - 1) * 100) : 100;
+      const urgency = s.stock <= s.safeStock ? 'HIGH' : s.stock < s.safeStock * 2 ? 'MEDIUM' : 'LOW';
+      suggestions.push({
+        productId: p.id, productName: p.name, productCode: p.code,
+        specId: s.id, spec: s.spec, currentStock: s.stock, safeStock: s.safeStock,
+        recent30: recentQty, prior30: priorQty, trend, forecast, suggestedQty, urgency
+      });
+    }
+  }));
+  const order = { HIGH: 0, MEDIUM: 1, LOW: 2 };
+  return suggestions.sort((a, b) => order[a.urgency] - order[b.urgency] || b.suggestedQty - a.suggestedQty);
 }
 
 export async function updateScenarioPackageItems(packageId, items) {

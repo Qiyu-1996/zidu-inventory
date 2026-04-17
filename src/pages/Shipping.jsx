@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, Badge, fmtY, now16, today, STATUS_MAP } from '../components/ui';
+import * as api from '../lib/api';
 
 export default function ShippingWorkbench() {
   const { user } = useAuth();
@@ -44,6 +45,10 @@ export default function ShippingWorkbench() {
       }, {
         carrier, trackingNo, shippedAt: today(), operator: user.name
       });
+      // 记录发货通知（暂为手动通知，微信推送需单独配置订阅消息模板）
+      try {
+        await api.recordShipmentNotification(o.id, o.customerId, 'manual', 'PENDING', `${carrier} ${trackingNo}`);
+      } catch { /* ignore notification record failure */ }
       setShippingOrderId(null);
     } catch (e) {
       alert('操作失败: ' + e.message);
