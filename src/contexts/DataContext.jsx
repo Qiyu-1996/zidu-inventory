@@ -54,6 +54,11 @@ export function DataProvider({ children }) {
     const r = await api.updateCustomer(id, fields);
     setCustomers(p => p.map(c => c.id === id ? { ...c, name: r.name, contact: r.contact, phone: r.phone, address: r.address, type: r.type, salesId: r.sales_id } : c));
   }, []);
+  const removeCustomer = useCallback(async (id) => {
+    await api.deleteCustomer(id);
+    setCustomers(p => p.filter(c => c.id !== id));
+  }, []);
+
   const addCustomerNote = useCallback(async (cid, text, name) => {
     const n = await api.addCustomerNote(cid, text, name);
     setCustomers(p => p.map(c => c.id === cid ? { ...c, notes: [...c.notes, n] } : c));
@@ -187,7 +192,7 @@ export function DataProvider({ children }) {
       suppliers, salesTasks, salesTargets,
       loading, error,
       addProduct, editProduct, removeProduct,
-      addCustomer, editCustomer, addCustomerNote,
+      addCustomer, editCustomer, removeCustomer, addCustomerNote,
       addOrder, updateOrderStatus, removeOrder, recordPayment,
       addUser, resetUserPassword, toggleUserStatus,
       adjustStock, loadStockLog,

@@ -142,6 +142,11 @@ export async function updateCustomer(id, fields) {
   return data;
 }
 
+export async function deleteCustomer(customerId) {
+  const { error } = await supabase.from('customers').delete().eq('id', customerId);
+  if (error) throw new Error(error.message);
+}
+
 export async function addCustomerNote(customerId, text, byUser) {
   const { data, error } = await supabase.from('customer_notes')
     .insert({ customer_id: customerId, text, by_user: byUser }).select().single();

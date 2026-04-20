@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
-import { Search, Plus, ArrowLeft, Edit2, Tag } from 'lucide-react';
+import { Search, Plus, ArrowLeft, Edit2, Tag, Trash2 } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
@@ -73,7 +73,7 @@ export function CustomerList({ nav, onNew }) {
 // ═══ CUSTOMER DETAIL ═══
 export function CustomerDetail({ customerId, onBack }) {
   const { user } = useAuth();
-  const { customers, orders, products, users, addCustomerNote, editCustomer, getCustomerTier } = useData();
+  const { customers, orders, products, users, addCustomerNote, editCustomer, removeCustomer, getCustomerTier } = useData();
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -92,6 +92,16 @@ export function CustomerDetail({ customerId, onBack }) {
     });
     setEditing(true);
   };
+  const canDelete = user.role === 'ADMIN';
+  const handleDeleteCustomer = async () => {
+    if (!confirm(`确定删除客户「${customer.name}」？\n\n注意：此客户的订单记录不会被删除。此操作不可恢复。`)) return;
+    try {
+      await removeCustomer(customer.id);
+      alert('已删除');
+      onBack();
+    } catch (e) { alert('删除失败: ' + e.message); }
+  };
+
   const handleSaveEdit = async () => {
     setSavingEdit(true);
     try {
@@ -187,7 +197,8 @@ export function CustomerDetail({ customerId, onBack }) {
               <div>
                 <div className="flex items-center gap-2">
                   <div className="text-lg font-semibold text-gray-800">{customer.name}</div>
-                  <button onClick={startEdit} className="text-gray-400 hover:text-purple-600"><Edit2 size={14} /></button>
+                  <button onClick={startEdit} title="编辑" className="text-gray-400 hover:text-purple-600"><Edit2 size={14} /></button>
+                  {canDelete && <button onClick={handleDeleteCustomer} title="删除客户" className="text-gray-400 hover:text-red-500 ml-2"><Trash2 size={14} /></button>}
                 </div>
                 <div className="text-sm text-gray-500">{customer.type}</div>
                 {tier && tier.discount > 0 && (

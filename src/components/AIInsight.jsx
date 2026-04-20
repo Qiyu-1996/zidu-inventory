@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Sparkles, X, RefreshCw, Copy } from 'lucide-react';
 import { Card } from './ui';
+import { AIRenderer } from './AIRenderer';
 
 /**
  * 通用 AI 洞察组件
@@ -82,8 +83,8 @@ export function AIInsight({ title = 'AI 智能洞察', icon = '✨', generate, b
       )}
 
       {content && !loading && (
-        <div className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
-          {content}
+        <div className="bg-white rounded-lg p-3">
+          <AIRenderer text={content} />
         </div>
       )}
     </Card>

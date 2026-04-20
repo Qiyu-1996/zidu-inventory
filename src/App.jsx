@@ -151,9 +151,14 @@ export default function App() {
 
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3 shrink-0 shadow-sm">
+        <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center gap-3 shrink-0 shadow-sm min-h-[64px]">
           <button className="md:hidden" onClick={() => setSideOpen(true)}><Menu size={22} className="text-gray-600" /></button>
-          <h1 className="text-base font-semibold text-gray-800 flex-1">{menuItems.find(m => m.key === page)?.label || "详情"}</h1>
+          <h1 className="text-lg font-semibold text-gray-800 flex-1">{menuItems.find(m => m.key === page)?.label || "详情"}</h1>
+          <div className="text-sm text-gray-500 hidden sm:flex items-center gap-2">
+            <span>你好，{user.name}</span>
+            <span className="text-gray-300">|</span>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">{{ADMIN: '管理员', SALES: '销售', WAREHOUSE: '仓库'}[user.role]}</span>
+          </div>
           {user.role === "SALES" && (
             <button onClick={() => nav("shop")} className="relative p-2 rounded-lg hover:bg-gray-100">
               <ShoppingBag size={18} className="text-gray-500" />
