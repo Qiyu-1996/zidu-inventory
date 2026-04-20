@@ -65,6 +65,15 @@ export function DataProvider({ children }) {
     const [newOrders, newProducts] = await Promise.all([api.fetchOrders(), api.fetchProducts()]);
     setOrders(newOrders); setProducts(newProducts);
   }, []);
+  const removeOrder = useCallback(async (orderId, restoreStock) => {
+    await api.deleteOrder(orderId, restoreStock);
+    setOrders(p => p.filter(o => o.id !== orderId));
+    if (restoreStock) {
+      const np = await api.fetchProducts();
+      setProducts(np);
+    }
+  }, []);
+
   const updateOrderStatus = useCallback(async (orderId, newStatus, logEntry, shipmentData) => {
     await api.updateOrderStatus(orderId, newStatus, logEntry, shipmentData);
     setOrders(p => p.map(o => o.id !== orderId ? o : { ...o, status: newStatus, logs: [...o.logs, logEntry], ...(shipmentData ? { shipment: shipmentData } : {}) }));
@@ -179,7 +188,7 @@ export function DataProvider({ children }) {
       loading, error,
       addProduct, editProduct, removeProduct,
       addCustomer, editCustomer, addCustomerNote,
-      addOrder, updateOrderStatus, recordPayment,
+      addOrder, updateOrderStatus, removeOrder, recordPayment,
       addUser, resetUserPassword, toggleUserStatus,
       adjustStock, loadStockLog,
       addPurchaseOrder, updatePOStatus, receivePOItems,

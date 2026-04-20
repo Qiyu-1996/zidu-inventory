@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Home, ShoppingBag, ShoppingCart, Users, Package, Truck, TrendingUp, Settings, LogOut, X, Menu, ClipboardList, ClipboardCheck } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import { useData } from './contexts/DataContext';
@@ -17,12 +17,41 @@ import Tasks from './pages/Tasks';
 
 export default function App() {
   const { user, logout } = useAuth();
-  const { loading, addCustomer, addOrder } = useData();
+  const { loading, addCustomer, addOrder, orders, reload } = useData();
 
   const [page, setPage] = useState("dashboard");
   const [subView, setSubView] = useState(null);
   const [sideOpen, setSideOpen] = useState(false);
   const [cart, setCart] = useState([]);
+  const [lastSeenMax, setLastSeenMax] = useState(() => {
+    try { return Number(localStorage.getItem('zidu_last_seen_order_id') || 0); } catch { return 0; }
+  });
+
+  // 每 30 秒自动刷新订单检查新订单
+  useEffect(() => {
+    if (!user) return;
+    const t = setInterval(() => { reload(); }, 30000);
+    return () => clearInterval(t);
+  }, [user, reload]);
+
+  // 当进入订单/发货页时，标记已读
+  useEffect(() => {
+    if (!user || !orders?.length) return;
+    if (page === 'orders' || page === 'shipping') {
+      const maxId = Math.max(...orders.map(o => o.id));
+      setLastSeenMax(maxId);
+      try { localStorage.setItem('zidu_last_seen_order_id', String(maxId)); } catch {}
+    }
+  }, [page, orders, user]);
+
+  // 未读新订单数
+  const unreadOrders = useMemo(() => {
+    if (!orders?.length || !user) return 0;
+    if (user.role === 'ADMIN') return orders.filter(o => o.id > lastSeenMax).length;
+    if (user.role === 'SALES') return orders.filter(o => o.id > lastSeenMax && o.salesId === user.id).length;
+    if (user.role === 'WAREHOUSE') return orders.filter(o => o.id > lastSeenMax && ['CONFIRMED','PREPARING'].includes(o.status)).length;
+    return 0;
+  }, [orders, lastSeenMax, user]);
 
   const nav = useCallback((p, sub) => { setPage(p); setSubView(sub ?? null); setSideOpen(false); }, []);
 
@@ -44,12 +73,12 @@ export default function App() {
   const menuItems = [
     { key: "dashboard", icon: Home, label: "工作台" },
     ...(user.role === "SALES" ? [{ key: "shop", icon: ShoppingBag, label: "产品下单", badge: cart.length || null }] : []),
-    { key: "orders", icon: ShoppingCart, label: "订单管理" },
+    { key: "orders", icon: ShoppingCart, label: "订单管理", badge: unreadOrders || null },
     ...(user.role !== "WAREHOUSE" ? [{ key: "customers", icon: Users, label: "客户管理" }] : []),
     ...(user.role !== "WAREHOUSE" ? [{ key: "tasks", icon: ClipboardCheck, label: "跟进任务" }] : []),
     { key: "inventory", icon: Package, label: "库存查看" },
     ...(user.role === "ADMIN" || user.role === "WAREHOUSE" ? [{ key: "purchase", icon: ClipboardList, label: "采购管理" }] : []),
-    ...(user.role === "WAREHOUSE" ? [{ key: "shipping", icon: Truck, label: "发货管理" }] : []),
+    ...(user.role === "WAREHOUSE" ? [{ key: "shipping", icon: Truck, label: "发货管理", badge: unreadOrders || null }] : []),
     ...(user.role !== "WAREHOUSE" ? [{ key: "analytics", icon: TrendingUp, label: "数据分析" }] : []),
     ...(user.role === "ADMIN" ? [{ key: "settings", icon: Settings, label: "系统管理" }] : []),
   ];

@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, Badge, fmtY, now16, today, STATUS_MAP } from '../components/ui';
 import * as api from '../lib/api';
+
+const ALL_CARRIERS = ['顺丰速运','中通快递','圆通速递','韵达快递','申通快递','京东物流','德邦物流','邮政EMS','极兔速递','百世快递','跨越速运','其他'];
 
 export default function ShippingWorkbench() {
   const { user } = useAuth();
@@ -12,6 +14,17 @@ export default function ShippingWorkbench() {
   const [carrier, setCarrier] = useState('顺丰速运');
   const [trackingNo, setTrackingNo] = useState('');
   const [updating, setUpdating] = useState(false);
+  const [carriers, setCarriers] = useState(ALL_CARRIERS);
+
+  // 按历史使用频率排序快递公司
+  useEffect(() => {
+    api.fetchCarriersByUsage().then(used => {
+      if (used.length === 0) return;
+      const unused = ALL_CARRIERS.filter(c => !used.includes(c));
+      setCarriers([...used, ...unused]);
+      setCarrier(used[0]);
+    }).catch(() => {});
+  }, []);
 
   const shippable = orders.filter(o => ["CONFIRMED","PREPARING","SHIPPED"].includes(o.status));
   const filtered = sf === 'ALL' ? shippable : shippable.filter(o => o.status === sf);
@@ -92,13 +105,20 @@ export default function ShippingWorkbench() {
               {shippingOrderId === o.id && (
                 <div className="mt-3 pt-3 border-t flex flex-col sm:flex-row gap-2">
                   <select value={carrier} onChange={e => setCarrier(e.target.value)} className="border rounded-lg px-3 py-2 text-sm">
-                    <option>顺丰速运</option><option>中通快递</option><option>圆通速递</option><option>韵达快递</option><option>德邦物流</option>
+                    {carriers.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                   <input placeholder="快递单号" value={trackingNo} onChange={e => setTrackingNo(e.target.value)} className="flex-1 border rounded-lg px-3 py-2 text-sm" />
                   <div className="flex gap-2">
                     <button onClick={() => setShippingOrderId(null)} className="px-3 py-2 text-sm border rounded-lg">取消</button>
                     <button onClick={() => confirmShip(o)} disabled={!trackingNo || updating} className="px-4 py-2 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#4a3560" }}>确认发货</button>
                   </div>
+                </div>
+              )}
+              {o.shipment && o.status === 'SHIPPED' && (
+                <div className="mt-3 pt-3 border-t bg-green-50 -mx-4 -mb-4 px-4 py-2 rounded-b-xl text-sm text-green-800 flex items-center flex-wrap gap-2">
+                  <span>📦 {o.shipment.carrier} · {o.shipment.trackingNo}</span>
+                  <button onClick={() => { navigator.clipboard.writeText(`${o.shipment.carrier} ${o.shipment.trackingNo}`); alert('已复制'); }} className="text-purple-700 underline">复制</button>
+                  <a href={`https://www.kuaidi100.com/chaxun?nu=${encodeURIComponent(o.shipment.trackingNo)}`} target="_blank" rel="noopener noreferrer" className="text-purple-700 underline">查询物流</a>
                 </div>
               )}
             </Card>

@@ -1,9 +1,28 @@
 import { useState } from 'react';
-import { Search, ArrowLeft, Download, Printer, DollarSign } from 'lucide-react';
+import { Search, ArrowLeft, Download, Printer, DollarSign, Trash2, ExternalLink, Copy } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, Badge, PaymentBadge, fmtY, now16, STATUS_MAP, NEXT_STATUS, PAYMENT_STATUS_MAP, exportCSV } from '../components/ui';
 import { printOrder } from '../lib/printOrder';
+import * as api from '../lib/api';
+
+// 按角色过滤可用的下一步状态
+function filterNextByRole(current, role) {
+  const next = NEXT_STATUS[current] || [];
+  if (role === 'SALES') {
+    // 销售只能：创建订单(DRAFT→SUBMITTED)，取消自己的订单，确认签收
+    return next.filter(n => n === 'SUBMITTED' || n === 'CANCELLED' || n === 'COMPLETED');
+  }
+  if (role === 'ADMIN') {
+    // 管理员除了"发货"必须通过发货页做，其他都能推进
+    return next.filter(n => n !== 'SHIPPED');
+  }
+  if (role === 'WAREHOUSE') {
+    // 仓库：备货、签收、取消。发货必须去发货页
+    return next.filter(n => n === 'PREPARING' || n === 'DELIVERED' || n === 'CANCELLED');
+  }
+  return [];
+}
 
 // ═══ ORDER LIST ═══
 export function OrderList({ nav }) {
@@ -89,7 +108,7 @@ export function OrderList({ nav }) {
 // ═══ ORDER DETAIL ═══
 export function OrderDetail({ orderId, onBack }) {
   const { user } = useAuth();
-  const { orders, customers, products, users, updateOrderStatus, recordPayment } = useData();
+  const { orders, customers, products, users, updateOrderStatus, removeOrder, recordPayment } = useData();
   const [updating, setUpdating] = useState(false);
   const [showPayForm, setShowPayForm] = useState(false);
   const [payAmount, setPayAmount] = useState('');
@@ -102,9 +121,29 @@ export function OrderDetail({ orderId, onBack }) {
 
   const customer = customers.find(c => c.id === order.customerId);
   const seller = users.find(u => u.id === order.salesId);
-  const nextStatuses = NEXT_STATUS[order.status] || [];
+  const nextStatuses = filterNextByRole(order.status, user.role);
   const remaining = order.total - (order.paidAmount || 0);
   const canRecordPayment = (user.role === 'ADMIN' || user.role === 'SALES') && order.status !== 'CANCELLED' && order.paymentStatus !== 'PAID';
+  const canDelete = user.role === 'ADMIN';
+  const needsShipping = order.status === 'PREPARING' && (user.role === 'WAREHOUSE' || user.role === 'ADMIN');
+
+  const copyTracking = () => {
+    if (!order.shipment) return;
+    const txt = `${order.shipment.carrier} ${order.shipment.trackingNo}`;
+    navigator.clipboard.writeText(txt).then(() => alert('已复制：' + txt));
+  };
+  const openTracking = () => {
+    if (!order.shipment?.trackingNo) return;
+    window.open(`https://www.kuaidi100.com/chaxun?nu=${encodeURIComponent(order.shipment.trackingNo)}`, '_blank');
+  };
+  const handleDelete = async () => {
+    if (!confirm(`确定删除订单 ${order.orderNo}？\n此操作不可恢复。${order.status !== 'CANCELLED' ? '\n注意：库存将恢复。' : ''}`)) return;
+    try {
+      await removeOrder(order.id, order.status !== 'CANCELLED');
+      alert('订单已删除');
+      onBack();
+    } catch (e) { alert('删除失败: ' + e.message); }
+  };
 
   const advance = async (ns) => {
     if (updating) return;
@@ -151,6 +190,9 @@ export function OrderDetail({ orderId, onBack }) {
           <div className="text-right">
             <div className="flex items-center gap-2 justify-end">
               <button onClick={() => printOrder(order, customer, seller)} title="打印订单" className="p-2 rounded hover:bg-gray-100 text-gray-500"><Printer size={16} /></button>
+              {canDelete && (
+                <button onClick={handleDelete} title="删除订单" className="p-2 rounded hover:bg-red-50 text-red-500"><Trash2 size={16} /></button>
+              )}
             </div>
             <div className="text-2xl font-bold" style={{ color: "#4a3560" }}>{fmtY(order.total)}</div>
             {order.discountAmount > 0 && <div className="text-xs text-orange-500">折扣 {fmtY(order.discountAmount)} ({order.discountPercent}%)</div>}
@@ -174,6 +216,12 @@ export function OrderDetail({ orderId, onBack }) {
         </div>
 
         {order.notes && <div className="bg-yellow-50 rounded-lg p-3 mb-4 text-sm text-gray-700">{order.notes}</div>}
+
+        {needsShipping && (
+          <div className="pt-3 border-t bg-orange-50 -mx-5 -mb-5 px-5 py-3 rounded-b-xl">
+            <div className="text-sm text-orange-700">📦 订单已备货完成，请 <span className="font-semibold">仓库管理员前往"发货管理"页</span>填写快递公司和快递单号后发货。</div>
+          </div>
+        )}
 
         {nextStatuses.length > 0 && (
           <div className="flex gap-2 pt-3 border-t">
@@ -266,6 +314,10 @@ export function OrderDetail({ orderId, onBack }) {
             <div><span className="text-gray-400">单号</span><div className="font-medium font-mono">{order.shipment.trackingNo}</div></div>
             <div><span className="text-gray-400">发货日期</span><div className="font-medium">{order.shipment.shippedAt}</div></div>
             <div><span className="text-gray-400">操作人</span><div className="font-medium">{order.shipment.operator}</div></div>
+          </div>
+          <div className="flex gap-2 mt-3 pt-3 border-t">
+            <button onClick={copyTracking} className="flex items-center gap-1 text-sm px-3 py-1.5 border rounded-lg text-purple-700 hover:bg-purple-50"><Copy size={14} />复制快递信息</button>
+            <button onClick={openTracking} className="flex items-center gap-1 text-sm px-3 py-1.5 border rounded-lg text-purple-700 hover:bg-purple-50"><ExternalLink size={14} />查询物流</button>
           </div>
         </Card>
       )}

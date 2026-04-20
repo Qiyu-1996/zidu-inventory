@@ -225,6 +225,39 @@ export async function createOrder(order) {
   return o.id;
 }
 
+export async function deleteOrder(orderId, restoreStock = true) {
+  // 如果订单未取消且需要恢复库存
+  if (restoreStock) {
+    const { data: items } = await supabase.from('order_items').select('*').eq('order_id', orderId);
+    for (const it of (items || [])) {
+      if (it.spec_id) {
+        const { data: spec } = await supabase.from('product_specs').select('stock').eq('id', it.spec_id).single();
+        if (spec) {
+          const newStock = spec.stock + it.quantity;
+          await supabase.from('product_specs').update({ stock: newStock }).eq('id', it.spec_id);
+          await supabase.from('stock_adjustments').insert({
+            spec_id: it.spec_id, product_id: it.product_id, type: 'IN', reason: 'CANCEL_RESTORE',
+            quantity: it.quantity, before_stock: spec.stock, after_stock: newStock,
+            note: `删除订单恢复库存`, operator_name: ''
+          });
+        }
+      }
+    }
+  }
+  // 订单有 ON DELETE CASCADE，会自动删除 items/logs/shipments/payments
+  const { error } = await supabase.from('orders').delete().eq('id', orderId);
+  if (error) throw new Error(error.message);
+}
+
+// 获取快递公司按使用频率排序
+export async function fetchCarriersByUsage() {
+  const { data, error } = await supabase.from('shipments').select('carrier');
+  if (error) return [];
+  const counts = {};
+  (data || []).forEach(s => { if (s.carrier) counts[s.carrier] = (counts[s.carrier] || 0) + 1; });
+  return Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([c]) => c);
+}
+
 export async function updateOrderStatus(orderId, newStatus, logEntry, shipmentData) {
   await supabase.from('orders').update({ status: newStatus }).eq('id', orderId);
   if (logEntry) await supabase.from('order_logs').insert({ order_id: orderId, time: logEntry.time, user_name: logEntry.user, action: logEntry.action });
