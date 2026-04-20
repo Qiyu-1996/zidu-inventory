@@ -5,6 +5,8 @@ import { useData } from '../contexts/DataContext';
 import { Card, Badge, PaymentBadge, fmtY, now16, STATUS_MAP, NEXT_STATUS, PAYMENT_STATUS_MAP, exportCSV } from '../components/ui';
 import { printOrder } from '../lib/printOrder';
 import * as api from '../lib/api';
+import { AIInsight } from '../components/AIInsight';
+import { analyzeOrder } from '../lib/ai';
 
 // 按角色过滤可用的下一步状态
 function filterNextByRole(current, role) {
@@ -239,6 +241,16 @@ export function OrderDetail({ orderId, onBack }) {
           </div>
         )}
       </Card>
+
+      {/* AI Order Insight */}
+      {order.status !== 'CANCELLED' && (
+        <AIInsight
+          title="AI 订单建议"
+          icon="🎯"
+          buttonText="生成交叉销售建议"
+          generate={() => analyzeOrder(order, customer, orders, products)}
+        />
+      )}
 
       {/* Items */}
       <Card className="p-4">

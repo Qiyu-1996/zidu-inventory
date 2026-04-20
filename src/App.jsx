@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { Home, ShoppingBag, ShoppingCart, Users, Package, Truck, TrendingUp, Settings, LogOut, X, Menu, ClipboardList, ClipboardCheck } from 'lucide-react';
+import { Home, ShoppingBag, ShoppingCart, Users, Package, Truck, TrendingUp, Settings, LogOut, X, Menu, ClipboardList, ClipboardCheck, Sparkles } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import { useData } from './contexts/DataContext';
 import { LoadingScreen } from './components/ui';
@@ -14,6 +14,7 @@ import Analytics from './pages/Analytics';
 import SettingsPage from './pages/Settings';
 import { PurchaseOrderList, PurchaseOrderCreate, PurchaseOrderDetail } from './pages/PurchaseOrders';
 import Tasks from './pages/Tasks';
+import AIChat from './pages/AIChat';
 
 export default function App() {
   const { user, logout } = useAuth();
@@ -76,6 +77,7 @@ export default function App() {
     { key: "orders", icon: ShoppingCart, label: "订单管理", badge: unreadOrders || null },
     ...(user.role !== "WAREHOUSE" ? [{ key: "customers", icon: Users, label: "客户管理" }] : []),
     ...(user.role !== "WAREHOUSE" ? [{ key: "tasks", icon: ClipboardCheck, label: "跟进任务" }] : []),
+    { key: "ai", icon: Sparkles, label: "AI 助手" },
     { key: "inventory", icon: Package, label: "库存查看" },
     ...(user.role === "ADMIN" || user.role === "WAREHOUSE" ? [{ key: "purchase", icon: ClipboardList, label: "采购管理" }] : []),
     ...(user.role === "WAREHOUSE" ? [{ key: "shipping", icon: Truck, label: "发货管理", badge: unreadOrders || null }] : []),
@@ -169,6 +171,7 @@ export default function App() {
           {page === "customers" && subView === "newcust" && <CustomerCreate onSave={handleNewCustomerFromList} onCancel={() => setSubView(null)} />}
           {page === "customerDetail" && <CustomerDetail customerId={subView} onBack={() => nav("customers")} />}
           {page === "tasks" && <Tasks />}
+          {page === "ai" && <AIChat />}
           {page === "inventory" && <Inventory />}
           {page === "purchase" && !subView && <PurchaseOrderList nav={nav} />}
           {page === "purchaseCreate" && <PurchaseOrderCreate onBack={() => nav('purchase')} />}

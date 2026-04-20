@@ -1,9 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { Search, Plus, ArrowLeft, Edit2, Tag } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, Badge, fmtY, CUSTOMER_TYPES } from '../components/ui';
+import { AIInsight } from '../components/AIInsight';
+import { analyzeCustomer } from '../lib/ai';
 
 const CL = ["#6c5ce7","#a29bfe","#0984e3","#74b9ff","#00b894","#fdcb6e","#e17055"];
 
@@ -209,6 +211,13 @@ export function CustomerDetail({ customerId, onBack }) {
           </>
         )}
       </Card>
+
+      <AIInsight
+        title="AI 客户洞察"
+        icon="🤖"
+        buttonText="生成客户分析"
+        generate={() => analyzeCustomer(customer, orders, products)}
+      />
 
       {ps.length > 0 && (
         <div className="grid md:grid-cols-2 gap-4">

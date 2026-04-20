@@ -5,6 +5,8 @@ import { useData } from '../contexts/DataContext';
 import { Card, StatCard, Badge, fmtY, STATUS_MAP } from '../components/ui';
 import { calculateRestockSuggestions } from '../lib/api';
 import { today } from '../components/ui';
+import { AIInsight } from '../components/AIInsight';
+import { dashboardSuggestions } from '../lib/ai';
 
 export default function Dashboard({ nav }) {
   const { user } = useAuth();
@@ -65,6 +67,21 @@ export default function Dashboard({ nav }) {
         <StatCard label="客户数" value={myCustomers.length} icon={Users} color="#00b894" />
         <StatCard label="待处理" value={pendingOrders} icon={Clock} color="#e17055" />
       </div>
+
+      {/* AI Smart Suggestions */}
+      <AIInsight
+        title="AI 今日行动建议"
+        icon="🤖"
+        buttonText="让 AI 分析今日重点"
+        generate={() => dashboardSuggestions(user, {
+          totalRevenue,
+          orderCount: validOrders.length,
+          customerCount: myCustomers.length,
+          pendingCount: pendingOrders,
+          lowStockCount: lowStock.length,
+          overdueTasks: upcomingTasks.filter(t => t.isOverdue).length
+        })}
+      />
 
       {/* Sales target progress (for SALES) */}
       {targetProgress && (
