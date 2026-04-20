@@ -18,6 +18,7 @@ export default function SettingsPage() {
           { k: "targets", l: "销售目标" },
           { k: "scenarios", l: "场景方案" },
           { k: "config", l: "基础设置" },
+          { k: "ai", l: "AI 配置" },
           { k: "audit", l: "操作日志" }
         ].map(t => (
           <button key={t.k} onClick={() => setTab(t.k)} className={`px-4 py-2 text-sm rounded-lg border ${tab === t.k ? "bg-purple-100 border-purple-300 text-purple-700" : "bg-white text-gray-600"}`}>{t.l}</button>
@@ -30,6 +31,7 @@ export default function SettingsPage() {
       {tab === "targets" && <TargetMgmt />}
       {tab === "scenarios" && <ScenarioMgmt />}
       {tab === "config" && <ConfigMgmt />}
+      {tab === "ai" && <AISettings />}
       {tab === "audit" && <AuditLogView />}
     </div>
   );
@@ -496,36 +498,51 @@ function SupplierMgmt() {
 }
 
 function TargetMgmt() {
-  const { users, salesTargets, orders, setTarget } = useData();
+  const { users, salesTargets, orders, customers, setTarget } = useData();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [editing, setEditing] = useState({});
   const salesUsers = users.filter(u => u.role === 'SALES');
 
-  const monthOrders = useMemo(() => {
-    const yk = String(year);
-    const mk = String(month).padStart(2, '0');
-    return orders.filter(o => o.status !== 'CANCELLED' && o.createdAt?.startsWith(`${yk}-${mk}`));
-  }, [orders, year, month]);
+  const monthPrefix = `${year}-${String(month).padStart(2, '0')}`;
 
-  const getActual = (sId) => monthOrders.filter(o => o.salesId === sId).reduce((s, o) => s + o.total, 0);
+  const monthOrders = useMemo(() => {
+    return orders.filter(o => o.status !== 'CANCELLED' && (o.createdAt || '').startsWith(monthPrefix));
+  }, [orders, monthPrefix]);
+
+  const getActualAmount = (sId) => monthOrders.filter(o => o.salesId === sId).reduce((s, o) => s + o.total, 0);
+  const getActualOrderCount = (sId) => monthOrders.filter(o => o.salesId === sId).length;
+  const getActualNewCustomers = (sId) => customers.filter(c => c.salesId === sId && (c.createdAt || '').startsWith(monthPrefix)).length;
   const getTarget = (sId) => salesTargets.find(t => t.salesId === sId && t.year === year && t.month === month);
 
   const handleSave = async (sId) => {
     const data = editing[sId];
     if (!data) return;
     try {
-      await setTarget({ salesId: sId, year, month, targetAmount: Number(data.targetAmount) || 0, commissionRate: Number(data.commissionRate) || 0, note: data.note || '' });
+      await setTarget({
+        salesId: sId, year, month,
+        targetAmount: Number(data.targetAmount) || 0,
+        commissionRate: Number(data.commissionRate) || 0,
+        targetNewCustomers: Number(data.targetNewCustomers) || 0,
+        targetOrderCount: Number(data.targetOrderCount) || 0,
+        note: data.note || ''
+      });
       setEditing(e => ({ ...e, [sId]: null }));
       alert('保存成功');
     } catch (e) { alert(e.message); }
   };
 
+  const ProgressBar = ({ pct }) => (
+    <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+      <div className={`h-full ${pct >= 100 ? 'bg-green-500' : pct >= 80 ? 'bg-blue-500' : pct >= 50 ? 'bg-yellow-500' : 'bg-orange-400'}`} style={{ width: `${Math.min(100, pct)}%` }}></div>
+    </div>
+  );
+
   return (
     <Card className="p-4">
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <div className="flex items-center gap-2"><Target size={16} className="text-purple-600" /><div className="text-sm font-semibold text-gray-700">销售业绩目标</div></div>
+        <div className="flex items-center gap-2"><Target size={16} className="text-purple-600" /><div className="text-sm font-semibold text-gray-700">销售业绩目标 / KPI</div></div>
         <div className="flex gap-2 items-center text-sm">
           <select value={year} onChange={e => setYear(Number(e.target.value))} className="border rounded-lg px-3 py-1.5 bg-white">
             {[now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1].map(y => <option key={y} value={y}>{y}年</option>)}
@@ -536,43 +553,93 @@ function TargetMgmt() {
         </div>
       </div>
 
-      <div className="text-xs text-gray-500 mb-4">设定每月销售目标，自动追踪完成度。提成 = 实际销售额 × 提成比例。</div>
+      <div className="text-xs text-gray-500 mb-4">
+        管理员为每个销售设定月度 KPI：销售额 + 新增客户数 + 订单数。系统自动追踪完成情况。提成 = 实际销售额 × 提成比例。
+      </div>
 
       <div className="space-y-3">
         {salesUsers.map(u => {
-          const actual = getActual(u.id);
+          const actualAmt = getActualAmount(u.id);
+          const actualOrders = getActualOrderCount(u.id);
+          const actualNew = getActualNewCustomers(u.id);
           const target = getTarget(u.id);
           const targetAmt = target?.targetAmount || 0;
-          const pct = targetAmt > 0 ? Math.round(actual / targetAmt * 100) : 0;
-          const commission = Math.round(actual * (target?.commissionRate || 0) / 100);
+          const targetNew = target?.targetNewCustomers || 0;
+          const targetOrders = target?.targetOrderCount || 0;
+          const commission = Math.round(actualAmt * (target?.commissionRate || 0) / 100);
+          const pctAmt = targetAmt > 0 ? Math.round(actualAmt / targetAmt * 100) : 0;
+          const pctNew = targetNew > 0 ? Math.round(actualNew / targetNew * 100) : 0;
+          const pctOrders = targetOrders > 0 ? Math.round(actualOrders / targetOrders * 100) : 0;
           const ed = editing[u.id];
           return (
-            <div key={u.id} className="border rounded-lg p-3">
-              <div className="flex items-center justify-between mb-2">
-                <div className="font-medium">{u.name}</div>
+            <div key={u.id} className="border rounded-lg p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="font-medium flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs text-white font-bold" style={{ background: '#6c5ce7' }}>{u.name[0]}</div>
+                  {u.name}
+                </div>
                 {!ed && (
-                  <button onClick={() => setEditing(e => ({ ...e, [u.id]: { targetAmount: targetAmt, commissionRate: target?.commissionRate || 0, note: target?.note || '' } }))} className="text-purple-600 text-xs"><Edit2 size={12} className="inline" /> 设置目标</button>
+                  <button onClick={() => setEditing(e => ({ ...e, [u.id]: {
+                    targetAmount: targetAmt,
+                    commissionRate: target?.commissionRate || 0,
+                    targetNewCustomers: targetNew,
+                    targetOrderCount: targetOrders
+                  } }))} className="text-purple-600 text-xs flex items-center gap-1"><Edit2 size={12} /> 设定 KPI</button>
                 )}
               </div>
+
               {ed ? (
-                <div className="grid grid-cols-3 gap-2 items-end">
-                  <div><label className="block text-xs text-gray-500 mb-1">目标金额</label><input type="number" value={ed.targetAmount} onChange={e => setEditing(x => ({ ...x, [u.id]: { ...ed, targetAmount: e.target.value } }))} className="w-full border rounded px-2 py-1 text-sm" /></div>
-                  <div><label className="block text-xs text-gray-500 mb-1">提成 %</label><input type="number" step="0.1" value={ed.commissionRate} onChange={e => setEditing(x => ({ ...x, [u.id]: { ...ed, commissionRate: e.target.value } }))} className="w-full border rounded px-2 py-1 text-sm" /></div>
-                  <div className="flex gap-1"><button onClick={() => setEditing(x => ({ ...x, [u.id]: null }))} className="px-2 py-1 text-xs border rounded">取消</button><button onClick={() => handleSave(u.id)} className="flex-1 px-2 py-1 text-xs text-white rounded" style={{ background: '#4a3560' }}>保存</button></div>
+                <div className="bg-purple-50 rounded-lg p-3 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className="block text-xs text-gray-500 mb-1">销售额目标 (¥)</label>
+                      <input type="number" value={ed.targetAmount} onChange={e => setEditing(x => ({ ...x, [u.id]: { ...ed, targetAmount: e.target.value } }))} className="w-full border rounded px-2 py-1.5 text-sm" />
+                    </div>
+                    <div><label className="block text-xs text-gray-500 mb-1">提成比例 (%)</label>
+                      <input type="number" step="0.1" value={ed.commissionRate} onChange={e => setEditing(x => ({ ...x, [u.id]: { ...ed, commissionRate: e.target.value } }))} className="w-full border rounded px-2 py-1.5 text-sm" />
+                    </div>
+                    <div><label className="block text-xs text-gray-500 mb-1">新增客户目标</label>
+                      <input type="number" value={ed.targetNewCustomers} onChange={e => setEditing(x => ({ ...x, [u.id]: { ...ed, targetNewCustomers: e.target.value } }))} className="w-full border rounded px-2 py-1.5 text-sm" />
+                    </div>
+                    <div><label className="block text-xs text-gray-500 mb-1">订单数目标</label>
+                      <input type="number" value={ed.targetOrderCount} onChange={e => setEditing(x => ({ ...x, [u.id]: { ...ed, targetOrderCount: e.target.value } }))} className="w-full border rounded px-2 py-1.5 text-sm" />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => setEditing(x => ({ ...x, [u.id]: null }))} className="px-3 py-1.5 text-xs border rounded">取消</button>
+                    <button onClick={() => handleSave(u.id)} className="flex-1 px-3 py-1.5 text-xs text-white rounded" style={{ background: '#4a3560' }}>保存 KPI</button>
+                  </div>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  <div className="grid grid-cols-3 gap-3 text-sm">
-                    <div><span className="text-xs text-gray-400">目标</span><div className="font-medium">{fmtY(targetAmt)}</div></div>
-                    <div><span className="text-xs text-gray-400">实际</span><div className="font-medium" style={{ color: '#4a3560' }}>{fmtY(actual)}</div></div>
-                    <div><span className="text-xs text-gray-400">预估提成</span><div className="font-medium text-green-600">{fmtY(commission)} ({target?.commissionRate || 0}%)</div></div>
-                  </div>
-                  {targetAmt > 0 && (
-                    <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
-                      <div className={`h-full ${pct >= 100 ? 'bg-green-500' : pct >= 80 ? 'bg-blue-500' : pct >= 50 ? 'bg-yellow-500' : 'bg-orange-400'}`} style={{ width: `${Math.min(100, pct)}%` }}></div>
+                <div className="space-y-3">
+                  {/* Sales Amount KPI */}
+                  <div>
+                    <div className="flex items-center justify-between text-sm mb-1">
+                      <span className="text-gray-500 text-xs">💰 销售额</span>
+                      <span className="text-xs">{fmtY(actualAmt)} / {fmtY(targetAmt)} <span className="font-bold ml-1" style={{ color: pctAmt >= 100 ? '#059669' : '#4a3560' }}>{pctAmt}%</span></span>
                     </div>
-                  )}
-                  {targetAmt > 0 && <div className="text-xs text-gray-500">完成度 {pct}%</div>}
+                    <ProgressBar pct={pctAmt} />
+                  </div>
+                  {/* New Customers KPI */}
+                  <div>
+                    <div className="flex items-center justify-between text-sm mb-1">
+                      <span className="text-gray-500 text-xs">👥 新增客户</span>
+                      <span className="text-xs">{actualNew} / {targetNew} <span className="font-bold ml-1" style={{ color: pctNew >= 100 ? '#059669' : '#4a3560' }}>{pctNew}%</span></span>
+                    </div>
+                    <ProgressBar pct={pctNew} />
+                  </div>
+                  {/* Order Count KPI */}
+                  <div>
+                    <div className="flex items-center justify-between text-sm mb-1">
+                      <span className="text-gray-500 text-xs">📦 订单数</span>
+                      <span className="text-xs">{actualOrders} / {targetOrders} <span className="font-bold ml-1" style={{ color: pctOrders >= 100 ? '#059669' : '#4a3560' }}>{pctOrders}%</span></span>
+                    </div>
+                    <ProgressBar pct={pctOrders} />
+                  </div>
+                  {/* Commission */}
+                  <div className="flex justify-between items-center pt-2 border-t text-xs">
+                    <span className="text-gray-400">预估提成</span>
+                    <span className="font-bold text-green-600">{fmtY(commission)} ({target?.commissionRate || 0}%)</span>
+                  </div>
                 </div>
               )}
             </div>
@@ -580,6 +647,83 @@ function TargetMgmt() {
         })}
         {salesUsers.length === 0 && <div className="text-center py-8 text-gray-400 text-sm">暂无销售人员，请先在"人员管理"中创建</div>}
       </div>
+    </Card>
+  );
+}
+
+function AISettings() {
+  const [settings, setSettings] = useState({ ai_provider: 'deepseek', ai_api_key: '', ai_api_url: 'https://api.deepseek.com/chat/completions', ai_model: 'deepseek-chat' });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api.fetchAppSettings().then(s => {
+      setSettings(prev => ({ ...prev, ...s }));
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await Promise.all(Object.entries(settings).map(([k, v]) => api.updateAppSetting(k, v)));
+      alert('保存成功');
+    } catch (e) { alert(e.message); } finally { setSaving(false); }
+  };
+
+  const applyPreset = (provider) => {
+    if (provider === 'deepseek') {
+      setSettings(s => ({ ...s, ai_provider: 'deepseek', ai_api_url: 'https://api.deepseek.com/chat/completions', ai_model: 'deepseek-chat' }));
+    } else if (provider === 'doubao') {
+      setSettings(s => ({ ...s, ai_provider: 'doubao', ai_api_url: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions', ai_model: 'ep-xxx（替换为你的接入点 ID）' }));
+    }
+  };
+
+  if (loading) return <Card className="p-4 text-center text-gray-400">加载中...</Card>;
+
+  return (
+    <Card className="p-4 space-y-4">
+      <div className="text-sm font-semibold text-gray-700">🤖 AI 服务配置</div>
+      <div className="text-xs text-gray-500">配置 AI API 后，销售在小程序端可使用"精油助手"和"文案助手"。推荐使用 DeepSeek（国内访问稳定，价格便宜）。</div>
+
+      <div className="flex gap-2">
+        <button onClick={() => applyPreset('deepseek')} className="px-3 py-1.5 text-xs border rounded-lg hover:bg-purple-50">使用 DeepSeek 预设</button>
+        <button onClick={() => applyPreset('doubao')} className="px-3 py-1.5 text-xs border rounded-lg hover:bg-purple-50">使用 豆包 预设</button>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3">
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">API 服务商</label>
+          <select value={settings.ai_provider} onChange={e => setSettings(s => ({ ...s, ai_provider: e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
+            <option value="deepseek">DeepSeek</option>
+            <option value="doubao">豆包 (火山引擎)</option>
+            <option value="openai">OpenAI 兼容</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">API URL</label>
+          <input value={settings.ai_api_url} onChange={e => setSettings(s => ({ ...s, ai_api_url: e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm font-mono" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">API Key</label>
+          <input type="password" value={settings.ai_api_key} onChange={e => setSettings(s => ({ ...s, ai_api_key: e.target.value }))} placeholder="sk-xxx..." className="w-full border rounded-lg px-3 py-2 text-sm font-mono" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">模型名称</label>
+          <input value={settings.ai_model} onChange={e => setSettings(s => ({ ...s, ai_model: e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm" />
+        </div>
+      </div>
+
+      <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-800">
+        <div className="font-medium mb-1">📌 获取 API Key 步骤：</div>
+        <div>· DeepSeek: 访问 platform.deepseek.com 注册账号，充值 ¥5 可用很久</div>
+        <div>· 豆包: 访问 console.volcengine.com/ark 开通方舟，创建接入点</div>
+        <div className="mt-2 text-red-600">⚠️ 小程序端还需在微信后台 `request 合法域名` 添加你的 AI API 域名</div>
+      </div>
+
+      <button onClick={handleSave} disabled={saving} className="w-full py-2 text-white rounded-lg disabled:opacity-40" style={{ background: '#4a3560' }}>
+        {saving ? '保存中...' : '保存配置'}
+      </button>
     </Card>
   );
 }

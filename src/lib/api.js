@@ -607,23 +607,49 @@ export async function fetchSalesTargets(year) {
   return data.map(t => ({
     id: t.id, salesId: t.sales_id, year: t.year, month: t.month,
     targetAmount: Number(t.target_amount), commissionRate: Number(t.commission_rate),
+    targetNewCustomers: t.target_new_customers || 0,
+    targetOrderCount: t.target_order_count || 0,
     note: t.note || ''
   }));
 }
 
 export async function upsertSalesTarget(target) {
+  const payload = {
+    target_amount: target.targetAmount,
+    commission_rate: target.commissionRate || 0,
+    target_new_customers: target.targetNewCustomers || 0,
+    target_order_count: target.targetOrderCount || 0,
+    note: target.note || ''
+  };
   const { data: existing } = await supabase.from('sales_targets')
     .select('id').eq('sales_id', target.salesId).eq('year', target.year).eq('month', target.month).maybeSingle();
   if (existing) {
-    const { error } = await supabase.from('sales_targets').update({
-      target_amount: target.targetAmount, commission_rate: target.commissionRate || 0, note: target.note || ''
-    }).eq('id', existing.id);
+    const { error } = await supabase.from('sales_targets').update(payload).eq('id', existing.id);
     if (error) throw new Error(error.message);
   } else {
     const { error } = await supabase.from('sales_targets').insert({
-      sales_id: target.salesId, year: target.year, month: target.month,
-      target_amount: target.targetAmount, commission_rate: target.commissionRate || 0, note: target.note || ''
+      sales_id: target.salesId, year: target.year, month: target.month, ...payload
     });
+    if (error) throw new Error(error.message);
+  }
+}
+
+// ═══ APP SETTINGS (API Key 配置) ═══
+export async function fetchAppSettings() {
+  const { data, error } = await supabase.from('app_settings').select('*');
+  if (error) throw new Error(error.message);
+  const map = {};
+  (data || []).forEach(s => { map[s.key] = s.value; });
+  return map;
+}
+
+export async function updateAppSetting(key, value) {
+  const { data: existing } = await supabase.from('app_settings').select('id').eq('key', key).maybeSingle();
+  if (existing) {
+    const { error } = await supabase.from('app_settings').update({ value, updated_at: new Date().toISOString() }).eq('id', existing.id);
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await supabase.from('app_settings').insert({ key, value });
     if (error) throw new Error(error.message);
   }
 }
