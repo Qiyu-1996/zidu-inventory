@@ -136,7 +136,15 @@ export function OrderDetail({ orderId, onBack }) {
   };
   const openTracking = () => {
     if (!order.shipment?.trackingNo) return;
-    window.open(`https://www.kuaidi100.com/chaxun?nu=${encodeURIComponent(order.shipment.trackingNo)}`, '_blank');
+    const url = `https://www.kuaidi100.com/chaxun?nu=${encodeURIComponent(order.shipment.trackingNo)}`;
+    // 创建新 <a> 元素点击，避免 popup 拦截
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
   const handleDelete = async () => {
     if (!confirm(`确定删除订单 ${order.orderNo}？\n此操作不可恢复。${order.status !== 'CANCELLED' ? '\n注意：库存将恢复。' : ''}`)) return;

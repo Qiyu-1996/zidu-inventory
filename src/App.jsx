@@ -45,14 +45,15 @@ export default function App() {
     }
   }, [page, orders, user]);
 
-  // 未读新订单数
+  // 未完成订单数（未取消 && 未签收 && 未完成）
   const unreadOrders = useMemo(() => {
     if (!orders?.length || !user) return 0;
-    if (user.role === 'ADMIN') return orders.filter(o => o.id > lastSeenMax).length;
-    if (user.role === 'SALES') return orders.filter(o => o.id > lastSeenMax && o.salesId === user.id).length;
-    if (user.role === 'WAREHOUSE') return orders.filter(o => o.id > lastSeenMax && ['CONFIRMED','PREPARING'].includes(o.status)).length;
-    return 0;
-  }, [orders, lastSeenMax, user]);
+    const PENDING = ['DRAFT','SUBMITTED','CONFIRMED','PREPARING','SHIPPED'];
+    let list = orders.filter(o => PENDING.includes(o.status));
+    if (user.role === 'SALES') list = list.filter(o => o.salesId === user.id);
+    if (user.role === 'WAREHOUSE') list = list.filter(o => ['CONFIRMED','PREPARING'].includes(o.status));
+    return list.length;
+  }, [orders, user]);
 
   const nav = useCallback((p, sub) => { setPage(p); setSubView(sub ?? null); setSideOpen(false); }, []);
 

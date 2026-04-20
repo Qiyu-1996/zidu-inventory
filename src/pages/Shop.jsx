@@ -167,9 +167,30 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [tierInfo, setTierInfo] = useState(null);
+  const [custSearch, setCustSearch] = useState('');
+  const [showCustList, setShowCustList] = useState(false);
+
+  const { orders } = useData();
+  // 最近使用的客户（取最近5个下过单的客户）
+  const recentCustomerIds = useMemo(() => {
+    const seen = new Set(); const result = [];
+    const myOrders = orders.filter(o => user.role === 'ADMIN' || o.salesId === user.id);
+    myOrders.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).forEach(o => {
+      if (!seen.has(o.customerId)) { seen.add(o.customerId); result.push(o.customerId); }
+    });
+    return result.slice(0, 5);
+  }, [orders, user]);
+
+  const selectedCustomer = myCustomers.find(c => c.id === Number(customerId));
+  const filteredCustomers = custSearch
+    ? myCustomers.filter(c => `${c.name} ${c.contact || ''} ${c.phone || ''} ${c.type}`.toLowerCase().includes(custSearch.toLowerCase()))
+    : myCustomers;
+  const recentCustomers = recentCustomerIds.map(id => myCustomers.find(c => c.id === id)).filter(Boolean);
 
   const onSelectCustomer = (id) => {
     setCustomerId(id);
+    setShowCustList(false);
+    setCustSearch('');
     if (id && getCustomerTier) {
       const tier = getCustomerTier(Number(id));
       setTierInfo(tier);
@@ -239,16 +260,84 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
 
       <Card className="p-4 space-y-4">
         <div>
-          <label className="block text-xs text-gray-500 mb-1.5">选择客户 *</label>
-          <div className="flex gap-2">
-            <select value={customerId} onChange={e => onSelectCustomer(e.target.value)} className="flex-1 border rounded-lg px-3 py-2.5 text-sm bg-white">
-              <option value="">请选择</option>
-              {myCustomers.map(c => <option key={c.id} value={c.id}>{c.name} ({c.type})</option>)}
-            </select>
-            <button onClick={onNewCustomer} className="px-3 py-2 text-sm border rounded-lg text-purple-700 hover:bg-purple-50 shrink-0">
-              <Plus size={14} className="inline -mt-0.5" /> 新建
-            </button>
-          </div>
+          <label className="block text-xs text-gray-500 mb-1.5">选择客户 * <span className="text-gray-400">(共 {myCustomers.length} 位)</span></label>
+          {!showCustList && selectedCustomer ? (
+            <div className="flex items-center gap-2">
+              <div className="flex-1 border rounded-lg px-3 py-2.5 text-sm bg-purple-50 border-purple-200 flex items-center justify-between">
+                <div>
+                  <span className="font-medium">{selectedCustomer.name}</span>
+                  <span className="text-xs text-gray-500 ml-2">{selectedCustomer.type}</span>
+                  {selectedCustomer.phone && <span className="text-xs text-gray-400 ml-2">{selectedCustomer.phone}</span>}
+                </div>
+                <button onClick={() => { setShowCustList(true); setCustomerId(''); }} className="text-xs text-purple-600 hover:underline">更换</button>
+              </div>
+              <button onClick={onNewCustomer} className="px-3 py-2 text-sm border rounded-lg text-purple-700 hover:bg-purple-50 shrink-0">
+                <Plus size={14} className="inline -mt-0.5" />新建
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <div className="flex-1 relative">
+                  <Search size={14} className="absolute left-3 top-3 text-gray-400" />
+                  <input
+                    type="text"
+                    value={custSearch}
+                    onChange={e => { setCustSearch(e.target.value); setShowCustList(true); }}
+                    onFocus={() => setShowCustList(true)}
+                    placeholder="搜索客户名、联系人、电话、类型..."
+                    className="w-full pl-9 pr-3 py-2.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-300"
+                    autoFocus
+                  />
+                </div>
+                <button onClick={onNewCustomer} className="px-3 py-2 text-sm border rounded-lg text-purple-700 hover:bg-purple-50 shrink-0">
+                  <Plus size={14} className="inline -mt-0.5" />新建
+                </button>
+              </div>
+
+              {/* Recent customers */}
+              {!custSearch && recentCustomers.length > 0 && (
+                <div>
+                  <div className="text-xs text-gray-400 mb-1">🕐 最近下单</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {recentCustomers.map(c => (
+                      <button
+                        key={c.id}
+                        onClick={() => onSelectCustomer(c.id)}
+                        className="text-xs px-3 py-1.5 rounded-lg border border-purple-200 text-purple-700 hover:bg-purple-50 transition"
+                      >
+                        {c.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Customer list */}
+              <div className="border rounded-lg max-h-64 overflow-y-auto bg-white">
+                {filteredCustomers.length === 0 ? (
+                  <div className="text-center py-6 text-sm text-gray-400">没有匹配的客户</div>
+                ) : (
+                  filteredCustomers.slice(0, 50).map(c => (
+                    <div
+                      key={c.id}
+                      onClick={() => onSelectCustomer(c.id)}
+                      className="px-3 py-2.5 border-b last:border-0 hover:bg-purple-50 cursor-pointer text-sm flex items-center justify-between"
+                    >
+                      <div>
+                        <div className="font-medium text-gray-800">{c.name}</div>
+                        <div className="text-xs text-gray-400">{c.type} · {c.contact || '无联系人'} {c.phone && `· ${c.phone}`}</div>
+                      </div>
+                      <span className="text-xs text-purple-600">选择 →</span>
+                    </div>
+                  ))
+                )}
+                {filteredCustomers.length > 50 && (
+                  <div className="text-center text-xs text-gray-400 py-2 bg-gray-50">还有 {filteredCustomers.length - 50} 位客户，请继续搜索缩小范围</div>
+                )}
+              </div>
+            </div>
+          )}
           {tierInfo && tierInfo.discount > 0 && (
             <div className="mt-2 inline-flex items-center gap-1 text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
               <Tag size={12} />{tierInfo.label} · 年消费{fmtY(tierInfo.annualSpend)} · 自动应用{tierInfo.discount}%折扣
