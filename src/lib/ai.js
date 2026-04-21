@@ -43,8 +43,10 @@ export async function chatAI(messages, options = {}) {
   }
 
   const data = await resp.json();
-  const content = data.choices?.[0]?.message?.content;
+  let content = data.choices?.[0]?.message?.content;
   if (!content) throw new Error('AI 返回格式异常');
+  // 去除 Markdown # 和 ** 符号，保持纯文本易读
+  content = content.replace(/^#{1,6}\s+/gm, '').replace(/\*\*([^*]+)\*\*/g, '$1');
   return content;
 }
 
