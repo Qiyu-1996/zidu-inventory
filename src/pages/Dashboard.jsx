@@ -5,8 +5,6 @@ import { useData } from '../contexts/DataContext';
 import { Card, StatCard, Badge, fmtY, STATUS_MAP } from '../components/ui';
 import { calculateRestockSuggestions } from '../lib/api';
 import { today } from '../components/ui';
-import { AIInsight } from '../components/AIInsight';
-import { dashboardSuggestions } from '../lib/ai';
 
 export default function Dashboard({ nav }) {
   const { user } = useAuth();
@@ -62,26 +60,11 @@ export default function Dashboard({ nav }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard label="总销售额" value={fmtY(totalRevenue)} icon={TrendingUp} color="#6c5ce7" />
-        <StatCard label="总订单" value={validOrders.length} icon={ShoppingCart} color="#0984e3" />
-        <StatCard label="客户数" value={myCustomers.length} icon={Users} color="#00b894" />
-        <StatCard label="待处理" value={pendingOrders} icon={Clock} color="#e17055" />
+        <StatCard label="总销售额" value={fmtY(totalRevenue)} icon={TrendingUp} color="#5C4B73" />
+        <StatCard label="总订单" value={validOrders.length} icon={ShoppingCart} color="#5F7689" />
+        <StatCard label="客户数" value={myCustomers.length} icon={Users} color="#7B8F67" />
+        <StatCard label="待处理" value={pendingOrders} icon={Clock} color="#8D5F5B" />
       </div>
-
-      {/* AI Smart Suggestions */}
-      <AIInsight
-        title="AI 今日行动建议"
-        icon="🤖"
-        buttonText="让 AI 分析今日重点"
-        generate={() => dashboardSuggestions(user, {
-          totalRevenue,
-          orderCount: validOrders.length,
-          customerCount: myCustomers.length,
-          pendingCount: pendingOrders,
-          lowStockCount: lowStock.length,
-          overdueTasks: upcomingTasks.filter(t => t.isOverdue).length
-        })}
-      />
 
       {/* Sales target progress (for SALES) */}
       {targetProgress && (
@@ -89,12 +72,12 @@ export default function Dashboard({ nav }) {
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2"><Target size={16} className="text-purple-600" /><div className="text-sm font-semibold text-gray-700">本月业绩目标</div></div>
             <div className="text-xs text-gray-500">
-              <span className="text-base font-bold" style={{ color: targetProgress.pct >= 100 ? '#059669' : '#4a3560' }}>{targetProgress.pct}%</span> 完成
+              <span className="text-base font-bold" style={{ color: targetProgress.pct >= 100 ? '#059669' : '#5C4B73' }}>{targetProgress.pct}%</span> 完成
             </div>
           </div>
           <div className="grid grid-cols-3 gap-3 mb-2 text-sm">
             <div><span className="text-xs text-gray-400">目标</span><div className="font-medium">{fmtY(targetProgress.target)}</div></div>
-            <div><span className="text-xs text-gray-400">实际</span><div className="font-medium" style={{ color: '#4a3560' }}>{fmtY(targetProgress.actual)}</div></div>
+            <div><span className="text-xs text-gray-400">实际</span><div className="font-medium" style={{ color: '#5C4B73' }}>{fmtY(targetProgress.actual)}</div></div>
             <div><span className="text-xs text-gray-400">预估提成</span><div className="font-medium text-green-600">{fmtY(targetProgress.commission)}</div></div>
           </div>
           <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
@@ -149,7 +132,7 @@ export default function Dashboard({ nav }) {
                 </div>
                 <div className="text-right shrink-0 ml-2">
                   <div className="text-xs text-gray-400">建议采购</div>
-                  <div className="text-lg font-bold" style={{ color: "#4a3560" }}>{r.suggestedQty}</div>
+                  <div className="text-lg font-bold" style={{ color: "#5C4B73" }}>{r.suggestedQty}</div>
                 </div>
               </div>
             ))}
@@ -175,7 +158,7 @@ export default function Dashboard({ nav }) {
                     <span className="text-gray-700">{c?.name || '—'}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="font-semibold" style={{ color: "#4a3560" }}>{fmtY(o.total)}</span>
+                    <span className="font-semibold" style={{ color: "#5C4B73" }}>{fmtY(o.total)}</span>
                     <Badge status={o.status} />
                   </div>
                 </div>

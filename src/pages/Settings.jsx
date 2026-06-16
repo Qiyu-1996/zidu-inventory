@@ -4,9 +4,12 @@ import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, fmtY, SERIES_LIST, CUSTOMER_TYPES, DEFAULT_SPEC_OPTIONS } from '../components/ui';
 import * as api from '../lib/api';
+import { backfillSpecCost } from '../lib/api';
 
 export default function SettingsPage() {
+  const { user } = useAuth();
   const [tab, setTab] = useState("users");
+  if (user.role !== 'ADMIN') return <Card className="p-8 text-center text-gray-400">仅管理员可访问系统管理</Card>;
   return (
     <div className="space-y-4">
       <div className="flex gap-2 flex-wrap">
@@ -18,7 +21,6 @@ export default function SettingsPage() {
           { k: "targets", l: "销售目标" },
           { k: "scenarios", l: "场景方案" },
           { k: "config", l: "基础设置" },
-          { k: "ai", l: "AI 配置" },
           { k: "audit", l: "操作日志" }
         ].map(t => (
           <button key={t.k} onClick={() => setTab(t.k)} className={`px-4 py-2 text-sm rounded-lg border ${tab === t.k ? "bg-purple-100 border-purple-300 text-purple-700" : "bg-white text-gray-600"}`}>{t.l}</button>
@@ -31,7 +33,6 @@ export default function SettingsPage() {
       {tab === "targets" && <TargetMgmt />}
       {tab === "scenarios" && <ScenarioMgmt />}
       {tab === "config" && <ConfigMgmt />}
-      {tab === "ai" && <AISettings />}
       {tab === "audit" && <AuditLogView />}
     </div>
   );
@@ -99,7 +100,7 @@ function UserMgmt() {
           {error && <div className="text-sm text-red-500">{error}</div>}
           <div className="flex gap-2">
             <button onClick={() => setShow(false)} className="px-3 py-1.5 text-sm border rounded-lg">取消</button>
-            <button onClick={handleCreate} disabled={!name.trim() || !phone.trim() || !pw.trim() || saving} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#4a3560" }}>
+            <button onClick={handleCreate} disabled={!name.trim() || !phone.trim() || !pw.trim() || saving} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>
               {saving ? '创建中...' : '创建'}
             </button>
           </div>
@@ -112,7 +113,7 @@ function UserMgmt() {
           <input type="text" value={newPw} onChange={e => setNewPw(e.target.value)} placeholder="输入新密码" className="w-full border rounded-lg px-3 py-2 text-sm" />
           <div className="flex gap-2">
             <button onClick={() => { setResetForUser(null); setNewPw(''); }} className="px-3 py-1.5 text-sm border rounded-lg">取消</button>
-            <button onClick={handleReset} disabled={!newPw.trim()} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#4a3560" }}>确认重置</button>
+            <button onClick={handleReset} disabled={!newPw.trim()} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>确认重置</button>
           </div>
         </div>
       )}
@@ -153,29 +154,32 @@ function UserMgmt() {
 }
 
 function ProductMgmt() {
-  const { products, addProduct, editProduct, removeProduct } = useData();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
+  const { products, addProduct, editProduct, removeProduct, reload } = useData();
   const [show, setShow] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [series, setSeries] = useState('');
   const [origin, setOrigin] = useState('');
-  const [specs, setSpecs] = useState([{ spec: '10ml', price: '', stock: '', safeStock: 10 }]);
+  const [specs, setSpecs] = useState([{ spec: '10ml', price: '', cost: '', stock: '', safeStock: 10 }]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [backfilling, setBackfilling] = useState(false);
 
   const reset = () => {
     setShow(false); setEditingId(null); setCode(''); setName(''); setSeries(''); setOrigin('');
-    setSpecs([{ spec: '10ml', price: '', stock: '', safeStock: 10 }]);
+    setSpecs([{ spec: '10ml', price: '', cost: '', stock: '', safeStock: 10 }]);
   };
 
   const startEdit = (p) => {
     setEditingId(p.id); setCode(p.code); setName(p.name); setSeries(p.series); setOrigin(p.origin);
-    setSpecs(p.specs.map(s => ({ id: s.id, spec: s.spec, price: s.price, stock: s.stock, safeStock: s.safeStock })));
+    setSpecs(p.specs.map(s => ({ id: s.id, spec: s.spec, price: s.price, cost: s.cost ?? '', stock: s.stock, safeStock: s.safeStock })));
     setShow(true);
   };
 
-  const addSpec = () => setSpecs(p => [...p, { spec: '', price: '', stock: '', safeStock: 10 }]);
+  const addSpec = () => setSpecs(p => [...p, { spec: '', price: '', cost: '', stock: '', safeStock: 10 }]);
   const updateSpec = (i, f, v) => setSpecs(p => p.map((s, idx) => idx === i ? { ...s, [f]: v } : s));
   const removeSpec = i => setSpecs(p => p.filter((_, idx) => idx !== i));
 
@@ -185,12 +189,22 @@ function ProductMgmt() {
     try {
       const payload = {
         code: code.trim(), name: name.trim(), series, origin: origin.trim() || '中国',
-        specs: specs.map(s => ({ id: s.id, spec: s.spec, price: Number(s.price), stock: Number(s.stock) || 0, safeStock: Number(s.safeStock) || 10 }))
+        specs: specs.map(s => ({ id: s.id, spec: s.spec, price: Number(s.price), cost: Number(s.cost) || 0, stock: Number(s.stock) || 0, safeStock: Number(s.safeStock) || 10 }))
       };
       if (editingId) await editProduct({ ...payload, id: editingId });
       else await addProduct(payload);
       reset();
     } catch (e) { setError(e.message); } finally { setSaving(false); }
+  };
+
+  const handleBackfill = async () => {
+    if (!confirm('将用每个规格的最新批次成本回填「成本」字段（已有成本会被覆盖），确定继续？')) return;
+    setBackfilling(true);
+    try {
+      const n = await backfillSpecCost();
+      await reload();
+      alert(`已回填 ${n} 个规格成本`);
+    } catch (e) { alert('回填失败: ' + e.message); } finally { setBackfilling(false); }
   };
 
   const handleDelete = async (p) => {
@@ -201,9 +215,16 @@ function ProductMgmt() {
 
   return (
     <Card className="p-4">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <div className="text-sm font-semibold text-gray-700">产品管理（{products.length} SKU）</div>
-        <button onClick={() => show ? reset() : setShow(true)} className="flex items-center gap-1 text-sm font-medium text-purple-700"><Plus size={16} />添加产品</button>
+        <div className="flex items-center gap-3">
+          {isAdmin && (
+            <button onClick={handleBackfill} disabled={backfilling} className="flex items-center gap-1 text-sm font-medium text-purple-700 disabled:opacity-40" title="按每个规格的最新批次成本，批量回填成本字段">
+              <Truck size={15} />{backfilling ? '回填中...' : '用最新批次成本一键带入'}
+            </button>
+          )}
+          <button onClick={() => show ? reset() : setShow(true)} className="flex items-center gap-1 text-sm font-medium text-purple-700"><Plus size={16} />添加产品</button>
+        </div>
       </div>
 
       {show && (
@@ -223,7 +244,7 @@ function ProductMgmt() {
           </div>
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-xs text-gray-500 font-medium">规格/价格/库存/安全库存</label>
+              <label className="text-xs text-gray-500 font-medium">规格/售价/成本/库存/安全库存</label>
               <button onClick={addSpec} className="text-xs text-purple-600 flex items-center gap-0.5"><Plus size={12} />添加规格</button>
             </div>
             {specs.map((s, i) => (
@@ -231,7 +252,8 @@ function ProductMgmt() {
                 <select value={s.spec} onChange={e => updateSpec(i, 'spec', e.target.value)} className="border rounded-lg px-2 py-1.5 text-sm w-24 bg-white">
                   <option value="">规格</option>{DEFAULT_SPEC_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
                 </select>
-                <input type="number" value={s.price} onChange={e => updateSpec(i, 'price', e.target.value)} placeholder="价格" className="border rounded-lg px-2 py-1.5 text-sm w-20" />
+                <input type="number" value={s.price} onChange={e => updateSpec(i, 'price', e.target.value)} placeholder="售价" className="border rounded-lg px-2 py-1.5 text-sm w-20" />
+                <input type="number" value={s.cost} onChange={e => updateSpec(i, 'cost', e.target.value)} placeholder="成本" className="border rounded-lg px-2 py-1.5 text-sm w-20" title="成本（留空或 0 表示未录）" />
                 <input type="number" value={s.stock} onChange={e => updateSpec(i, 'stock', e.target.value)} placeholder="库存" className="border rounded-lg px-2 py-1.5 text-sm w-20" />
                 <input type="number" value={s.safeStock} onChange={e => updateSpec(i, 'safeStock', e.target.value)} placeholder="安全" className="border rounded-lg px-2 py-1.5 text-sm w-16" />
                 {specs.length > 1 && <button onClick={() => removeSpec(i)} className="text-gray-400 hover:text-red-500"><X size={14} /></button>}
@@ -241,7 +263,7 @@ function ProductMgmt() {
           {error && <div className="text-sm text-red-500">{error}</div>}
           <div className="flex gap-2">
             <button onClick={reset} className="px-3 py-1.5 text-sm border rounded-lg">取消</button>
-            <button onClick={handleSave} disabled={saving} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#4a3560" }}>
+            <button onClick={handleSave} disabled={saving} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>
               {saving ? '保存中...' : (editingId ? '保存修改' : '添加')}
             </button>
           </div>
@@ -253,7 +275,7 @@ function ProductMgmt() {
           <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">编码</th>
           <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">名称</th>
           <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium hidden md:table-cell">系列</th>
-          <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">规格/价格</th>
+          <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">{isAdmin ? '规格/售价/成本/毛利率' : '规格/价格'}</th>
           <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">操作</th>
         </tr></thead>
         <tbody>{products.map(p => (
@@ -261,7 +283,25 @@ function ProductMgmt() {
             <td className="py-2 px-3 font-mono text-xs text-gray-500">{p.code}</td>
             <td className="py-2 px-3 text-gray-800">{p.name}</td>
             <td className="py-2 px-3 text-xs text-gray-500 hidden md:table-cell">{p.series}</td>
-            <td className="py-2 px-3"><div className="flex flex-wrap gap-1">{p.specs.map(s => <span key={s.id} className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{s.spec}={fmtY(s.price)}</span>)}</div></td>
+            <td className="py-2 px-3">
+              {isAdmin ? (
+                <div className="flex flex-wrap gap-1.5">{p.specs.map(s => {
+                  const cost = Number(s.cost) || 0;
+                  const price = Number(s.price) || 0;
+                  const hasCost = cost > 0;
+                  const margin = hasCost && price > 0 ? (price - cost) / price : 0;
+                  return (
+                    <span key={s.id} className="text-xs px-1.5 py-1 rounded bg-gray-100 text-gray-600 leading-tight">
+                      <span className="font-medium text-gray-700">{s.spec}</span> 售{fmtY(price)}
+                      <span className="text-gray-400"> · 成本{hasCost ? fmtY(cost) : '未录'}</span>
+                      {hasCost && <span className={`ml-0.5 font-medium ${margin < 0 ? 'text-red-500' : 'text-green-600'}`}>毛利{(margin * 100).toFixed(0)}%</span>}
+                    </span>
+                  );
+                })}</div>
+              ) : (
+                <div className="flex flex-wrap gap-1">{p.specs.map(s => <span key={s.id} className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{s.spec}={fmtY(s.price)}</span>)}</div>
+              )}
+            </td>
             <td className="py-2 px-3 text-right space-x-2 whitespace-nowrap">
               <button onClick={() => startEdit(p)} title="编辑" className="text-gray-500 hover:text-purple-600"><Edit2 size={14} /></button>
               <button onClick={() => handleDelete(p)} title="删除" className="text-gray-500 hover:text-red-500"><X size={14} /></button>
@@ -313,7 +353,7 @@ function PricingMgmt() {
       </div>
       <div className="flex gap-2 mt-4">
         <button onClick={addTier} className="text-sm text-purple-600 flex items-center gap-1"><Plus size={14} />添加等级</button>
-        <button onClick={handleSave} disabled={saving} className="ml-auto px-4 py-2 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#4a3560" }}>
+        <button onClick={handleSave} disabled={saving} className="ml-auto px-4 py-2 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>
           {saving ? '保存中...' : '保存规则'}
         </button>
       </div>
@@ -393,7 +433,7 @@ function ScenarioMgmt() {
           <div className="flex gap-2">
             <button onClick={addItem} className="text-sm text-purple-600 flex items-center gap-1"><Plus size={14} />添加产品</button>
             <button onClick={() => { setEditingPkg(null); setItems([]); }} className="ml-auto px-3 py-1.5 text-sm border rounded-lg">取消</button>
-            <button onClick={handleSave} disabled={saving} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#4a3560" }}>
+            <button onClick={handleSave} disabled={saving} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>
               {saving ? '保存中...' : '保存方案'}
             </button>
           </div>
@@ -465,7 +505,7 @@ function SupplierMgmt() {
           <div><label className="block text-xs text-gray-500 mb-1">备注</label><textarea value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} rows="2" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
           <div className="flex gap-2">
             <button onClick={reset} className="px-3 py-1.5 text-sm border rounded-lg">取消</button>
-            <button onClick={handleSave} disabled={!form.name.trim() || saving} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#4a3560" }}>{saving ? '保存中...' : '保存'}</button>
+            <button onClick={handleSave} disabled={!form.name.trim() || saving} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>{saving ? '保存中...' : '保存'}</button>
           </div>
         </div>
       )}
@@ -575,7 +615,7 @@ function TargetMgmt() {
             <div key={u.id} className="border rounded-lg p-4">
               <div className="flex items-center justify-between mb-3">
                 <div className="font-medium flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs text-white font-bold" style={{ background: '#6c5ce7' }}>{u.name[0]}</div>
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs text-white font-bold" style={{ background: '#5C4B73' }}>{u.name[0]}</div>
                   {u.name}
                 </div>
                 {!ed && (
@@ -606,7 +646,7 @@ function TargetMgmt() {
                   </div>
                   <div className="flex gap-2">
                     <button onClick={() => setEditing(x => ({ ...x, [u.id]: null }))} className="px-3 py-1.5 text-xs border rounded">取消</button>
-                    <button onClick={() => handleSave(u.id)} className="flex-1 px-3 py-1.5 text-xs text-white rounded" style={{ background: '#4a3560' }}>保存 KPI</button>
+                    <button onClick={() => handleSave(u.id)} className="flex-1 px-3 py-1.5 text-xs text-white rounded" style={{ background: '#5C4B73' }}>保存 KPI</button>
                   </div>
                 </div>
               ) : (
@@ -615,7 +655,7 @@ function TargetMgmt() {
                   <div>
                     <div className="flex items-center justify-between text-sm mb-1">
                       <span className="text-gray-500 text-xs">💰 销售额</span>
-                      <span className="text-xs">{fmtY(actualAmt)} / {fmtY(targetAmt)} <span className="font-bold ml-1" style={{ color: pctAmt >= 100 ? '#059669' : '#4a3560' }}>{pctAmt}%</span></span>
+                      <span className="text-xs">{fmtY(actualAmt)} / {fmtY(targetAmt)} <span className="font-bold ml-1" style={{ color: pctAmt >= 100 ? '#059669' : '#5C4B73' }}>{pctAmt}%</span></span>
                     </div>
                     <ProgressBar pct={pctAmt} />
                   </div>
@@ -623,7 +663,7 @@ function TargetMgmt() {
                   <div>
                     <div className="flex items-center justify-between text-sm mb-1">
                       <span className="text-gray-500 text-xs">👥 新增客户</span>
-                      <span className="text-xs">{actualNew} / {targetNew} <span className="font-bold ml-1" style={{ color: pctNew >= 100 ? '#059669' : '#4a3560' }}>{pctNew}%</span></span>
+                      <span className="text-xs">{actualNew} / {targetNew} <span className="font-bold ml-1" style={{ color: pctNew >= 100 ? '#059669' : '#5C4B73' }}>{pctNew}%</span></span>
                     </div>
                     <ProgressBar pct={pctNew} />
                   </div>
@@ -631,7 +671,7 @@ function TargetMgmt() {
                   <div>
                     <div className="flex items-center justify-between text-sm mb-1">
                       <span className="text-gray-500 text-xs">📦 订单数</span>
-                      <span className="text-xs">{actualOrders} / {targetOrders} <span className="font-bold ml-1" style={{ color: pctOrders >= 100 ? '#059669' : '#4a3560' }}>{pctOrders}%</span></span>
+                      <span className="text-xs">{actualOrders} / {targetOrders} <span className="font-bold ml-1" style={{ color: pctOrders >= 100 ? '#059669' : '#5C4B73' }}>{pctOrders}%</span></span>
                     </div>
                     <ProgressBar pct={pctOrders} />
                   </div>
@@ -647,83 +687,6 @@ function TargetMgmt() {
         })}
         {salesUsers.length === 0 && <div className="text-center py-8 text-gray-400 text-sm">暂无销售人员，请先在"人员管理"中创建</div>}
       </div>
-    </Card>
-  );
-}
-
-function AISettings() {
-  const [settings, setSettings] = useState({ ai_provider: 'deepseek', ai_api_key: '', ai_api_url: 'https://api.deepseek.com/chat/completions', ai_model: 'deepseek-chat' });
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    api.fetchAppSettings().then(s => {
-      setSettings(prev => ({ ...prev, ...s }));
-      setLoading(false);
-    }).catch(() => setLoading(false));
-  }, []);
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await Promise.all(Object.entries(settings).map(([k, v]) => api.updateAppSetting(k, v)));
-      alert('保存成功');
-    } catch (e) { alert(e.message); } finally { setSaving(false); }
-  };
-
-  const applyPreset = (provider) => {
-    if (provider === 'deepseek') {
-      setSettings(s => ({ ...s, ai_provider: 'deepseek', ai_api_url: 'https://api.deepseek.com/chat/completions', ai_model: 'deepseek-chat' }));
-    } else if (provider === 'doubao') {
-      setSettings(s => ({ ...s, ai_provider: 'doubao', ai_api_url: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions', ai_model: 'ep-xxx（替换为你的接入点 ID）' }));
-    }
-  };
-
-  if (loading) return <Card className="p-4 text-center text-gray-400">加载中...</Card>;
-
-  return (
-    <Card className="p-4 space-y-4">
-      <div className="text-sm font-semibold text-gray-700">🤖 AI 服务配置</div>
-      <div className="text-xs text-gray-500">配置 AI API 后，销售在小程序端可使用"精油助手"和"文案助手"。推荐使用 DeepSeek（国内访问稳定，价格便宜）。</div>
-
-      <div className="flex gap-2">
-        <button onClick={() => applyPreset('deepseek')} className="px-3 py-1.5 text-xs border rounded-lg hover:bg-purple-50">使用 DeepSeek 预设</button>
-        <button onClick={() => applyPreset('doubao')} className="px-3 py-1.5 text-xs border rounded-lg hover:bg-purple-50">使用 豆包 预设</button>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3">
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">API 服务商</label>
-          <select value={settings.ai_provider} onChange={e => setSettings(s => ({ ...s, ai_provider: e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
-            <option value="deepseek">DeepSeek</option>
-            <option value="doubao">豆包 (火山引擎)</option>
-            <option value="openai">OpenAI 兼容</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">API URL</label>
-          <input value={settings.ai_api_url} onChange={e => setSettings(s => ({ ...s, ai_api_url: e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm font-mono" />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">API Key</label>
-          <input type="password" value={settings.ai_api_key} onChange={e => setSettings(s => ({ ...s, ai_api_key: e.target.value }))} placeholder="sk-xxx..." className="w-full border rounded-lg px-3 py-2 text-sm font-mono" />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">模型名称</label>
-          <input value={settings.ai_model} onChange={e => setSettings(s => ({ ...s, ai_model: e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm" />
-        </div>
-      </div>
-
-      <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-800">
-        <div className="font-medium mb-1">📌 获取 API Key 步骤：</div>
-        <div>· DeepSeek: 访问 platform.deepseek.com 注册账号，充值 ¥5 可用很久</div>
-        <div>· 豆包: 访问 console.volcengine.com/ark 开通方舟，创建接入点</div>
-        <div className="mt-2 text-red-600">⚠️ 小程序端还需在微信后台 `request 合法域名` 添加你的 AI API 域名</div>
-      </div>
-
-      <button onClick={handleSave} disabled={saving} className="w-full py-2 text-white rounded-lg disabled:opacity-40" style={{ background: '#4a3560' }}>
-        {saving ? '保存中...' : '保存配置'}
-      </button>
     </Card>
   );
 }
@@ -775,8 +738,22 @@ function AuditLogView() {
 
 function ConfigMgmt() {
   const { configOptions, addConfig, removeConfig } = useData();
-  const [newVal, setNewVal] = useState({ CUSTOMER_TYPE: '', PRODUCT_SERIES: '', SPEC_OPTION: '' });
+  const [newVal, setNewVal] = useState({ CUSTOMER_TYPE: '', PRODUCT_SERIES: '', SPEC_OPTION: '', BUSINESS_TYPE: '' });
   const [saving, setSaving] = useState(null);
+
+  // 销售折扣上限
+  const [maxDisc, setMaxDisc] = useState('');
+  const [savingDisc, setSavingDisc] = useState(false);
+  useEffect(() => {
+    api.fetchAppSettings().then(s => setMaxDisc(s.max_discount_percent ?? '20')).catch(() => setMaxDisc('20'));
+  }, []);
+  const saveMaxDisc = async () => {
+    const v = Number(maxDisc);
+    if (isNaN(v) || v < 0 || v > 100) { alert('请输入 0-100 之间的数字'); return; }
+    setSavingDisc(true);
+    try { await api.updateAppSetting('max_discount_percent', String(v)); alert('已保存，销售下单折扣不能超过 ' + v + '%'); }
+    catch (e) { alert(e.message); } finally { setSavingDisc(false); }
+  };
 
   const byCategory = (cat) => configOptions.filter(o => o.category === cat);
 
@@ -819,7 +796,7 @@ function ConfigMgmt() {
           onClick={() => handleAdd(category)}
           disabled={!newVal[category]?.trim() || saving === category}
           className="px-3 py-1.5 text-sm text-white rounded-lg disabled:opacity-40"
-          style={{ background: "#4a3560" }}
+          style={{ background: "#5C4B73" }}
         >
           {saving === category ? '添加中...' : '+ 添加'}
         </button>
@@ -829,10 +806,22 @@ function ConfigMgmt() {
 
   return (
     <Card className="p-4 space-y-6">
-      <div className="text-xs text-gray-500 -mb-2">在此处可添加/删除下拉选项。鼠标悬停在选项上会显示删除按钮。</div>
+      <div className="space-y-2">
+        <div className="text-sm font-semibold text-gray-700">销售折扣上限</div>
+        <div className="text-xs text-gray-500">销售下单时可给的最大折扣比例（管理员本人下单不受限）。订单折扣金额会进入数据分析统计。</div>
+        <div className="flex items-center gap-2">
+          <input type="number" min="0" max="100" value={maxDisc} onChange={e => setMaxDisc(e.target.value)} className="w-24 border rounded-lg px-3 py-1.5 text-sm" />
+          <span className="text-sm text-gray-500">%</span>
+          <button onClick={saveMaxDisc} disabled={savingDisc} className="px-3 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>
+            {savingDisc ? '保存中...' : '保存'}
+          </button>
+        </div>
+      </div>
+      <div className="border-t pt-4 text-xs text-gray-500 -mb-2">在此处可添加/删除下拉选项。鼠标悬停在选项上会显示删除按钮。</div>
       <Section title="客户类型" category="CUSTOMER_TYPE" placeholder="如：连锁美容院" />
       <Section title="产品系列" category="PRODUCT_SERIES" placeholder="如：礼盒装系列" />
       <Section title="产品规格（下拉选项）" category="SPEC_OPTION" placeholder="如：200ml" />
+      <Section title="业务类型" category="BUSINESS_TYPE" placeholder="如：跨境电商" />
     </Card>
   );
 }

@@ -46,7 +46,7 @@ function mapProduct(p) {
   return {
     id: p.id, code: p.code, name: p.name, series: p.series, origin: p.origin,
     specs: (p.specs || []).map(s => ({
-      id: s.id, spec: s.spec, price: Number(s.price), stock: s.stock, safeStock: s.safe_stock
+      id: s.id, spec: s.spec, price: Number(s.price), cost: Number(s.cost || 0), stock: s.stock, safeStock: s.safe_stock
     }))
   };
 }
@@ -65,12 +65,12 @@ export async function createProduct(product) {
   if (pe) throw new Error(pe.message);
 
   const { data: specs, error: se } = await supabase.from('product_specs')
-    .insert(product.specs.map(s => ({ product_id: p.id, spec: s.spec, price: s.price, stock: s.stock || 0, safe_stock: s.safeStock || 10 })))
+    .insert(product.specs.map(s => ({ product_id: p.id, spec: s.spec, price: s.price, cost: s.cost || 0, stock: s.stock || 0, safe_stock: s.safeStock || 10 })))
     .select();
   if (se) throw new Error(se.message);
 
   return { id: p.id, code: p.code, name: p.name, series: p.series, origin: p.origin,
-    specs: specs.map(s => ({ id: s.id, spec: s.spec, price: Number(s.price), stock: s.stock, safeStock: s.safe_stock }))
+    specs: specs.map(s => ({ id: s.id, spec: s.spec, price: Number(s.price), cost: Number(s.cost || 0), stock: s.stock, safeStock: s.safe_stock }))
   };
 }
 
@@ -95,9 +95,9 @@ export async function updateProduct(product) {
   // Update existing / insert new specs
   for (const s of product.specs) {
     if (s.id && existingIds.has(s.id)) {
-      await supabase.from('product_specs').update({ spec: s.spec, price: s.price, stock: s.stock, safe_stock: s.safeStock }).eq('id', s.id);
+      await supabase.from('product_specs').update({ spec: s.spec, price: s.price, cost: s.cost || 0, stock: s.stock, safe_stock: s.safeStock }).eq('id', s.id);
     } else {
-      await supabase.from('product_specs').insert({ product_id: product.id, spec: s.spec, price: s.price, stock: s.stock || 0, safe_stock: s.safeStock || 10 });
+      await supabase.from('product_specs').insert({ product_id: product.id, spec: s.spec, price: s.price, cost: s.cost || 0, stock: s.stock || 0, safe_stock: s.safeStock || 10 });
     }
   }
 
@@ -160,13 +160,14 @@ function mapOrder(o) {
     id: o.id, orderNo: o.order_no, customerId: o.customer_id, salesId: o.sales_id,
     status: o.status, subtotal: Number(o.subtotal), discountPercent: Number(o.discount_percent),
     discountAmount: Number(o.discount_amount), total: Number(o.total), notes: o.notes || '',
+    businessType: o.business_type || '院线',
     createdAt: o.created_at,
     paymentStatus: o.payment_status || 'UNPAID',
     paidAmount: Number(o.paid_amount || 0),
     items: (o.items || []).map(it => ({
       id: it.id, productId: it.product_id, specId: it.spec_id,
       productName: it.product_name, productCode: it.product_code, spec: it.spec,
-      quantity: it.quantity, unitPrice: Number(it.unit_price), subtotal: Number(it.subtotal)
+      quantity: it.quantity, unitPrice: Number(it.unit_price), unitCost: Number(it.unit_cost || 0), subtotal: Number(it.subtotal)
     })),
     logs: (o.logs || []).sort((a, b) => a.id - b.id).map(l => ({ id: l.id, time: l.time, user: l.user_name, action: l.action })),
     shipment: o.shipment?.[0] ? {
@@ -194,7 +195,7 @@ export async function createOrder(order) {
       order_no: order.orderNo, customer_id: order.customerId, sales_id: order.salesId,
       status: order.status || 'DRAFT', subtotal: order.subtotal,
       discount_percent: order.discountPercent || 0, discount_amount: order.discountAmount || 0,
-      total: order.total, notes: order.notes || '', created_at: order.createdAt
+      total: order.total, notes: order.notes || '', business_type: order.businessType || '院线', created_at: order.createdAt
     }).select().single();
   if (oe) throw new Error(oe.message);
 
@@ -202,7 +203,7 @@ export async function createOrder(order) {
     await supabase.from('order_items').insert(order.items.map(it => ({
       order_id: o.id, product_id: it.productId, spec_id: it.specId,
       product_name: it.productName, product_code: it.productCode, spec: it.spec,
-      quantity: it.quantity, unit_price: it.unitPrice, subtotal: it.subtotal
+      quantity: it.quantity, unit_price: it.unitPrice, unit_cost: it.unitCost || 0, subtotal: it.subtotal
     })));
   }
 
@@ -657,6 +658,25 @@ export async function updateAppSetting(key, value) {
     const { error } = await supabase.from('app_settings').insert({ key, value });
     if (error) throw new Error(error.message);
   }
+}
+
+// ═══ 成本与利润 ═══
+// 用最新批次成本一键回填 product_specs.cost
+export async function backfillSpecCost() {
+  const { data, error } = await supabase.rpc('backfill_spec_cost_from_batches');
+  if (error) throw new Error(error.message);
+  return data; // 回填条数
+}
+// 库存估值（按系列）
+export async function fetchInventoryValuation() {
+  const { data, error } = await supabase.from('inventory_valuation').select('*');
+  if (error) throw new Error(error.message);
+  return (data || []).map(r => ({
+    series: r.series, skuCount: r.sku_count, totalUnits: Number(r.total_units || 0),
+    stockCostValue: Number(r.stock_cost_value || 0),
+    stockRetailValue: Number(r.stock_retail_value || 0),
+    potentialMargin: Number(r.potential_margin || 0)
+  }));
 }
 
 // ═══ AUDIT LOGS ═══

@@ -4,10 +4,8 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, Badge, fmtY, CUSTOMER_TYPES } from '../components/ui';
-import { AIInsight } from '../components/AIInsight';
-import { analyzeCustomer } from '../lib/ai';
 
-const CL = ["#6c5ce7","#a29bfe","#0984e3","#74b9ff","#00b894","#fdcb6e","#e17055"];
+const CL = ["#5C4B73","#a29bfe","#5F7689","#74b9ff","#7B8F67","#fdcb6e","#8D5F5B"];
 
 // ═══ CUSTOMER LIST ═══
 export function CustomerList({ nav, onNew }) {
@@ -37,7 +35,7 @@ export function CustomerList({ nav, onNew }) {
             {CUSTOMER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
-        <button onClick={onNew} className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-white text-sm font-medium shadow" style={{ background: "#4a3560" }}>
+        <button onClick={onNew} className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-white text-sm font-medium shadow" style={{ background: "#5C4B73" }}>
           <Plus size={16} />新建客户
         </button>
       </div>
@@ -58,7 +56,7 @@ export function CustomerList({ nav, onNew }) {
               </div>
               <div className="flex gap-4 mt-3 pt-3 border-t text-xs text-gray-500">
                 <div><span className="font-semibold text-gray-700">{co.length}</span>笔</div>
-                <div>累计<span className="font-semibold" style={{ color: "#4a3560" }}>{fmtY(tot)}</span></div>
+                <div>累计<span className="font-semibold" style={{ color: "#5C4B73" }}>{fmtY(tot)}</span></div>
               </div>
               {last && <div className="text-xs text-gray-400 mt-1">最近 {last.createdAt}</div>}
             </Card>
@@ -173,7 +171,7 @@ export function CustomerDetail({ customerId, onBack }) {
                 </select>
               </div>
               <div><label className="block text-xs text-gray-500 mb-1">联系人</label><input value={editData.contact} onChange={e => setEditData({ ...editData, contact: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-              <div><label className="block text-xs text-gray-500 mb-1">电话</label><input value={editData.phone} onChange={e => setEditData({ ...editData, phone: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+              <div><label className="block text-xs text-gray-500 mb-1">电话 <span className="text-gray-300">（仅用于发货联系，非收集用户信息）</span></label><input value={editData.phone} onChange={e => setEditData({ ...editData, phone: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
             </div>
             <div><label className="block text-xs text-gray-500 mb-1">地址</label><input value={editData.address} onChange={e => setEditData({ ...editData, address: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
             {user.role === 'ADMIN' && (
@@ -186,7 +184,7 @@ export function CustomerDetail({ customerId, onBack }) {
             )}
             <div className="flex gap-2">
               <button onClick={() => setEditing(false)} className="px-3 py-1.5 text-sm border rounded-lg">取消</button>
-              <button onClick={handleSaveEdit} disabled={savingEdit || !editData.name.trim()} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#4a3560" }}>
+              <button onClick={handleSaveEdit} disabled={savingEdit || !editData.name.trim()} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>
                 {savingEdit ? '保存中...' : '保存'}
               </button>
             </div>
@@ -209,7 +207,7 @@ export function CustomerDetail({ customerId, onBack }) {
               </div>
               <div className="text-right">
                 <div className="text-xs text-gray-400">累计</div>
-                <div className="text-lg font-bold" style={{ color: "#4a3560" }}>{fmtY(tot)}</div>
+                <div className="text-lg font-bold" style={{ color: "#5C4B73" }}>{fmtY(tot)}</div>
               </div>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
@@ -223,13 +221,6 @@ export function CustomerDetail({ customerId, onBack }) {
         )}
       </Card>
 
-      <AIInsight
-        title="AI 客户洞察"
-        icon="🤖"
-        buttonText="生成客户分析"
-        generate={() => analyzeCustomer(customer, orders, products)}
-      />
-
       {ps.length > 0 && (
         <div className="grid md:grid-cols-2 gap-4">
           <Card className="p-4">
@@ -242,7 +233,7 @@ export function CustomerDetail({ customerId, onBack }) {
                     <div className="text-sm text-gray-800 truncate">{p.name}</div>
                     <div className="text-xs text-gray-400">{p.code} · {p.qty}件</div>
                   </div>
-                  <div className="text-sm font-semibold shrink-0" style={{ color: "#4a3560" }}>{fmtY(p.amt)}</div>
+                  <div className="text-sm font-semibold shrink-0" style={{ color: "#5C4B73" }}>{fmtY(p.amt)}</div>
                 </div>
               ))}
             </div>
@@ -267,7 +258,7 @@ export function CustomerDetail({ customerId, onBack }) {
           {co.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, 8).map(o => (
             <div key={o.id} className="flex items-center justify-between py-2 border-b text-sm">
               <div><span className="font-mono text-xs text-gray-500">{o.orderNo}</span><span className="text-gray-400 mx-2">·</span>{o.createdAt}</div>
-              <div className="flex items-center gap-2"><span className="font-semibold" style={{ color: "#4a3560" }}>{fmtY(o.total)}</span><Badge status={o.status} /></div>
+              <div className="flex items-center gap-2"><span className="font-semibold" style={{ color: "#5C4B73" }}>{fmtY(o.total)}</span><Badge status={o.status} /></div>
             </div>
           ))}
           {co.length === 0 && <div className="text-sm text-gray-400 py-4 text-center">暂无</div>}
@@ -280,7 +271,7 @@ export function CustomerDetail({ customerId, onBack }) {
         <div className="flex gap-2 mb-3">
           <input placeholder="添加备注..." value={note} onChange={e => setNote(e.target.value)} className="flex-1 border rounded-lg px-3 py-2 text-sm"
             onKeyDown={e => { if (e.key === 'Enter') handleAddNote(); }} />
-          <button onClick={handleAddNote} disabled={!note.trim() || saving} className="px-4 py-2 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#4a3560" }}>
+          <button onClick={handleAddNote} disabled={!note.trim() || saving} className="px-4 py-2 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>
             {saving ? '...' : '添加'}
           </button>
         </div>

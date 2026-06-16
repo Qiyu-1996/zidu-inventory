@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Search, Plus, Minus, X, ShoppingCart, ArrowLeft, Layers, Tag } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, fmtY, today, now16, SERIES_LIST, CUSTOMER_TYPES } from '../components/ui';
+import * as api from '../lib/api';
 
 // ═══ SHOP CATALOG ═══
 export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, onCheckout }) {
@@ -51,7 +52,7 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
           )}
         </div>
         {cart.length > 0 && (
-          <button onClick={() => setShowCart(!showCart)} className="flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium shadow" style={{ background: "#4a3560" }}>
+          <button onClick={() => setShowCart(!showCart)} className="flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium shadow" style={{ background: "#5C4B73" }}>
             <ShoppingCart size={16} />
             购物车 ({cart.length}) · {fmtY(cartTotal)}
           </button>
@@ -100,13 +101,13 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
                   <button onClick={() => updateCartQty(c.key, c.quantity + 1)} className="w-7 h-7 rounded-full border flex items-center justify-center hover:bg-gray-100"><Plus size={14} /></button>
                   <button onClick={() => removeFromCart(c.key)} className="text-gray-400 hover:text-red-500 ml-1"><X size={14} /></button>
                 </div>
-                <div className="text-sm font-semibold w-20 text-right" style={{ color: "#4a3560" }}>{fmtY(c.unitPrice * c.quantity)}</div>
+                <div className="text-sm font-semibold w-20 text-right" style={{ color: "#5C4B73" }}>{fmtY(c.unitPrice * c.quantity)}</div>
               </div>
             ))}
           </div>
           <div className="flex items-center justify-between mt-4 pt-3 border-t">
             <div className="text-sm text-gray-500">共 {cart.reduce((s, c) => s + c.quantity, 0)} 件</div>
-            <button onClick={onCheckout} className="px-6 py-2.5 text-white text-sm font-medium rounded-lg shadow" style={{ background: "#4a3560" }}>
+            <button onClick={onCheckout} className="px-6 py-2.5 text-white text-sm font-medium rounded-lg shadow" style={{ background: "#5C4B73" }}>
               去结算 {fmtY(cartTotal)}
             </button>
           </div>
@@ -130,7 +131,7 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
                     <div>
                       <span className="text-gray-700">{s.spec}</span>
                       <span className="text-gray-400 mx-1">·</span>
-                      <span className="font-medium" style={{ color: "#4a3560" }}>{fmtY(s.price)}</span>
+                      <span className="font-medium" style={{ color: "#5C4B73" }}>{fmtY(s.price)}</span>
                       {s.stock <= s.safeStock && <span className="text-red-500 text-xs ml-1">库存{s.stock}</span>}
                     </div>
                     {inCart ? (
@@ -157,18 +158,30 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
 }
 
 // ═══ CHECKOUT ═══
+const BIZ_TYPES = ['院线', '芳疗师', '其他'];
+
 export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
   const { user } = useAuth();
-  const { customers, getCustomerTier } = useData();
+  const { customers } = useData();
   const myCustomers = user.role === "ADMIN" ? customers : customers.filter(c => c.salesId === user.id);
 
   const [customerId, setCustomerId] = useState('');
+  const [businessType, setBusinessType] = useState('院线');
   const [discount, setDiscount] = useState(0);
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [tierInfo, setTierInfo] = useState(null);
   const [custSearch, setCustSearch] = useState('');
   const [showCustList, setShowCustList] = useState(false);
+  const [maxDiscount, setMaxDiscount] = useState(20);
+
+  // 销售折扣上限（管理员在 基础设置 配置；管理员本人不限）
+  useEffect(() => {
+    if (user.role === 'ADMIN') return;
+    api.fetchAppSettings().then(s => {
+      const m = Number(s.max_discount_percent);
+      if (!isNaN(m) && m >= 0) setMaxDiscount(m);
+    }).catch(() => {});
+  }, [user.role]);
 
   const { orders } = useData();
   // 最近使用的客户（取最近5个下过单的客户）
@@ -191,11 +204,6 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
     setCustomerId(id);
     setShowCustList(false);
     setCustSearch('');
-    if (id && getCustomerTier) {
-      const tier = getCustomerTier(Number(id));
-      setTierInfo(tier);
-      if (tier.discount > 0) setDiscount(tier.discount);
-    } else setTierInfo(null);
   };
 
   const subtotal = cart.reduce((s, c) => s + c.unitPrice * c.quantity, 0);
@@ -211,6 +219,7 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
         orderNo,
         customerId: Number(customerId),
         salesId: user.id,
+        businessType,
         status: "SUBMITTED",
         subtotal,
         discountPercent: discount,
@@ -226,6 +235,7 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
           spec: c.spec,
           quantity: c.quantity,
           unitPrice: c.unitPrice,
+          unitCost: c.unitCost || 0,
           subtotal: c.unitPrice * c.quantity
         })),
         logs: [{ time: now16(), user: user.name, action: "创建订单并提交" }]
@@ -252,7 +262,7 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
                 <span className="text-gray-800">{c.productName}</span>
                 <span className="text-gray-400 text-xs ml-1">({c.spec}) x{c.quantity}</span>
               </div>
-              <span className="font-medium" style={{ color: "#4a3560" }}>{fmtY(c.unitPrice * c.quantity)}</span>
+              <span className="font-medium" style={{ color: "#5C4B73" }}>{fmtY(c.unitPrice * c.quantity)}</span>
             </div>
           ))}
         </div>
@@ -338,16 +348,26 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
               </div>
             </div>
           )}
-          {tierInfo && tierInfo.discount > 0 && (
-            <div className="mt-2 inline-flex items-center gap-1 text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
-              <Tag size={12} />{tierInfo.label} · 年消费{fmtY(tierInfo.annualSpend)} · 自动应用{tierInfo.discount}%折扣
-            </div>
-          )}
         </div>
 
         <div>
-          <label className="block text-xs text-gray-500 mb-1.5">折扣 (%)</label>
-          <input type="number" min="0" max="50" value={discount} onChange={e => setDiscount(Number(e.target.value))} className="w-32 border rounded-lg px-3 py-2 text-sm" />
+          <label className="block text-xs text-gray-500 mb-1.5">业务类型</label>
+          <select value={businessType} onChange={e => setBusinessType(e.target.value)} className="w-40 border rounded-lg px-3 py-2 text-sm bg-white">
+            {BIZ_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-500 mb-1.5">
+            折扣 (%) {user.role !== 'ADMIN' && <span className="text-gray-300">上限 {maxDiscount}%</span>}
+          </label>
+          <input type="number" min="0" max={user.role === 'ADMIN' ? 100 : maxDiscount} value={discount}
+            onChange={e => {
+              let v = Number(e.target.value) || 0;
+              if (user.role !== 'ADMIN' && v > maxDiscount) v = maxDiscount;
+              setDiscount(v);
+            }}
+            className="w-32 border rounded-lg px-3 py-2 text-sm" />
         </div>
 
         <div>
@@ -362,14 +382,14 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
           {discountAmount > 0 && <div className="flex justify-between text-orange-600"><span>折扣 ({discount}%)</span><span>-{fmtY(discountAmount)}</span></div>}
           <div className="flex justify-between pt-2 border-t text-base font-bold">
             <span className="text-gray-800">应付</span>
-            <span style={{ color: "#4a3560" }}>{fmtY(total)}</span>
+            <span style={{ color: "#5C4B73" }}>{fmtY(total)}</span>
           </div>
         </div>
         <button
           onClick={handlePlace}
           disabled={!customerId || submitting}
           className="w-full mt-4 py-3 text-white font-medium rounded-xl disabled:opacity-40"
-          style={{ background: "#4a3560" }}
+          style={{ background: "#5C4B73" }}
         >
           {submitting ? '提交中...' : `提交订单 ${fmtY(total)}`}
         </button>
@@ -416,7 +436,7 @@ export function CustomerCreate({ onSave, onCancel }) {
           <div><label className="block text-xs text-gray-500 mb-1">联系人</label><input value={contact} onChange={e => setContact(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <div><label className="block text-xs text-gray-500 mb-1">电话</label><input value={phone} onChange={e => setPhone(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+          <div><label className="block text-xs text-gray-500 mb-1">电话 <span className="text-gray-300">（仅用于发货联系，非收集用户信息）</span></label><input value={phone} onChange={e => setPhone(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
           <div><label className="block text-xs text-gray-500 mb-1">类型</label>
             <select value={type} onChange={e => setType(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
               {CUSTOMER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
@@ -434,7 +454,7 @@ export function CustomerCreate({ onSave, onCancel }) {
         )}
         <div className="flex gap-2 pt-2">
           <button onClick={onCancel} className="px-4 py-2 text-sm border rounded-lg">取消</button>
-          <button onClick={handleSave} disabled={!name.trim() || saving} className="px-6 py-2 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#4a3560" }}>
+          <button onClick={handleSave} disabled={!name.trim() || saving} className="px-6 py-2 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>
             {saving ? '保存中...' : '保存'}
           </button>
         </div>

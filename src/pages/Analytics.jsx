@@ -1,20 +1,82 @@
 import { useState, useMemo } from 'react';
-import { ShoppingCart, TrendingUp, Package, Percent, Download } from 'lucide-react';
+import { ShoppingCart, TrendingUp, Package, Percent, Download, Wallet, Coins, Boxes } from 'lucide-react';
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, StatCard, fmtY, exportCSV, STATUS_MAP } from '../components/ui';
 
-const CL = ["#6c5ce7","#a29bfe","#0984e3","#74b9ff","#00b894","#55efc4","#e17055","#fab1a0","#fdcb6e","#636e72"];
+// Soft Wellness 配色循环
+const CL = ["#5C4B73","#8D7AA6","#F3BD5B","#7B8F67","#B3A99A","#8D5F5B","#CFC6DC","#8A8178","#3F3650","#EAE3D6"];
+
+// 图表通用色（Soft Wellness）
+const C_PRIMARY = "#5C4B73";   // 主/数据主色
+const C_FILL    = "#CFC6DC";   // 浅紫填充
+const C_RISK    = "#8D5F5B";   // 陶土红/风险（折扣）
+const C_GRID    = "#E6DECF";   // 暖灰网格线/Tooltip
+
+// 业务类型固定顺序与配色
+const BIZ_TYPES = ["院线","芳疗师","OEM代工","ODM定制","其他"];
+const BIZ_COLOR = { "院线": "#5C4B73", "芳疗师": "#8D7AA6", "OEM代工": "#F3BD5B", "ODM定制": "#7B8F67", "其他": "#B3A99A" };
+const bizColor = t => BIZ_COLOR[t] || "#B3A99A";
+
+// 暖色 Tooltip 样式
+const TT_STYLE = {
+  contentStyle: { background: "#FBF8F2", border: `1px solid ${C_GRID}`, borderRadius: 10, fontSize: 12, color: "#3F3650", boxShadow: "0 4px 16px rgba(63,54,80,0.08)" },
+  labelStyle: { color: "#8A8178", fontWeight: 500, marginBottom: 2 },
+  cursor: { fill: "rgba(92,75,115,0.06)" },
+};
+
+// 自定义 HTML 图例：小方块 + 标签 + 百分比
+const DistLegend = ({ data, colorFn, total }) => (
+  <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3">
+    {data.map(d => {
+      const pct = total > 0 ? (d.value / total * 100).toFixed(0) : 0;
+      return (
+        <div key={d.name} className="flex items-center gap-1.5 text-xs" style={{ color: "#8A8178" }}>
+          <span className="inline-block rounded-sm shrink-0" style={{ width: 10, height: 10, background: colorFn(d) }} />
+          <span style={{ color: "#3F3650" }}>{d.name}</span>
+          <span style={{ color: "#8A8178" }}>{pct}%</span>
+        </div>
+      );
+    })}
+  </div>
+);
 
 export default function Analytics() {
   const { user } = useAuth();
   const { orders, customers, products, users } = useData();
 
+  const isAdmin = user.role === "ADMIN";
   const vo = orders.filter(o => o.status !== "CANCELLED");
   const totR = vo.reduce((s, o) => s + o.total, 0);
   const totD = vo.reduce((s, o) => s + (o.discountAmount || 0), 0);
   const avg = vo.length ? Math.round(totR / vo.length) : 0;
+
+  // 毛利（仅 ADMIN）：单笔 cogs = Σ(qty*unitCost)，毛利 = total - cogs。
+  // 只在该单 cogs>0 的订单上统计，避免历史/未录成本订单把毛利率拉到 100%。
+  const profit = useMemo(() => {
+    if (!isAdmin) return null;
+    let gp = 0, rev = 0, costed = 0;
+    vo.forEach(o => {
+      const cogs = (o.items || []).reduce((s, it) => s + it.quantity * (it.unitCost || 0), 0);
+      if (cogs > 0) { gp += o.total - cogs; rev += o.total; costed++; }
+    });
+    return { grossProfit: gp, rev, margin: rev > 0 ? gp / rev : 0, costed, totalOrders: vo.length };
+  }, [isAdmin, vo]);
+
+  // 库存成本价值：Σ(spec.stock*spec.cost)，cost=0 计 0，另统计未录成本 SKU 数。
+  const inv = useMemo(() => {
+    if (!isAdmin) return null;
+    let costVal = 0, missing = 0;
+    products.forEach(p => (p.specs || []).forEach(s => {
+      const c = s.cost || 0;
+      if (c > 0) costVal += (s.stock || 0) * c; else missing++;
+    }));
+    return { costVal, missing };
+  }, [isAdmin, products]);
+
+  // 折扣让利占营收
+  const discRateOverall = totR + totD > 0 ? totD / (totR + totD) : 0;
 
   const [tab, setTab] = useState("trend");
   const [period, setPeriod] = useState("month");
@@ -44,9 +106,48 @@ export default function Analytics() {
     if (user.role !== "ADMIN") return [];
     return users.filter(u => u.role === "SALES").map(su => {
       const so = vo.filter(o => o.salesId === su.id);
-      return { name: su.name, sales: so.reduce((s, o) => s + o.total, 0), count: so.length, custs: customers.filter(c => c.salesId === su.id).length };
+      const sales = so.reduce((s, o) => s + o.total, 0);
+      const disc = so.reduce((s, o) => s + (o.discountAmount || 0), 0);
+      // 折扣率 = 折扣额 / 折前金额
+      const discRate = (sales + disc) > 0 ? Math.round(disc / (sales + disc) * 1000) / 10 : 0;
+      // 毛利：只在该销售 cogs>0 的订单上统计
+      let gp = 0, gpRev = 0, costed = 0;
+      so.forEach(o => {
+        const cogs = (o.items || []).reduce((s, it) => s + it.quantity * (it.unitCost || 0), 0);
+        if (cogs > 0) { gp += o.total - cogs; gpRev += o.total; costed++; }
+      });
+      const margin = gpRev > 0 ? gp / gpRev : 0;
+      // 按业务类型分组营收 Σtotal
+      const bizMap = {};
+      so.forEach(o => { const t = o.businessType || "院线"; bizMap[t] = (bizMap[t] || 0) + o.total; });
+      const types = [...BIZ_TYPES.filter(t => bizMap[t] != null), ...Object.keys(bizMap).filter(t => !BIZ_TYPES.includes(t))];
+      const byBiz = types.map(t => ({ type: t, revenue: bizMap[t] }));
+      return { name: su.name, sales, count: so.length, custs: customers.filter(c => c.salesId === su.id).length, disc, discRate, gp, margin, costed, byBiz };
     });
   }, [user, vo, users, customers]);
+
+  // 堆叠柱所需的业务类型集合（按固定顺序，含数据中出现的非标准类型）+ 每销售一行（各类型营收摊平为列）
+  const bizSales = useMemo(() => {
+    if (user.role !== "ADMIN") return { rows: [], types: [] };
+    const seen = new Set();
+    salesComp.forEach(s => s.byBiz.forEach(b => seen.add(b.type)));
+    const types = [...BIZ_TYPES.filter(t => seen.has(t)), ...[...seen].filter(t => !BIZ_TYPES.includes(t))];
+    const rows = salesComp.map(s => {
+      const row = { name: s.name };
+      types.forEach(t => { row[t] = 0; });
+      s.byBiz.forEach(b => { row[b.type] = b.revenue; });
+      return row;
+    });
+    return { rows, types };
+  }, [user, salesComp]);
+
+  // 业务类型总分布（全部 vo 按 businessType 营收占比）
+  const bizDist = useMemo(() => {
+    const m = {};
+    vo.forEach(o => { const t = o.businessType || "院线"; m[t] = (m[t] || 0) + o.total; });
+    const types = [...BIZ_TYPES.filter(t => m[t] != null), ...Object.keys(m).filter(t => !BIZ_TYPES.includes(t))];
+    return types.map(t => ({ name: t, value: m[t] }));
+  }, [vo]);
 
   // Customer analytics
   const custAnalytics = useMemo(() => {
@@ -110,11 +211,23 @@ export default function Analytics() {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard label="总销售额" value={fmtY(totR)} icon={TrendingUp} color="#6c5ce7" />
-        <StatCard label="总订单" value={vo.length} icon={ShoppingCart} color="#0984e3" />
-        <StatCard label="客单价" value={fmtY(avg)} icon={Package} color="#00b894" />
-        <StatCard label="折扣总额" value={fmtY(totD)} icon={Percent} color="#e17055" />
+        <StatCard label="总销售额" value={fmtY(totR)} icon={TrendingUp} color="#5C4B73" />
+        <StatCard label="总订单" value={vo.length} icon={ShoppingCart} color="#5F7689" />
+        <StatCard label="客单价" value={fmtY(avg)} icon={Package} color="#7B8F67" />
+        <StatCard label="折扣总额" value={fmtY(totD)} icon={Percent} color="#8D5F5B" />
       </div>
+
+      {isAdmin && profit && inv && <>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <StatCard label="毛利" value={fmtY(profit.grossProfit)} icon={Wallet} color="#5C4B73" />
+          <StatCard label="毛利率" value={`${(profit.margin * 100).toFixed(1)}%`} icon={Coins} color="#7B8F67" />
+          <StatCard label="库存成本价值" value={fmtY(inv.costVal)} sub={inv.missing > 0 ? `${inv.missing} 个 SKU 未录成本` : undefined} icon={Boxes} color="#5F7689" />
+        </div>
+        <div className="text-xs text-gray-400 -mt-1 px-1">
+          毛利基于 {profit.costed} 笔已录成本订单（共 {profit.totalOrders} 笔）
+          {totD > 0 && <span className="ml-3">折扣共让利 {fmtY(totD)}，占营收 {(discRateOverall * 100).toFixed(1)}%</span>}
+        </div>
+      </>}
 
       <div className="flex gap-1.5 overflow-x-auto pb-1">
         {tabs.map(t => <button key={t.k} onClick={() => setTab(t.k)} className={`px-4 py-2 text-sm rounded-lg border whitespace-nowrap transition ${tab === t.k ? "bg-purple-100 border-purple-300 text-purple-700 font-medium" : "bg-white text-gray-500 hover:bg-gray-50"}`}>{t.l}</button>)}
@@ -128,15 +241,79 @@ export default function Analytics() {
             <button onClick={exportTrend} className="flex items-center gap-1 text-xs text-purple-700 px-2 py-1 rounded border border-purple-200 hover:bg-purple-50"><Download size={13} />导出</button>
           </div>
           <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={timeData}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="name" fontSize={11} /><YAxis fontSize={12} tickFormatter={v => v >= 10000 ? `${(v / 10000).toFixed(0)}万` : v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} /><Tooltip formatter={(v, n) => n === "count" ? v : fmtY(v)} /><Legend /><Bar dataKey="sales" name="销售额" fill="#6c5ce7" radius={[3, 3, 0, 0]} /><Bar dataKey="disc" name="折扣" fill="#e17055" radius={[3, 3, 0, 0]} /></BarChart>
+            <BarChart data={timeData}><CartesianGrid strokeDasharray="3 3" stroke={C_GRID} vertical={false} /><XAxis dataKey="name" fontSize={11} tick={{ fill: "#8A8178" }} axisLine={{ stroke: C_GRID }} tickLine={false} /><YAxis fontSize={12} tick={{ fill: "#8A8178" }} axisLine={false} tickLine={false} tickFormatter={v => v >= 10000 ? `${(v / 10000).toFixed(0)}万` : v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} /><Tooltip {...TT_STYLE} formatter={(v, n) => n === "count" ? v : fmtY(v)} /><Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: "#8A8178" }} /><Bar dataKey="sales" name="销售额" fill={C_PRIMARY} radius={[6, 6, 0, 0]} maxBarSize={32} /><Bar dataKey="disc" name="折扣" fill={C_RISK} radius={[6, 6, 0, 0]} maxBarSize={32} /></BarChart>
           </ResponsiveContainer>
         </Card>
         <div className="grid lg:grid-cols-2 gap-4">
           <Card className="p-4"><div className="text-sm font-semibold text-gray-700 mb-3">系列分布</div>
-            {seriesData.length > 0 ? <ResponsiveContainer width="100%" height={220}><PieChart><Pie data={seriesData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} fontSize={11} labelLine>{seriesData.map((_, i) => <Cell key={i} fill={CL[i % 10]} />)}</Pie><Tooltip formatter={v => fmtY(v)} /></PieChart></ResponsiveContainer> : <div className="text-sm text-gray-400 text-center py-16">暂无数据</div>}
+            {seriesData.length > 0 ? <>
+              <ResponsiveContainer width="100%" height={220}><PieChart><Pie data={seriesData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={48} outerRadius={80} paddingAngle={2} stroke="#FBF8F2" strokeWidth={2}>{seriesData.map((_, i) => <Cell key={i} fill={CL[i % CL.length]} />)}</Pie><Tooltip {...TT_STYLE} formatter={v => fmtY(v)} /></PieChart></ResponsiveContainer>
+              <DistLegend data={seriesData} colorFn={d => CL[seriesData.indexOf(d) % CL.length]} total={seriesData.reduce((s, x) => s + x.value, 0)} />
+            </> : <div className="text-sm text-gray-400 text-center py-16">暂无数据</div>}
           </Card>
-          {user.role === "ADMIN" && salesComp.length > 0 && <Card className="p-4"><div className="text-sm font-semibold text-gray-700 mb-3">销售业绩</div><ResponsiveContainer width="100%" height={220}><BarChart data={salesComp}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="name" fontSize={12} /><YAxis fontSize={12} tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} /><Tooltip formatter={v => typeof v === "number" && v > 100 ? fmtY(v) : v} /><Legend /><Bar dataKey="sales" name="销售额" fill="#6c5ce7" radius={[4, 4, 0, 0]} /><Bar dataKey="count" name="订单数" fill="#74b9ff" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></Card>}
+          {user.role === "ADMIN" && salesComp.length > 0 && <Card className="p-4">
+            <div className="text-sm font-semibold text-gray-700 mb-3">销售业绩</div>
+            <ResponsiveContainer width="100%" height={220}><BarChart data={salesComp}><CartesianGrid strokeDasharray="3 3" stroke={C_GRID} vertical={false} /><XAxis dataKey="name" fontSize={12} tick={{ fill: "#8A8178" }} axisLine={{ stroke: C_GRID }} tickLine={false} /><YAxis fontSize={12} tick={{ fill: "#8A8178" }} axisLine={false} tickLine={false} tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} /><Tooltip {...TT_STYLE} formatter={v => typeof v === "number" && v > 100 ? fmtY(v) : v} /><Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: "#8A8178" }} /><Bar dataKey="sales" name="销售额" fill={C_PRIMARY} radius={[6, 6, 0, 0]} maxBarSize={32} /><Bar dataKey="disc" name="折扣额" fill={C_RISK} radius={[6, 6, 0, 0]} maxBarSize={32} /></BarChart></ResponsiveContainer>
+            <table className="w-full text-sm mt-3">
+              <thead><tr className="border-b bg-gray-50/80">
+                <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">销售</th>
+                <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">销售额</th>
+                <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">订单</th>
+                <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">折扣总额</th>
+                <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">平均折扣率</th>
+                <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">毛利</th>
+                <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">毛利率</th>
+              </tr></thead>
+              <tbody>{salesComp.map(s => (
+                <tr key={s.name} className="border-b last:border-0">
+                  <td className="py-2 px-3">{s.name}</td>
+                  <td className="py-2 px-3 text-right font-medium">{fmtY(s.sales)}</td>
+                  <td className="py-2 px-3 text-right">{s.count}</td>
+                  <td className="py-2 px-3 text-right" style={{ color: s.disc > 0 ? '#8D5F5B' : undefined }}>{s.disc > 0 ? '-' + fmtY(s.disc) : '—'}</td>
+                  <td className="py-2 px-3 text-right" style={{ color: s.discRate >= 10 ? '#dc2626' : s.discRate > 0 ? '#8D5F5B' : undefined }}>{s.discRate > 0 ? s.discRate + '%' : '—'}</td>
+                  <td className="py-2 px-3 text-right font-medium" style={{ color: s.costed > 0 ? '#5C4B73' : undefined }}>{s.costed > 0 ? fmtY(s.gp) : '—'}</td>
+                  <td className="py-2 px-3 text-right">{s.costed > 0 ? (s.margin * 100).toFixed(1) + '%' : '—'}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+            <div className="text-xs text-gray-400 mt-2">毛利/毛利率仅基于各销售已录成本（unitCost&gt;0）的订单计算</div>
+          </Card>}
         </div>
+
+        {/* 业务类型分析（仅 ADMIN） */}
+        {user.role === "ADMIN" && (bizSales.rows.length > 0 || bizDist.length > 0) && <div className="grid lg:grid-cols-2 gap-4">
+          {bizSales.rows.length > 0 && bizSales.types.length > 0 && <Card className="p-4">
+            <div className="text-sm font-semibold text-gray-700 mb-3">业务类型 × 销售</div>
+            <ResponsiveContainer width="100%" height={Math.max(bizSales.rows.length * 44 + 60, 220)}>
+              <BarChart data={bizSales.rows} layout="vertical" margin={{ left: 8, right: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C_GRID} horizontal={false} />
+                <XAxis type="number" fontSize={12} tick={{ fill: "#8A8178" }} axisLine={false} tickLine={false} tickFormatter={v => v >= 10000 ? `${(v / 10000).toFixed(0)}万` : v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
+                <YAxis type="category" dataKey="name" fontSize={12} width={64} tick={{ fill: "#8A8178" }} axisLine={{ stroke: C_GRID }} tickLine={false} />
+                <Tooltip {...TT_STYLE} formatter={(v, n) => [fmtY(v), n]} />
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: "#8A8178" }} />
+                {bizSales.types.map((t, i) => (
+                  <Bar key={t} dataKey={t} name={t} stackId="biz" fill={bizColor(t)} maxBarSize={28}
+                    radius={i === bizSales.types.length - 1 ? [0, 6, 6, 0] : [0, 0, 0, 0]} />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+            <div className="text-xs text-gray-400 mt-2">每根柱为一位销售，按业务类型分段营收（排除已取消订单）</div>
+          </Card>}
+
+          {bizDist.length > 0 && <Card className="p-4">
+            <div className="text-sm font-semibold text-gray-700 mb-3">业务类型总分布</div>
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie data={bizDist} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={48} outerRadius={80} paddingAngle={2} stroke="#FBF8F2" strokeWidth={2}>
+                  {bizDist.map(d => <Cell key={d.name} fill={bizColor(d.name)} />)}
+                </Pie>
+                <Tooltip {...TT_STYLE} formatter={v => fmtY(v)} />
+              </PieChart>
+            </ResponsiveContainer>
+            <DistLegend data={bizDist} colorFn={d => bizColor(d.name)} total={bizDist.reduce((s, x) => s + x.value, 0)} />
+            <div className="text-xs text-gray-400 mt-2">全部有效订单按业务类型营收占比</div>
+          </Card>}
+        </div>}
       </>}
 
       {/* Customers */}
@@ -145,7 +322,7 @@ export default function Analytics() {
         {custAnalytics.length > 0 && <Card className="p-4">
           <div className="text-sm font-semibold text-gray-700 mb-3">客户贡献 Top 10</div>
           <ResponsiveContainer width="100%" height={Math.min(custAnalytics.slice(0, 10).length * 40 + 40, 440)}>
-            <BarChart data={custAnalytics.slice(0, 10)} layout="vertical"><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis type="number" fontSize={12} tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} /><YAxis type="category" dataKey="name" fontSize={12} width={120} /><Tooltip formatter={v => fmtY(v)} /><Bar dataKey="revenue" name="累计金额" fill="#6c5ce7" radius={[0, 4, 4, 0]} /></BarChart>
+            <BarChart data={custAnalytics.slice(0, 10)} layout="vertical"><CartesianGrid strokeDasharray="3 3" stroke={C_GRID} horizontal={false} /><XAxis type="number" fontSize={12} tick={{ fill: "#8A8178" }} axisLine={false} tickLine={false} tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} /><YAxis type="category" dataKey="name" fontSize={12} width={120} tick={{ fill: "#8A8178" }} axisLine={{ stroke: C_GRID }} tickLine={false} /><Tooltip {...TT_STYLE} formatter={v => fmtY(v)} /><Bar dataKey="revenue" name="累计金额" radius={[0, 6, 6, 0]} maxBarSize={22}>{custAnalytics.slice(0, 10).map((_, i) => <Cell key={i} fill={i === 0 ? "#F3BD5B" : C_PRIMARY} />)}</Bar></BarChart>
           </ResponsiveContainer>
         </Card>}
         <Card className="p-4">
@@ -162,7 +339,7 @@ export default function Analytics() {
               <td className="py-2 px-3 font-medium text-gray-800">{c.name}</td>
               <td className="py-2 px-3 text-xs text-gray-500 hidden md:table-cell">{c.type}</td>
               <td className="py-2 px-3 text-right">{c.orders}</td>
-              <td className="py-2 px-3 text-right font-semibold" style={{ color: "#4a3560" }}>{fmtY(c.revenue)}</td>
+              <td className="py-2 px-3 text-right font-semibold" style={{ color: "#5C4B73" }}>{fmtY(c.revenue)}</td>
               <td className="py-2 px-3 text-center"><span className={`text-xs font-medium ${c.trend > 0 ? "text-green-600" : c.trend < 0 ? "text-red-500" : "text-gray-400"}`}>{c.trend > 0 ? `+${c.trend}%` : c.trend < 0 ? `${c.trend}%` : "—"}</span></td>
               <td className="py-2 px-3 text-right text-xs hidden md:table-cell"><span className={c.daysSinceLast > 60 ? "text-red-500" : "text-gray-500"}>{c.lastDate}{c.daysSinceLast > 60 && " ⚠"}</span></td>
             </tr>
@@ -177,9 +354,9 @@ export default function Analytics() {
           <div className="text-sm font-semibold text-gray-700 mb-3">销售额 Top 10</div>
           <div className="space-y-2">{prodAnalytics.slice(0, 10).map((p, i) => (
             <div key={i} className="flex items-center gap-2">
-              <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0" style={{ background: CL[i % 10] }}>{i + 1}</span>
+              <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0" style={{ background: i === 0 ? "#F3BD5B" : CL[i % CL.length] }}>{i + 1}</span>
               <div className="flex-1 min-w-0"><div className="text-sm text-gray-800 truncate">{p.name}</div><div className="text-xs text-gray-400">{p.code} · {p.spec} · {p.qty}件</div></div>
-              <div className="text-right shrink-0"><div className="text-sm font-semibold" style={{ color: "#4a3560" }}>{fmtY(p.rev)}</div><span className={`text-xs ${p.trend > 0 ? "text-green-600" : p.trend < 0 ? "text-red-500" : "text-gray-400"}`}>{p.trend > 0 ? `+${p.trend}%` : p.trend < 0 ? `${p.trend}%` : "—"}</span></div>
+              <div className="text-right shrink-0"><div className="text-sm font-semibold" style={{ color: "#5C4B73" }}>{fmtY(p.rev)}</div><span className={`text-xs ${p.trend > 0 ? "text-green-600" : p.trend < 0 ? "text-red-500" : "text-gray-400"}`}>{p.trend > 0 ? `+${p.trend}%` : p.trend < 0 ? `${p.trend}%` : "—"}</span></div>
             </div>
           ))}</div>
         </Card>}

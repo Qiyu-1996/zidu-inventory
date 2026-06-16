@@ -1,1 +1,73 @@
 @import "tailwindcss";
+
+/* ═══ Soft Wellness 色板覆盖 ═══
+   紫色 → 深紫 #5C4B73 家族；灰色 → 暖米 greige 家族
+   一处定义，所有 purple-xxx / gray-xxx 类自动变暖 */
+@theme {
+  --color-purple-50:  #F1EEF6;
+  --color-purple-100: #E8E6F0;
+  --color-purple-200: #D8CFE0;
+  --color-purple-300: #B7A6D6;
+  --color-purple-400: #8D7AA6;
+  --color-purple-500: #6A5888;
+  --color-purple-600: #5C4B73;
+  --color-purple-700: #4E4063;
+  --color-purple-800: #3F3650;
+  --color-purple-900: #322A40;
+
+  --color-gray-50:  #F4EFE6;
+  --color-gray-100: #ECE4D6;
+  --color-gray-200: #E0D7C8;
+  --color-gray-300: #CFC4B0;
+  --color-gray-400: #B3A99A;
+  --color-gray-500: #8A8178;
+  --color-gray-600: #746B62;
+  --color-gray-700: #5C5349;
+  --color-gray-800: #433D35;
+  --color-gray-900: #3F3650;
+}
+
+body {
+  background: #EFEAE2;
+  color: #3F3650;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Soft Wellness 字重收敛：禁 700，重字统一落到 500，保持温暖疗愈感 */
+.font-bold,
+.font-extrabold,
+.font-semibold {
+  font-weight: 500;
+}
+
+/* 主按钮 token：圆角 12px、深紫主色、轻柔暖紫阴影 */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 12px;
+  background: #5C4B73;
+  color: #fff;
+  font-weight: 500;
+  padding: 9px 16px;
+  box-shadow: 0 6px 22px rgba(92, 75, 115, 0.06);
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+.btn-primary:hover { background: #4E4063; }
+.btn-primary:active { opacity: 0.9; }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* 进度条柔和：高 7px、全圆角、暖底槽、蜂蜜黄填充 */
+.progress-track {
+  height: 7px;
+  border-radius: 999px;
+  background: #EAE3D6;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: #F3BD5B;
+}

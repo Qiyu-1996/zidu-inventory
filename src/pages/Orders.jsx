@@ -5,8 +5,6 @@ import { useData } from '../contexts/DataContext';
 import { Card, Badge, PaymentBadge, fmtY, now16, STATUS_MAP, NEXT_STATUS, PAYMENT_STATUS_MAP, exportCSV } from '../components/ui';
 import { printOrder } from '../lib/printOrder';
 import * as api from '../lib/api';
-import { AIInsight } from '../components/AIInsight';
-import { analyzeOrder } from '../lib/ai';
 
 // 按角色过滤可用的下一步状态
 function filterNextByRole(current, role) {
@@ -93,7 +91,7 @@ export function OrderList({ nav }) {
                   <div className="text-xs text-gray-400 mt-0.5">{o.createdAt} · {o.items.length} 项商品</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-lg font-bold" style={{ color: "#4a3560" }}>{fmtY(o.total)}</div>
+                  <div className="text-lg font-bold" style={{ color: "#5C4B73" }}>{fmtY(o.total)}</div>
                   {o.discountAmount > 0 && <div className="text-xs text-orange-500">优惠 {fmtY(o.discountAmount)}</div>}
                   {o.paymentStatus === 'PARTIAL' && <div className="text-xs text-yellow-600">已付 {fmtY(o.paidAmount)}</div>}
                 </div>
@@ -204,7 +202,7 @@ export function OrderDetail({ orderId, onBack }) {
                 <button onClick={handleDelete} title="删除订单" className="p-2 rounded hover:bg-red-50 text-red-500"><Trash2 size={16} /></button>
               )}
             </div>
-            <div className="text-2xl font-bold" style={{ color: "#4a3560" }}>{fmtY(order.total)}</div>
+            <div className="text-2xl font-bold" style={{ color: "#5C4B73" }}>{fmtY(order.total)}</div>
             {order.discountAmount > 0 && <div className="text-xs text-orange-500">折扣 {fmtY(order.discountAmount)} ({order.discountPercent}%)</div>}
             {order.paidAmount > 0 && order.paymentStatus !== 'PAID' && <div className="text-xs text-yellow-600">已付 {fmtY(order.paidAmount)} / 剩 {fmtY(remaining)}</div>}
           </div>
@@ -241,7 +239,7 @@ export function OrderDetail({ orderId, onBack }) {
                 onClick={() => advance(ns)}
                 disabled={updating}
                 className={`px-4 py-2 text-sm rounded-lg font-medium disabled:opacity-40 ${ns === "CANCELLED" ? "border border-red-200 text-red-600 hover:bg-red-50" : "text-white"}`}
-                style={ns !== "CANCELLED" ? { background: "#4a3560" } : {}}
+                style={ns !== "CANCELLED" ? { background: "#5C4B73" } : {}}
               >
                 {STATUS_MAP[ns].label}
               </button>
@@ -249,16 +247,6 @@ export function OrderDetail({ orderId, onBack }) {
           </div>
         )}
       </Card>
-
-      {/* AI Order Insight */}
-      {order.status !== 'CANCELLED' && (
-        <AIInsight
-          title="AI 订单建议"
-          icon="🎯"
-          buttonText="生成交叉销售建议"
-          generate={() => analyzeOrder(order, customer, orders, products)}
-        />
-      )}
 
       {/* Items */}
       <Card className="p-4">
@@ -277,7 +265,7 @@ export function OrderDetail({ orderId, onBack }) {
               <td className="py-2 px-3 text-gray-600">{it.spec}</td>
               <td className="py-2 px-3 text-right text-gray-600">{fmtY(it.unitPrice)}</td>
               <td className="py-2 px-3 text-right">{it.quantity}</td>
-              <td className="py-2 px-3 text-right font-medium" style={{ color: "#4a3560" }}>{fmtY(it.subtotal)}</td>
+              <td className="py-2 px-3 text-right font-medium" style={{ color: "#5C4B73" }}>{fmtY(it.subtotal)}</td>
             </tr>
           ))}</tbody>
         </table>
@@ -309,7 +297,7 @@ export function OrderDetail({ orderId, onBack }) {
             <input value={payNote} onChange={e => setPayNote(e.target.value)} placeholder="备注（可选）" className="w-full border rounded px-3 py-2 text-sm" />
             <div className="flex gap-2">
               <button onClick={() => setShowPayForm(false)} className="px-3 py-1.5 text-sm border rounded-lg">取消</button>
-              <button onClick={handleRecordPayment} disabled={!payAmount || savingPay} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#4a3560" }}>{savingPay ? '保存中...' : '确认收款'}</button>
+              <button onClick={handleRecordPayment} disabled={!payAmount || savingPay} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>{savingPay ? '保存中...' : '确认收款'}</button>
             </div>
           </div>
         )}

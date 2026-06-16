@@ -92,11 +92,18 @@ export default function ShippingWorkbench() {
                     <Badge status={o.status} />
                   </div>
                   <div className="text-sm font-medium text-gray-800">{c?.name}</div>
+                  {c?.phone && (
+                    <div className="text-xs mt-0.5">
+                      <span className="text-gray-700 font-medium">{c.contact ? `${c.contact} · ` : ''}{c.phone}</span>
+                      <span className="text-gray-400">（仅用于发货联系，非收集用户信息）</span>
+                      <button onClick={() => { navigator.clipboard.writeText(`${c.contact || c.name} ${c.phone}\n${c.address || ''}`); alert('已复制收件信息'); }} className="text-purple-700 underline ml-1.5">复制收件信息</button>
+                    </div>
+                  )}
                   <div className="text-xs text-gray-400">{c?.address}</div>
                   <div className="text-xs text-gray-400 mt-1">{o.items.map(it => `${it.productName}(${it.spec})x${it.quantity}`).join("，")}</div>
                 </div>
                 <div className="flex gap-2 shrink-0">
-                  {o.status === "CONFIRMED" && <button onClick={() => doAdvance(o, "PREPARING")} disabled={updating} className="px-3 py-1.5 text-sm rounded-lg text-white disabled:opacity-40" style={{ background: "#4a3560" }}>备货</button>}
+                  {o.status === "CONFIRMED" && <button onClick={() => doAdvance(o, "PREPARING")} disabled={updating} className="px-3 py-1.5 text-sm rounded-lg text-white disabled:opacity-40" style={{ background: "#5C4B73" }}>备货</button>}
                   {o.status === "PREPARING" && <button onClick={() => doAdvance(o, "SHIPPED")} disabled={updating} className="px-3 py-1.5 text-sm rounded-lg text-white bg-green-600 disabled:opacity-40">发货</button>}
                   {o.status === "SHIPPED" && <button onClick={() => doAdvance(o, "DELIVERED")} disabled={updating} className="px-3 py-1.5 text-sm rounded-lg border text-gray-600 disabled:opacity-40">签收</button>}
                 </div>
@@ -110,7 +117,7 @@ export default function ShippingWorkbench() {
                   <input placeholder="快递单号" value={trackingNo} onChange={e => setTrackingNo(e.target.value)} className="flex-1 border rounded-lg px-3 py-2 text-sm" />
                   <div className="flex gap-2">
                     <button onClick={() => setShippingOrderId(null)} className="px-3 py-2 text-sm border rounded-lg">取消</button>
-                    <button onClick={() => confirmShip(o)} disabled={!trackingNo || updating} className="px-4 py-2 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#4a3560" }}>确认发货</button>
+                    <button onClick={() => confirmShip(o)} disabled={!trackingNo || updating} className="px-4 py-2 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>确认发货</button>
                   </div>
                 </div>
               )}

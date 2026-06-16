@@ -73,7 +73,7 @@ export default function Tasks() {
             <button key={t.k} onClick={() => setFilter(t.k)} className={`px-3 py-1.5 text-sm rounded-lg border ${filter === t.k ? 'bg-purple-100 border-purple-300 text-purple-700' : 'bg-white text-gray-600'}`}>{t.l}</button>
           ))}
         </div>
-        <button onClick={() => setShowForm(!showForm)} className="px-4 py-2 text-sm text-white rounded-lg" style={{ background: '#4a3560' }}><Plus size={14} className="inline -mt-0.5" /> 新建任务</button>
+        <button onClick={() => setShowForm(!showForm)} className="px-4 py-2 text-sm text-white rounded-lg" style={{ background: '#5C4B73' }}><Plus size={14} className="inline -mt-0.5" /> 新建任务</button>
       </div>
 
       {showForm && (
@@ -97,7 +97,7 @@ export default function Tasks() {
           </div>
           <div className="flex gap-2 mt-3">
             <button onClick={() => setShowForm(false)} className="px-3 py-1.5 text-sm border rounded-lg">取消</button>
-            <button onClick={handleCreate} disabled={!form.title.trim() || !form.customerId || saving} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: '#4a3560' }}>{saving ? '创建中...' : '创建任务'}</button>
+            <button onClick={handleCreate} disabled={!form.title.trim() || !form.customerId || saving} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: '#5C4B73' }}>{saving ? '创建中...' : '创建任务'}</button>
           </div>
         </Card>
       )}
@@ -134,7 +134,7 @@ export default function Tasks() {
                 <div className="mt-3 pt-3 border-t flex gap-2">
                   <input value={completeNote} onChange={e => setCompleteNote(e.target.value)} placeholder="完成备注（可选）" className="flex-1 border rounded-lg px-3 py-2 text-sm" />
                   <button onClick={() => { setCompleting(null); setCompleteNote(''); }} className="px-3 py-2 text-sm border rounded-lg">取消</button>
-                  <button onClick={() => handleComplete(t.id)} className="px-4 py-2 text-sm text-white rounded-lg" style={{ background: '#4a3560' }}>确认完成</button>
+                  <button onClick={() => handleComplete(t.id)} className="px-4 py-2 text-sm text-white rounded-lg" style={{ background: '#5C4B73' }}>确认完成</button>
                 </div>
               )}
             </Card>

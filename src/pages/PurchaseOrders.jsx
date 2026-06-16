@@ -29,7 +29,7 @@ export function PurchaseOrderList({ nav }) {
             {Object.entries(PO_STATUS_MAP).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
         </div>
-        <button onClick={() => nav('purchaseCreate')} className="flex items-center gap-1 px-4 py-2 text-white rounded-lg text-sm" style={{ background: '#4a3560' }}>
+        <button onClick={() => nav('purchaseCreate')} className="flex items-center gap-1 px-4 py-2 text-white rounded-lg text-sm" style={{ background: '#5C4B73' }}>
           <Plus size={16} />新建采购单
         </button>
       </div>
@@ -47,7 +47,7 @@ export function PurchaseOrderList({ nav }) {
                 <div className="text-xs text-gray-400 mt-0.5">{po.createdAt} · {po.items.length} 项</div>
               </div>
               <div className="text-right">
-                <div className="text-lg font-bold" style={{ color: '#4a3560' }}>{fmtY(po.total)}</div>
+                <div className="text-lg font-bold" style={{ color: '#5C4B73' }}>{fmtY(po.total)}</div>
               </div>
             </div>
           </Card>
@@ -132,7 +132,7 @@ export function PurchaseOrderCreate({ onBack }) {
                   </div>
                   <input type="number" min="1" value={it.quantity} onChange={e => updateItem(i, 'quantity', e.target.value)} placeholder="数量" className="border rounded px-2 py-1.5 text-sm" />
                   <input type="number" min="0" step="0.01" value={it.unitCost} onChange={e => updateItem(i, 'unitCost', e.target.value)} placeholder="单价" className="border rounded px-2 py-1.5 text-sm" />
-                  <div className="text-sm text-right" style={{ color: '#4a3560' }}>{fmtY(it.quantity * it.unitCost)}</div>
+                  <div className="text-sm text-right" style={{ color: '#5C4B73' }}>{fmtY(it.quantity * it.unitCost)}</div>
                   <button onClick={() => removeItem(i)} className="text-gray-400 hover:text-red-500"><X size={14} /></button>
                 </div>
               );
@@ -142,12 +142,12 @@ export function PurchaseOrderCreate({ onBack }) {
 
         <div className="flex justify-between items-center pt-3 border-t">
           <span className="text-sm text-gray-500">合计</span>
-          <span className="text-xl font-bold" style={{ color: '#4a3560' }}>{fmtY(total)}</span>
+          <span className="text-xl font-bold" style={{ color: '#5C4B73' }}>{fmtY(total)}</span>
         </div>
 
         <div className="flex gap-2">
           <button onClick={onBack} className="px-4 py-2 text-sm border rounded-lg">取消</button>
-          <button onClick={handleSave} disabled={saving || !supplier.trim() || items.length === 0} className="flex-1 px-4 py-2 text-white rounded-lg text-sm disabled:opacity-40" style={{ background: '#4a3560' }}>
+          <button onClick={handleSave} disabled={saving || !supplier.trim() || items.length === 0} className="flex-1 px-4 py-2 text-white rounded-lg text-sm disabled:opacity-40" style={{ background: '#5C4B73' }}>
             {saving ? '创建中...' : '创建采购单'}
           </button>
         </div>
@@ -210,7 +210,7 @@ export function PurchaseOrderDetail({ poId, onBack }) {
             <div className="text-sm text-gray-500 mt-1">{po.createdAt} · {po.createdByName}</div>
           </div>
           <div className="text-right">
-            <div className="text-2xl font-bold" style={{ color: '#4a3560' }}>{fmtY(po.total)}</div>
+            <div className="text-2xl font-bold" style={{ color: '#5C4B73' }}>{fmtY(po.total)}</div>
           </div>
         </div>
 
@@ -220,7 +220,7 @@ export function PurchaseOrderDetail({ poId, onBack }) {
         </div>
 
         <div className="flex gap-2 pt-3 border-t">
-          {po.status === 'DRAFT' && <button onClick={() => handleStatusChange('ORDERED')} className="px-4 py-2 text-white rounded-lg text-sm" style={{ background: '#4a3560' }}>标记已下单</button>}
+          {po.status === 'DRAFT' && <button onClick={() => handleStatusChange('ORDERED')} className="px-4 py-2 text-white rounded-lg text-sm" style={{ background: '#5C4B73' }}>标记已下单</button>}
           {(po.status === 'ORDERED' || po.status === 'PARTIAL_RECEIVED') && <button onClick={startReceive} className="px-4 py-2 text-white rounded-lg text-sm bg-green-600"><Truck size={14} className="inline mr-1" />收货入库</button>}
           {po.status !== 'CANCELLED' && po.status !== 'RECEIVED' && <button onClick={() => handleStatusChange('CANCELLED')} className="px-4 py-2 border border-red-200 text-red-600 rounded-lg text-sm">取消</button>}
         </div>
@@ -253,7 +253,7 @@ export function PurchaseOrderDetail({ poId, onBack }) {
                   </td>
                 )}
                 <td className="py-2 px-3 text-right text-gray-600">{fmtY(it.unitCost)}</td>
-                <td className="py-2 px-3 text-right font-medium" style={{ color: '#4a3560' }}>{fmtY(it.subtotal)}</td>
+                <td className="py-2 px-3 text-right font-medium" style={{ color: '#5C4B73' }}>{fmtY(it.subtotal)}</td>
               </tr>
             );
           })}</tbody>

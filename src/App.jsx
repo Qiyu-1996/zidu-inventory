@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { Home, ShoppingBag, ShoppingCart, Users, Package, Truck, TrendingUp, Settings, LogOut, X, Menu, ClipboardList, ClipboardCheck, Sparkles } from 'lucide-react';
+import { Home, ShoppingBag, ShoppingCart, Users, Package, Truck, TrendingUp, Settings, LogOut, X, Menu, ClipboardList, ClipboardCheck } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import { useData } from './contexts/DataContext';
 import { LoadingScreen } from './components/ui';
@@ -14,7 +14,6 @@ import Analytics from './pages/Analytics';
 import SettingsPage from './pages/Settings';
 import { PurchaseOrderList, PurchaseOrderCreate, PurchaseOrderDetail } from './pages/PurchaseOrders';
 import Tasks from './pages/Tasks';
-import AIChat from './pages/AIChat';
 
 export default function App() {
   const { user, logout } = useAuth();
@@ -63,7 +62,7 @@ export default function App() {
     setCart(prev => {
       const e = prev.find(c => c.key === key);
       if (e) return prev.map(c => c.key === key ? { ...c, quantity: c.quantity + qty } : c);
-      return [...prev, { key, productId: product.id, specId: specObj.id, spec: specObj.spec, quantity: qty, unitPrice: specObj.price, productName: product.name, productCode: product.code }];
+      return [...prev, { key, productId: product.id, specId: specObj.id, spec: specObj.spec, quantity: qty, unitPrice: specObj.price, unitCost: specObj.cost || 0, productName: product.name, productCode: product.code }];
     });
   }, []);
   const updateCartQty = useCallback((key, qty) => { if (qty <= 0) setCart(p => p.filter(c => c.key !== key)); else setCart(p => p.map(c => c.key === key ? { ...c, quantity: qty } : c)); }, []);
@@ -78,7 +77,6 @@ export default function App() {
     { key: "orders", icon: ShoppingCart, label: "订单管理", badge: unreadOrders || null },
     ...(user.role !== "WAREHOUSE" ? [{ key: "customers", icon: Users, label: "客户管理" }] : []),
     ...(user.role !== "WAREHOUSE" ? [{ key: "tasks", icon: ClipboardCheck, label: "跟进任务" }] : []),
-    { key: "ai", icon: Sparkles, label: "AI 助手" },
     { key: "inventory", icon: Package, label: "库存查看" },
     ...(user.role === "ADMIN" || user.role === "WAREHOUSE" ? [{ key: "purchase", icon: ClipboardList, label: "采购管理" }] : []),
     ...(user.role === "WAREHOUSE" ? [{ key: "shipping", icon: Truck, label: "发货管理", badge: unreadOrders || null }] : []),
@@ -103,9 +101,9 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen" style={{ fontFamily: "'Noto Sans SC',-apple-system,sans-serif", background: "#f5f4f7" }}>
+    <div className="flex h-screen" style={{ fontFamily: "'Noto Sans SC',-apple-system,sans-serif", background: "#EFEAE2" }}>
       {/* Desktop sidebar */}
-      <aside className="hidden md:flex flex-col w-56 shrink-0" style={{ background: "#1e1a2e" }}>
+      <aside className="hidden md:flex flex-col w-56 shrink-0" style={{ background: "#2E2740" }}>
         <div className="p-4 border-b border-white/10">
           <div className="text-lg font-bold text-white tracking-wide">紫都 <span className="text-purple-300 text-sm font-normal">ZBP</span></div>
           <div className="text-xs text-purple-300/60 mt-0.5">业务管理平台</div>
@@ -120,7 +118,7 @@ export default function App() {
         </nav>
         <div className="p-3 border-t border-white/10">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ background: "#6c5ce7" }}>{user.name[0]}</div>
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ background: "#5C4B73" }}>{user.name[0]}</div>
             <div className="flex-1 min-w-0">
               <div className="text-sm text-white truncate">{user.name}</div>
               <div className="text-xs text-purple-300/50">{{ ADMIN: "管理员", SALES: "销售", WAREHOUSE: "仓库" }[user.role]}</div>
@@ -133,7 +131,7 @@ export default function App() {
       {/* Mobile sidebar overlay */}
       {sideOpen && <div className="md:hidden fixed inset-0 z-40 bg-black/50" onClick={() => setSideOpen(false)} />}
       {sideOpen && (
-        <aside className="md:hidden fixed left-0 top-0 bottom-0 z-50 w-64 flex flex-col" style={{ background: "#1e1a2e" }}>
+        <aside className="md:hidden fixed left-0 top-0 bottom-0 z-50 w-64 flex flex-col" style={{ background: "#2E2740" }}>
           <div className="p-4 border-b border-white/10 flex justify-between">
             <span className="text-lg font-bold text-white">紫都 ZBP</span>
             <button onClick={() => setSideOpen(false)} className="text-white"><X size={20} /></button>
@@ -177,7 +175,6 @@ export default function App() {
           {page === "customers" && subView === "newcust" && <CustomerCreate onSave={handleNewCustomerFromList} onCancel={() => setSubView(null)} />}
           {page === "customerDetail" && <CustomerDetail customerId={subView} onBack={() => nav("customers")} />}
           {page === "tasks" && <Tasks />}
-          {page === "ai" && <AIChat />}
           {page === "inventory" && <Inventory />}
           {page === "purchase" && !subView && <PurchaseOrderList nav={nav} />}
           {page === "purchaseCreate" && <PurchaseOrderCreate onBack={() => nav('purchase')} />}

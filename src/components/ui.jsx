@@ -33,23 +33,23 @@ export const now16 = () => new Date().toISOString().slice(0, 16);
 
 export function Badge({ status }) {
   const s = STATUS_MAP[status];
-  return <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${s?.cls}`}>{s?.label || status}</span>;
+  return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${s?.cls}`}>{s?.label || status}</span>;
 }
 
 export function Card({ children, className = "", ...p }) {
-  return <div className={`bg-white rounded-xl border border-gray-100 shadow-sm ${className}`} {...p}>{children}</div>;
+  return <div className={`bg-white rounded-2xl border border-[#EFE8DB] shadow-[0_6px_22px_rgba(92,75,115,0.06)] ${className}`} {...p}>{children}</div>;
 }
 
-export function StatCard({ label, value, sub, icon: I, color = "#6c5ce7" }) {
+export function StatCard({ label, value, sub, icon: I, color = "#5C4B73" }) {
   return (
-    <Card className="p-4">
+    <Card className="p-5">
       <div className="flex items-start justify-between">
         <div>
           <div className="text-xs text-gray-500 mb-1">{label}</div>
-          <div className="text-xl font-bold text-gray-800">{value}</div>
+          <div className="text-xl font-medium text-gray-800">{value}</div>
           {sub && <div className="text-xs text-gray-400 mt-1">{sub}</div>}
         </div>
-        <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: color + "15" }}>
+        <div className="w-9 h-9 rounded-[14px] flex items-center justify-center" style={{ background: color + "15" }}>
           <I size={18} style={{ color }} />
         </div>
       </div>
@@ -85,17 +85,17 @@ export const PO_STATUS_MAP = {
 
 export function PaymentBadge({ status }) {
   const s = PAYMENT_STATUS_MAP[status];
-  return <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${s?.cls}`}>{s?.label || status}</span>;
+  return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${s?.cls}`}>{s?.label || status}</span>;
 }
 
 export function POBadge({ status }) {
   const s = PO_STATUS_MAP[status];
-  return <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${s?.cls}`}>{s?.label || status}</span>;
+  return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${s?.cls}`}>{s?.label || status}</span>;
 }
 
 export function LoadingScreen() {
   return (
-    <div className="flex items-center justify-center h-screen" style={{ background: "#f5f4f7" }}>
+    <div className="flex items-center justify-center h-screen" style={{ background: "#EFEAE2" }}>
       <div className="text-center">
         <div className="w-12 h-12 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mx-auto mb-4" />
         <div className="text-gray-500 text-sm">加载中...</div>
