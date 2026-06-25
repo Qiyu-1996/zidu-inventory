@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { Home, ShoppingBag, ShoppingCart, Users, Package, Truck, TrendingUp, Settings, LogOut, X, Menu, ClipboardList, ClipboardCheck } from 'lucide-react';
+import { Home, ShoppingBag, ShoppingCart, Users, Package, Truck, TrendingUp, Settings, LogOut, X, Menu, ClipboardList, ClipboardCheck, Wallet } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import { useData } from './contexts/DataContext';
 import { LoadingScreen } from './components/ui';
@@ -14,6 +14,7 @@ import Analytics from './pages/Analytics';
 import SettingsPage from './pages/Settings';
 import { PurchaseOrderList, PurchaseOrderCreate, PurchaseOrderDetail } from './pages/PurchaseOrders';
 import Tasks from './pages/Tasks';
+import Finance from './pages/Finance';
 
 export default function App() {
   const { user, logout } = useAuth();
@@ -71,7 +72,13 @@ export default function App() {
   if (!user) return <LoginScreen />;
   if (loading) return <LoadingScreen />;
 
-  const menuItems = [
+  const isFinance = user.role === "FINANCE";
+  const menuItems = isFinance ? [
+    // 财务：只看订单 + 收款流水
+    { key: "dashboard", icon: Home, label: "工作台" },
+    { key: "orders", icon: ShoppingCart, label: "订单查看", badge: unreadOrders || null },
+    { key: "finance", icon: Wallet, label: "收款流水" },
+  ] : [
     { key: "dashboard", icon: Home, label: "工作台" },
     ...(user.role === "SALES" ? [{ key: "shop", icon: ShoppingBag, label: "产品下单", badge: cart.length || null }] : []),
     { key: "orders", icon: ShoppingCart, label: "订单管理", badge: unreadOrders || null },
@@ -81,6 +88,7 @@ export default function App() {
     ...(user.role === "ADMIN" || user.role === "WAREHOUSE" ? [{ key: "purchase", icon: ClipboardList, label: "采购管理" }] : []),
     ...(user.role === "WAREHOUSE" ? [{ key: "shipping", icon: Truck, label: "发货管理", badge: unreadOrders || null }] : []),
     ...(user.role !== "WAREHOUSE" ? [{ key: "analytics", icon: TrendingUp, label: "数据分析" }] : []),
+    ...(user.role === "ADMIN" ? [{ key: "finance", icon: Wallet, label: "收款流水" }] : []),
     ...(user.role === "ADMIN" ? [{ key: "settings", icon: Settings, label: "系统管理" }] : []),
   ];
 
@@ -181,6 +189,7 @@ export default function App() {
           {page === "purchaseDetail" && <PurchaseOrderDetail poId={subView} onBack={() => nav('purchase')} />}
           {page === "shipping" && <ShippingWorkbench />}
           {page === "analytics" && <Analytics />}
+          {page === "finance" && <Finance />}
           {page === "settings" && <SettingsPage />}
         </main>
       </div>

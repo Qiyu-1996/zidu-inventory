@@ -302,6 +302,27 @@ export async function recordPayment(orderId, amount, method, note, recordedBy) {
   return { totalPaid, status };
 }
 
+// 财务收款流水：全部收款记录 + 关联订单信息（按时间倒序）
+export async function fetchPaymentRecords() {
+  const { data, error } = await supabase.from('payment_records')
+    .select('*, order:orders(order_no, customer_id, total, sales_id, business_type)')
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data || []).map(p => ({
+    id: p.id,
+    amount: Number(p.amount),
+    method: p.method || '',
+    note: p.note || '',
+    recordedBy: p.recorded_by || '',
+    createdAt: p.created_at,
+    orderNo: p.order ? p.order.order_no : '',
+    customerId: p.order ? p.order.customer_id : null,
+    orderTotal: p.order ? Number(p.order.total) : 0,
+    salesId: p.order ? p.order.sales_id : null,
+    businessType: p.order ? (p.order.business_type || '院线') : ''
+  }));
+}
+
 // ═══ STOCK ADJUSTMENTS ═══
 export async function adjustStock(specId, productId, type, reason, quantity, note, operatorName) {
   const { data: spec } = await supabase.from('product_specs').select('stock').eq('id', specId).single();
