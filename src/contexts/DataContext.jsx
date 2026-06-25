@@ -21,24 +21,36 @@ export function DataProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const loadAll = useCallback(async () => {
+  // silent=true：后台静默刷新，不触发全屏加载、单接口失败保留原数据（不清零）
+  const loadAll = useCallback(async (silent) => {
     if (!user) return;
-    setLoading(true); setError('');
+    if (!silent) setLoading(true);
+    setError('');
     try {
       const [p, c, o, u, po, tiers, scenarios, configs, sup, tasks, targets] = await Promise.all([
-        api.fetchProducts(), api.fetchCustomers(), api.fetchOrders(), api.fetchUsers(),
-        api.fetchPurchaseOrders().catch(() => []),
-        api.fetchPricingTiers().catch(() => []),
-        api.fetchScenarioPackages().catch(() => []),
-        api.fetchConfigOptions().catch(() => []),
-        api.fetchSuppliers().catch(() => []),
-        api.fetchSalesTasks().catch(() => []),
-        api.fetchSalesTargets().catch(() => [])
+        api.fetchProducts().catch(() => null), api.fetchCustomers().catch(() => null),
+        api.fetchOrders().catch(() => null), api.fetchUsers().catch(() => null),
+        api.fetchPurchaseOrders().catch(() => null),
+        api.fetchPricingTiers().catch(() => null),
+        api.fetchScenarioPackages().catch(() => null),
+        api.fetchConfigOptions().catch(() => null),
+        api.fetchSuppliers().catch(() => null),
+        api.fetchSalesTasks().catch(() => null),
+        api.fetchSalesTargets().catch(() => null)
       ]);
-      setProducts(p); setCustomers(c); setOrders(o); setUsers(u);
-      setPurchaseOrders(po); setPricingTiers(tiers); setScenarioPackages(scenarios);
-      setConfigOptions(configs); setSuppliers(sup); setSalesTasks(tasks); setSalesTargets(targets);
-    } catch (e) { setError(e.message); } finally { setLoading(false); }
+      // 仅当成功取到数据时才覆盖；失败返回 null 则保留现有数据，避免清零
+      if (p) setProducts(p);
+      if (c) setCustomers(c);
+      if (o) setOrders(o);
+      if (u) setUsers(u);
+      if (po) setPurchaseOrders(po);
+      if (tiers) setPricingTiers(tiers);
+      if (scenarios) setScenarioPackages(scenarios);
+      if (configs) setConfigOptions(configs);
+      if (sup) setSuppliers(sup);
+      if (tasks) setSalesTasks(tasks);
+      if (targets) setSalesTargets(targets);
+    } catch (e) { setError(e.message); } finally { if (!silent) setLoading(false); }
   }, [user]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
@@ -205,7 +217,7 @@ export function DataProvider({ children }) {
       addTask, completeTask, removeTask,
       setTarget,
       log,
-      reload: loadAll
+      reload: () => loadAll(true)
     }}>
       {children}
     </DataContext.Provider>
