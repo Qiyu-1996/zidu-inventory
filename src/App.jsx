@@ -15,6 +15,7 @@ import SettingsPage from './pages/Settings';
 import { PurchaseOrderList, PurchaseOrderCreate, PurchaseOrderDetail } from './pages/PurchaseOrders';
 import Tasks from './pages/Tasks';
 import Finance from './pages/Finance';
+import ziduLogo from './assets/zidu-logo.png';
 
 export default function App() {
   const { user, logout } = useAuth();
@@ -113,8 +114,8 @@ export default function App() {
       {/* Desktop sidebar */}
       <aside className="hidden md:flex flex-col w-56 shrink-0" style={{ background: "#2E2740" }}>
         <div className="p-4 border-b border-white/10">
-          <div className="text-lg font-bold text-white tracking-wide">紫都 <span className="text-purple-300 text-sm font-normal">ZBP</span></div>
-          <div className="text-xs text-purple-300/60 mt-0.5">业务管理平台</div>
+          <img src={ziduLogo} alt="紫都 ZIDU" style={{ height: 26, filter: 'brightness(0) invert(1)', opacity: 0.95 }} />
+          <div className="text-xs text-purple-300/60 mt-1.5">业务管理平台</div>
         </div>
         <nav className="flex-1 py-2 overflow-y-auto">
           {menuItems.map(m => (
@@ -140,8 +141,8 @@ export default function App() {
       {sideOpen && <div className="md:hidden fixed inset-0 z-40 bg-black/50" onClick={() => setSideOpen(false)} />}
       {sideOpen && (
         <aside className="md:hidden fixed left-0 top-0 bottom-0 z-50 w-64 flex flex-col" style={{ background: "#2E2740" }}>
-          <div className="p-4 border-b border-white/10 flex justify-between">
-            <span className="text-lg font-bold text-white">紫都 ZBP</span>
+          <div className="p-4 border-b border-white/10 flex justify-between items-center">
+            <img src={ziduLogo} alt="紫都 ZIDU" style={{ height: 24, filter: 'brightness(0) invert(1)', opacity: 0.95 }} />
             <button onClick={() => setSideOpen(false)} className="text-white"><X size={20} /></button>
           </div>
           <nav className="flex-1 py-2">

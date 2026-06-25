@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import ziduLogo from '../assets/zidu-logo.png';
 
 // Soft Wellness：暖米 #EFEAE2 / 深紫 #5C4B73 / 蜂蜜黄 #F3BD5B / 草本绿 #7B8F67
 export default function LoginScreen() {
@@ -22,11 +23,9 @@ export default function LoginScreen() {
 
       <div className="w-full max-w-sm mx-4 relative z-10">
         <div className="text-center mb-10">
-          <div style={{ fontFamily: "'Songti SC','Noto Serif SC',serif", fontSize: 56, fontWeight: 700, color: '#5C4B73', letterSpacing: 14, marginLeft: 14 }}>
-            紫都
-          </div>
-          <div style={{ color: '#B09A6A', fontSize: 12, letterSpacing: 6, fontWeight: 600, marginTop: 8 }}>ZIDU AROMA</div>
-          <div style={{ color: '#8A8178', fontSize: 12, letterSpacing: 2, marginTop: 8 }}>三十三年原料深耕 · 业务管理平台</div>
+          <img src={ziduLogo} alt="紫都 ZIDU" style={{ height: 48, margin: '0 auto' }} />
+          <div style={{ color: '#B09A6A', fontSize: 12, letterSpacing: 6, fontWeight: 600, marginTop: 12 }}>ZIDU AROMA</div>
+          <div style={{ color: '#8A8178', fontSize: 12, letterSpacing: 2, marginTop: 8 }}>源自新疆 · 深耕行业三十三年的精油应用专家</div>
         </div>
 
         <div className="rounded-2xl p-7"
