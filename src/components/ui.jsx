@@ -1,6 +1,6 @@
 import { Package, ShoppingCart, Users, TrendingUp, Percent } from 'lucide-react';
 
-export const SERIES_LIST = ["德国进口系列","中药精油系列","单方精油系列","基础油系列","纯露系列","专业护肤系列","专业水疗系列","养生疗愈系列","芳疗复配"];
+export const SERIES_LIST = ["德国进口系列","中药精油系列","单方精油系列","基础油系列","纯露系列","专业护肤系列","专业水疗系列","养生疗愈系列","芳疗复配","瓶器包材","茶饮养生","身体护理","家居香氛"];
 export const CUSTOMER_TYPES = ["SPA水疗馆","中医推拿馆","足浴/温泉","美容院/头皮理疗","头疗馆","经销商","其他"];
 export const DEFAULT_SPEC_OPTIONS = ["5ml","10ml","30ml","50ml","100ml","100g","500g","1kg","5kg","500ml","1L"];
 

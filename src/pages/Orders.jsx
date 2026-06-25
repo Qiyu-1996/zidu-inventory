@@ -6,6 +6,17 @@ import { Card, Badge, PaymentBadge, fmtY, now16, STATUS_MAP, NEXT_STATUS, PAYMEN
 import { printOrder } from '../lib/printOrder';
 import * as api from '../lib/api';
 
+// 状态推进按钮文案：用动作动词，而非状态名（避免「已确认/已取消」当按钮）
+const ACTION_LABEL = {
+  SUBMITTED: '提交订单',
+  CONFIRMED: '确认订单',
+  PREPARING: '开始备货',
+  SHIPPED: '去发货',
+  DELIVERED: '确认签收',
+  COMPLETED: '完成订单',
+  CANCELLED: '取消订单'
+};
+
 // 按角色过滤可用的下一步状态
 function filterNextByRole(current, role) {
   const next = NEXT_STATUS[current] || [];
@@ -241,7 +252,7 @@ export function OrderDetail({ orderId, onBack }) {
                 className={`px-4 py-2 text-sm rounded-lg font-medium disabled:opacity-40 ${ns === "CANCELLED" ? "border border-red-200 text-red-600 hover:bg-red-50" : "text-white"}`}
                 style={ns !== "CANCELLED" ? { background: "#5C4B73" } : {}}
               >
-                {STATUS_MAP[ns].label}
+                {ACTION_LABEL[ns] || STATUS_MAP[ns].label}
               </button>
             ))}
           </div>
