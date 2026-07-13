@@ -1,5 +1,5 @@
 import { Fragment, useState, useEffect, useMemo } from 'react';
-import { Search, Edit2, Download, Package, X, AlertTriangle, ClipboardCopy, Boxes, CalendarClock, SlidersHorizontal, ClipboardList, Save, Plus, Minus, ClipboardCheck } from 'lucide-react';
+import { Search, Edit2, Download, Package, X, AlertTriangle, ClipboardCopy, Boxes, CalendarClock, SlidersHorizontal, ClipboardList, Save, Plus, Minus, ClipboardCheck, Scale } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, fmtY, PRODUCT_CATEGORY_OPTIONS, matchesProductCategory, exportCSV, today } from '../components/ui';
@@ -53,6 +53,7 @@ export default function Inventory({ nav }) {
   const [densityEditId, setDensityEditId] = useState(null);
   const [densityDraft, setDensityDraft] = useState('');
   const [savingDensity, setSavingDensity] = useState(false);
+  const [showDensityTools, setShowDensityTools] = useState(false);
 
   const [batchFor, setBatchFor] = useState(null);
   const [batchData, setBatchData] = useState({ batchNo: '', gcmsNo: '', receivedDate: today(), expiryDate: '', quantity: '', unitCost: '', supplier: '', note: '' });
@@ -169,6 +170,9 @@ export default function Inventory({ nav }) {
   const beginRawStockEdit = () => {
     setAdjustFor(null);
     setBatchFor(null);
+    setShowDensityTools(false);
+    setDensityEditId(null);
+    setDensityDraft('');
     setRawStockDrafts(Object.fromEntries(
       products.filter(isRawProduct).map(p => [p.id, Number(p.baseStockKg || 0).toFixed(3)])
     ));
@@ -227,6 +231,13 @@ export default function Inventory({ nav }) {
   const beginDensityEdit = product => {
     setDensityEditId(product.id);
     setDensityDraft(defaultDensityForProduct(product).toFixed(3));
+  };
+
+  const toggleDensityTools = () => {
+    if (savingDensity) return;
+    setShowDensityTools(current => !current);
+    setDensityEditId(null);
+    setDensityDraft('');
   };
 
   const saveDensity = async product => {
@@ -346,8 +357,8 @@ export default function Inventory({ nav }) {
       </div>
 
       <div className="zidu-segment self-start" aria-label="库存管理分类">
-        <button onClick={() => { setStockKind('RAW'); setSf('ALL'); setAdjustFor(null); setBatchFor(null); }} className={stockKind === 'RAW' ? 'active' : ''}>原料库存（kg） · {products.filter(isRawProduct).length}</button>
-        <button onClick={() => { cancelRawStockEdit(); setStockKind('FINISHED'); setSf('ALL'); setAdjustFor(null); setBatchFor(null); }} className={stockKind === 'FINISHED' ? 'active' : ''}>成品库存（瓶 / 个） · {products.filter(p => !isRawProduct(p)).length}</button>
+        <button onClick={() => { setStockKind('RAW'); setSf('ALL'); setAdjustFor(null); setBatchFor(null); setShowDensityTools(false); }} className={stockKind === 'RAW' ? 'active' : ''}>原料库存（kg） · {products.filter(isRawProduct).length}</button>
+        <button onClick={() => { cancelRawStockEdit(); setStockKind('FINISHED'); setSf('ALL'); setAdjustFor(null); setBatchFor(null); setShowDensityTools(false); setDensityEditId(null); }} className={stockKind === 'FINISHED' ? 'active' : ''}>成品库存（瓶 / 个） · {products.filter(p => !isRawProduct(p)).length}</button>
       </div>
 
       <div className={`grid grid-cols-2 md:grid-cols-3 gap-3 ${stockKind === 'RAW' ? 'xl:grid-cols-3' : 'xl:grid-cols-5'}`}>
@@ -373,6 +384,9 @@ export default function Inventory({ nav }) {
             </div>
             <div className="flex items-center gap-2">
             <span className="text-xs text-gray-400 hidden xl:inline"><SlidersHorizontal size={13} className="inline mr-1" />显示 {filtered.length} / {products.filter(p => stockKind === 'RAW' ? isRawProduct(p) : !isRawProduct(p)).length} 项</span>
+            {stockKind === 'RAW' && isAdmin && !rawEditMode && (
+              <button onClick={toggleDensityTools} disabled={savingDensity} className={`h-9 px-3 rounded-lg border text-xs inline-flex items-center gap-1.5 disabled:opacity-40 ${showDensityTools ? 'border-purple-700 bg-purple-700 text-white' : 'border-purple-200 bg-white text-purple-700 hover:bg-purple-50'}`}><Scale size={13} />{showDensityTools ? '收起密度' : '密度换算'}</button>
+            )}
             {stockKind === 'RAW' && canAdjust && (rawEditMode ? <>
               <button onClick={cancelRawStockEdit} disabled={savingRawChanges} className="h-9 px-3 rounded-lg border border-gray-200 bg-white text-gray-600 text-xs disabled:opacity-40">取消</button>
               <button onClick={saveRawStockChanges} disabled={savingRawChanges || changedRawProducts.length === 0} className="h-9 px-3 rounded-lg bg-purple-700 text-white text-xs inline-flex items-center gap-1.5 hover:bg-purple-800 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"><Save size={13} />{savingRawChanges ? '保存中' : `保存更改${changedRawProducts.length ? `（${changedRawProducts.length}）` : ''}`}</button>
@@ -389,7 +403,7 @@ export default function Inventory({ nav }) {
                 <thead><tr className="border-b">
                   <th className="text-left py-3 px-4 text-xs text-gray-500 font-medium">编号</th>
                   <th className="text-left py-3 px-4 text-xs text-gray-500 font-medium">产品</th>
-                  <th className="text-left py-3 px-4 text-xs text-gray-500 font-medium">{stockKind === 'RAW' ? '库存与换算密度（kg / g/ml）' : `库存管理（瓶 / 个） · 价格${isAdmin ? ' / 成本' : ''}`}</th>
+                  <th className="text-left py-3 px-4 text-xs text-gray-500 font-medium">{stockKind === 'RAW' ? (showDensityTools ? '库存与换算密度（kg / g/ml）' : '库存管理（kg）') : `库存管理（瓶 / 个） · 价格${isAdmin ? ' / 成本' : ''}`}</th>
                 </tr></thead>
                 <tbody>{filtered.map(p => (
                   <Fragment key={p.id}>
@@ -430,7 +444,7 @@ export default function Inventory({ nav }) {
                             </div>
                             {rawEditMode && Number(rawStockDrafts[p.id]) !== Number(p.baseStockKg || 0) && <span className="text-[11px] text-purple-700 whitespace-nowrap">已修改</span>}
                           </div>
-                          <div className="flex flex-wrap items-center gap-2 rounded-md border border-[#E9E2D8] bg-[#FCFBF8] px-2.5 py-2 text-xs">
+                          {showDensityTools && <div className="flex flex-wrap items-center gap-2 rounded-md border border-[#E9E2D8] bg-[#FCFBF8] px-2.5 py-2 text-xs">
                             <span className="text-gray-500">换算密度</span>
                             {densityEditId === p.id ? (
                               <>
@@ -461,7 +475,7 @@ export default function Inventory({ nav }) {
                                 {isAdmin && <button onClick={() => beginDensityEdit(p)} title="修改换算密度" className="ml-auto inline-flex h-7 items-center gap-1 rounded-md border border-purple-200 bg-white px-2 text-[11px] text-purple-700"><Edit2 size={12} />修改</button>}
                               </>
                             )}
-                          </div>
+                          </div>}
                           {canAdjust && p.specs[0] && !rawEditMode && (
                             <div className="flex flex-wrap gap-1.5">
                               <button onClick={() => startAdjust(p, p.specs[0], 'IN')} title="不建立批次档案的快速库存调整" className="h-7 px-2.5 rounded-md border border-green-200 bg-green-50 text-green-700 text-[11px] inline-flex items-center gap-1"><Plus size={12} />快速入库</button>
