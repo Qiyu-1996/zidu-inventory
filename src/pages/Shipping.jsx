@@ -27,6 +27,10 @@ function uniqueCarriers(list) {
   });
 }
 
+function approvedForShipping(order) {
+  return order.paymentStatus === 'PAID' || order.unpaidShippingStatus === 'APPROVED';
+}
+
 export default function ShippingWorkbench() {
   const { user } = useAuth();
   const { orders, customers, users, updateOrderStatus } = useData();
@@ -51,7 +55,7 @@ export default function ShippingWorkbench() {
 
   const roleOrders = user.role === 'SALES' ? orders.filter(o => String(o.salesId) === String(user.id)) : orders;
   const shippable = roleOrders.filter(o =>
-    (["CONFIRMED","PREPARING"].includes(o.status) && o.paymentStatus === 'PAID') ||
+    (["CONFIRMED","PREPARING"].includes(o.status) && approvedForShipping(o)) ||
     (["SHIPPED","DELIVERED"].includes(o.status)) ||
     (o.status === 'COMPLETED' && Boolean(o.shipment)));
   const filtered = sf === 'ALL' ? shippable
@@ -83,6 +87,10 @@ export default function ShippingWorkbench() {
 
   const confirmShip = async (o) => {
     if (!trackingNo || updating) return;
+    if (!approvedForShipping(o)) {
+      alert('未收款订单需管理员批准后才能发货');
+      return;
+    }
     const carrierToSave = carrier === '其他' ? customCarrier.trim() : carrier;
     if (!carrierToSave) {
       alert('请填写快递公司');
@@ -129,6 +137,7 @@ export default function ShippingWorkbench() {
                   <div className="flex items-center gap-2 mb-1">
                     <span className="font-mono text-sm text-gray-600">{o.orderNo}</span>
                     <Badge status={o.status} />
+                    {o.paymentStatus !== 'PAID' && o.unpaidShippingStatus === 'APPROVED' && <span className="text-xs rounded-md bg-amber-100 px-2 py-0.5 text-amber-800">未收款特批</span>}
                   </div>
                   <div className="text-sm font-medium text-gray-800">{c?.name}</div>
                   {c?.phone && (

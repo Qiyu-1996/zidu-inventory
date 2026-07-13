@@ -22,6 +22,17 @@ function SourceBadge({ source }) {
   return <span className={`text-xs px-2 py-0.5 rounded-full ${s.cls}`}>{s.label}</span>;
 }
 
+const UNPAID_SHIPPING_LABEL = {
+  PENDING: '未收款发货待审',
+  APPROVED: '未收款发货已批准',
+  REJECTED: '未收款发货已驳回'
+};
+const UNPAID_SHIPPING_CLASS = {
+  PENDING: 'bg-amber-100 text-amber-800',
+  APPROVED: 'bg-green-100 text-green-800',
+  REJECTED: 'bg-red-50 text-red-700'
+};
+
 // 状态推进按钮文案：用动作动词，而非状态名（避免「已确认/已取消」当按钮）
 const ACTION_LABEL = {
   SUBMITTED: '提交订单',
@@ -104,7 +115,11 @@ export function OrderList({ nav }) {
   const [deletedOrders, setDeletedOrders] = useState([]);
   const [deletedLoading, setDeletedLoading] = useState(false);
 
-  const myOrders = (user.role === "ADMIN" || user.role === "FINANCE") ? orders : user.role === "SALES" ? orders.filter(o => o.salesId === user.id) : orders.filter(o => ["CONFIRMED","PREPARING","SHIPPED","DELIVERED"].includes(o.status));
+  const myOrders = (user.role === "ADMIN" || user.role === "FINANCE")
+    ? orders
+    : user.role === "SALES"
+      ? orders.filter(o => o.salesId === user.id)
+      : orders.filter(o => ["SHIPPED", "DELIVERED"].includes(o.status) || (["CONFIRMED", "PREPARING"].includes(o.status) && (o.paymentStatus === 'PAID' || o.unpaidShippingStatus === 'APPROVED')));
 
   const filtered = myOrders.filter(o => {
     if (sf !== 'ALL' && o.status !== sf) return false;
@@ -260,6 +275,7 @@ export function OrderList({ nav }) {
                     <SourceBadge source={o.source} />
                     <Badge status={o.status} />
                     <PaymentBadge status={o.paymentStatus} />
+                    {o.paymentStatus !== 'PAID' && UNPAID_SHIPPING_LABEL[o.unpaidShippingStatus] && <span className={`text-xs px-2 py-0.5 rounded-md ${UNPAID_SHIPPING_CLASS[o.unpaidShippingStatus]}`}>{UNPAID_SHIPPING_LABEL[o.unpaidShippingStatus]}</span>}
                   </div>
                   <div className="text-sm text-gray-800">{c?.name || (o.source === 'wechat_2c' ? '微信零售' : '—')}</div>
                   <div className="text-xs text-gray-400 mt-0.5">{o.createdAt} · {o.items.length} 项商品</div>
@@ -284,7 +300,7 @@ export function OrderList({ nav }) {
 export function OrderDetail({ orderId, onBack, onShipping }) {
   const { user } = useAuth();
   const {
-    orders, customers, users, updateOrderStatus, removeOrder, editOrderItems, recordPayment,
+    orders, customers, users, updateOrderStatus, requestUnpaidShipping, reviewUnpaidShipping, removeOrder, editOrderItems, recordPayment,
     createAfterSale, processAfterSaleWarehouse, completeAfterSaleFinance
   } = useData();
   const [updating, setUpdating] = useState(false);
@@ -311,19 +327,35 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
   const [editingItems, setEditingItems] = useState(false);
   const [editItems, setEditItems] = useState([]);
   const [savingItems, setSavingItems] = useState(false);
+  const [savingUnpaidShipping, setSavingUnpaidShipping] = useState(false);
 
   const order = orders.find(o => o.id === orderId);
   if (!order) return <div className="text-center py-12 text-gray-400">订单不存在</div>;
 
   const customer = customers.find(c => c.id === order.customerId);
   const seller = users.find(u => u.id === order.salesId);
+  const unpaidShippingRequester = users.find(u => String(u.id) === String(order.unpaidShippingRequestedBy));
+  const unpaidShippingReviewer = users.find(u => String(u.id) === String(order.unpaidShippingReviewedBy));
   const nextStatuses = filterNextByRole(order.status, user.role);
   const remaining = Math.max(0, order.total - (order.paidAmount || 0));
   const shippingFee = getOrderShippingFee(order);
   const canRecordPayment = (user.role === 'ADMIN' || user.role === 'SALES' || user.role === 'FINANCE') && order.status !== 'CANCELLED' && order.paymentStatus !== 'PAID';
   const canDelete = user.role === 'ADMIN';
   const canEditItems = user.role === 'ADMIN' && order.status !== 'CANCELLED';
-  const needsShipping = ['CONFIRMED', 'PREPARING'].includes(order.status) && order.paymentStatus === 'PAID' && ['ADMIN', 'SALES', 'WAREHOUSE'].includes(user.role);
+  const unpaidShippingStatus = order.unpaidShippingStatus || 'NONE';
+  const unpaidShippingApproved = order.paymentStatus !== 'PAID' && unpaidShippingStatus === 'APPROVED';
+  const canRequestUnpaidShipping = user.role === 'SALES'
+    && String(order.salesId) === String(user.id)
+    && order.paymentStatus !== 'PAID'
+    && ['DRAFT', 'SUBMITTED', 'CONFIRMED', 'PREPARING'].includes(order.status)
+    && !['PENDING', 'APPROVED'].includes(unpaidShippingStatus)
+    && !isWalkInCustomer(customer);
+  const canReviewUnpaidShipping = user.role === 'ADMIN'
+    && order.paymentStatus !== 'PAID'
+    && unpaidShippingStatus === 'PENDING';
+  const needsShipping = ['CONFIRMED', 'PREPARING'].includes(order.status)
+    && (order.paymentStatus === 'PAID' || unpaidShippingApproved)
+    && ['ADMIN', 'SALES', 'WAREHOUSE'].includes(user.role);
   const afterSales = order.afterSales || [];
   const hasWarehouseTodo = afterSales.some(a => a.status === 'WAREHOUSE_PENDING');
   const hasFinanceTodo = afterSales.some(a => a.status === 'FINANCE_PENDING');
@@ -440,6 +472,43 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
     if (!order.shipment) return;
     const txt = `${order.shipment.carrier} ${order.shipment.trackingNo}`;
     navigator.clipboard.writeText(txt).then(() => alert('已复制：' + txt));
+  };
+  const handleRequestUnpaidShipping = async () => {
+    if (!canRequestUnpaidShipping || savingUnpaidShipping) return;
+    const input = prompt('请填写未收款仍需发货的原因（如客户账期、公司特殊安排）');
+    if (input == null) return;
+    const reason = input.trim();
+    if (reason.length < 2) { alert('请填写申请原因'); return; }
+    setSavingUnpaidShipping(true);
+    try {
+      await requestUnpaidShipping(order.id, reason);
+      alert('申请已提交，等待管理员审核');
+    } catch (e) {
+      alert(e.message || '申请失败');
+    } finally {
+      setSavingUnpaidShipping(false);
+    }
+  };
+  const handleReviewUnpaidShipping = async approved => {
+    if (!canReviewUnpaidShipping || savingUnpaidShipping) return;
+    let note = '';
+    if (approved) {
+      if (!confirm(`批准订单 ${order.orderNo} 在未收款情况下发货？`)) return;
+    } else {
+      const input = prompt('请填写驳回原因');
+      if (input == null) return;
+      note = input.trim();
+      if (note.length < 2) { alert('驳回时请填写原因'); return; }
+    }
+    setSavingUnpaidShipping(true);
+    try {
+      await reviewUnpaidShipping(order.id, approved, note);
+      alert(approved ? '已批准，订单已进入待发货' : '已驳回申请');
+    } catch (e) {
+      alert(e.message || '审核失败');
+    } finally {
+      setSavingUnpaidShipping(false);
+    }
   };
   const handleDelete = async () => {
     if (!confirm(`确定删除订单 ${order.orderNo}？\n删除后会进入管理员“删除订单库”保留 30 天。${order.status !== 'CANCELLED' ? '\n注意：库存将恢复。' : ''}`)) return;
@@ -611,6 +680,11 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
               <SourceBadge source={order.source} />
               <Badge status={order.status} />
               <PaymentBadge status={order.paymentStatus} />
+              {order.paymentStatus !== 'PAID' && UNPAID_SHIPPING_LABEL[unpaidShippingStatus] && (
+                <span className={`text-xs px-2 py-0.5 rounded-md ${UNPAID_SHIPPING_CLASS[unpaidShippingStatus]}`}>
+                  {UNPAID_SHIPPING_LABEL[unpaidShippingStatus]}
+                </span>
+              )}
             </div>
             <div className="text-sm text-gray-500 mt-1">{order.createdAt}</div>
           </div>
@@ -650,9 +724,41 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
 
         {order.notes && <div className="bg-yellow-50 rounded-lg p-3 mb-4 text-sm text-gray-700">{order.notes}</div>}
 
+        {order.paymentStatus !== 'PAID' && unpaidShippingStatus !== 'NONE' && (
+          <div className={`rounded-lg border px-3 py-2.5 mb-4 ${unpaidShippingStatus === 'APPROVED' ? 'border-green-200 bg-green-50' : unpaidShippingStatus === 'REJECTED' ? 'border-red-100 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className={`text-sm font-medium ${unpaidShippingStatus === 'APPROVED' ? 'text-green-800' : unpaidShippingStatus === 'REJECTED' ? 'text-red-700' : 'text-amber-800'}`}>
+                  {UNPAID_SHIPPING_LABEL[unpaidShippingStatus]}
+                </div>
+                <div className="text-xs text-gray-600 mt-1 break-words">申请原因：{order.unpaidShippingReason || '—'}</div>
+                {order.unpaidShippingRequestedAt && (
+                  <div className="text-xs text-gray-400 mt-1">
+                    {unpaidShippingRequester?.name || seller?.name || '销售'} · {order.unpaidShippingRequestedAt.slice(0, 16).replace('T', ' ')}
+                  </div>
+                )}
+                {order.unpaidShippingReviewNote && <div className="text-xs text-gray-600 mt-1">审核说明：{order.unpaidShippingReviewNote}</div>}
+                {order.unpaidShippingReviewedAt && (
+                  <div className="text-xs text-gray-400 mt-1">
+                    {unpaidShippingReviewer?.name || '管理员'} · {order.unpaidShippingReviewedAt.slice(0, 16).replace('T', ' ')}
+                  </div>
+                )}
+              </div>
+              {canReviewUnpaidShipping && (
+                <div className="flex gap-2 shrink-0">
+                  <button type="button" onClick={() => handleReviewUnpaidShipping(false)} disabled={savingUnpaidShipping} className="px-3 py-1.5 text-xs border border-red-200 bg-white text-red-600 rounded-md disabled:opacity-40">驳回</button>
+                  <button type="button" onClick={() => handleReviewUnpaidShipping(true)} disabled={savingUnpaidShipping} className="px-3 py-1.5 text-xs text-white rounded-md disabled:opacity-40" style={{ background: '#5C4B73' }}>
+                    {savingUnpaidShipping ? '处理中...' : '批准发货'}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {needsShipping && (
           <div className="pt-3 border-t bg-orange-50 -mx-5 -mb-5 px-5 py-3 rounded-b-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div className="text-sm text-orange-700">订单已收款待发货，可前往“发货管理”填写快递公司和快递单号。</div>
+            <div className="text-sm text-orange-700">{unpaidShippingApproved ? '管理员已批准未收款发货，可前往“发货管理”填写快递信息。' : '订单已收款待发货，可前往“发货管理”填写快递公司和快递单号。'}</div>
             <div className="flex gap-2 shrink-0">
               <button type="button" onClick={() => printShipment(order, customer, seller)} className="flex items-center gap-1 px-3 py-1.5 text-sm border border-purple-200 bg-white text-purple-700 rounded-lg"><Printer size={14} />打印发货单</button>
               <button type="button" onClick={onShipping} className="px-3 py-1.5 text-sm text-white rounded-lg" style={{ background: '#5C4B73' }}>去发货</button>
@@ -781,6 +887,19 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
             ))}
           </div>
         ) : <div className="text-sm text-gray-400 text-center py-2">暂无收款记录</div>}
+        {canRequestUnpaidShipping && (
+          <div className="flex justify-end mt-2 pt-2 border-t border-dashed border-gray-100">
+            <button
+              type="button"
+              onClick={handleRequestUnpaidShipping}
+              disabled={savingUnpaidShipping}
+              title="特殊情况申请管理员审批"
+              className="text-[11px] text-gray-400 hover:text-gray-600 disabled:opacity-40"
+            >
+              {savingUnpaidShipping ? '提交中...' : '未收款，请发货'}
+            </button>
+          </div>
+        )}
       </Card>
 
       {canAfterSale && (

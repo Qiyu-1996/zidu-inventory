@@ -114,6 +114,16 @@ export function DataProvider({ children }) {
     setOrders(p => p.map(o => o.id !== orderId ? o : { ...o, status: newStatus, logs: [...o.logs, logEntry], ...(shipmentData ? { shipment: shipmentData } : {}) }));
     if (newStatus === 'CANCELLED') { const np = await api.fetchProducts(); setProducts(np); }
   }, []);
+  const requestUnpaidShipping = useCallback(async (orderId, reason) => {
+    const result = await api.requestUnpaidShipping(orderId, user?.id, reason);
+    setOrders(await api.fetchOrders());
+    return result;
+  }, [user]);
+  const reviewUnpaidShipping = useCallback(async (orderId, approved, note) => {
+    const result = await api.reviewUnpaidShipping(orderId, user?.id, approved, note);
+    setOrders(await api.fetchOrders());
+    return result;
+  }, [user]);
   const recordPayment = useCallback(async (orderId, amount, method, note, recordedBy, priceAdjustment = 0) => {
     const result = await api.recordPayment(orderId, amount, method, note, recordedBy, priceAdjustment);
     setOrders(p => p.map(o => o.id !== orderId ? o : {
@@ -265,7 +275,7 @@ export function DataProvider({ children }) {
       loading, error,
       addProduct, editProduct, editProductDensity, removeProduct,
       addCustomer, editCustomer, removeCustomer, addCustomerNote,
-      addOrder, updateOrderStatus, removeOrder, editOrderItems, updateOrderDiscountResponsibility, recordPayment, processAfterSale,
+      addOrder, updateOrderStatus, requestUnpaidShipping, reviewUnpaidShipping, removeOrder, editOrderItems, updateOrderDiscountResponsibility, recordPayment, processAfterSale,
       createAfterSale, processAfterSaleWarehouse, completeAfterSaleFinance,
       addUser, resetUserPassword, toggleUserStatus, updateUserRole, archiveUser,
       adjustStock, adjustRawStock, loadStockLog,

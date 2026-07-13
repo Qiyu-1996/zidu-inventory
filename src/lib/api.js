@@ -402,6 +402,13 @@ function mapOrder(o) {
     createdAt: o.created_at,
     paymentStatus: o.payment_status || 'UNPAID',
     paidAmount: Number(o.paid_amount || 0),
+    unpaidShippingStatus: o.unpaid_shipping_status || 'NONE',
+    unpaidShippingReason: o.unpaid_shipping_reason || '',
+    unpaidShippingRequestedBy: o.unpaid_shipping_requested_by || null,
+    unpaidShippingRequestedAt: o.unpaid_shipping_requested_at || null,
+    unpaidShippingReviewedBy: o.unpaid_shipping_reviewed_by || null,
+    unpaidShippingReviewedAt: o.unpaid_shipping_reviewed_at || null,
+    unpaidShippingReviewNote: o.unpaid_shipping_review_note || '',
     items: (o.items || []).map(it => ({
       id: it.id, productId: it.product_id, specId: it.spec_id,
       productName: it.product_name, productCode: it.product_code, spec: it.spec,
@@ -1303,6 +1310,37 @@ export async function updateOrderStatus(orderId, newStatus, logEntry, shipmentDa
       }
     }
   }
+}
+
+function unpaidShippingError(error, data) {
+  const message = data?.error || error?.message || '';
+  if (/request_unpaid_shipping|review_unpaid_shipping|unpaid_shipping_|schema cache|could not find the function/i.test(message)) {
+    return new Error('请先在 Supabase 运行 migration_v31_unpaid_shipping_approval.sql');
+  }
+  return new Error(message || '未收款发货申请处理失败');
+}
+
+export async function requestUnpaidShipping(orderId, salesId, reason) {
+  const { data, error } = await supabase.rpc('request_unpaid_shipping', {
+    p_order_id: Number(orderId),
+    p_sales_id: Number(salesId),
+    p_reason: String(reason || '').trim()
+  });
+  if (error) throw unpaidShippingError(error, data);
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+export async function reviewUnpaidShipping(orderId, adminId, approved, note = '') {
+  const { data, error } = await supabase.rpc('review_unpaid_shipping', {
+    p_order_id: Number(orderId),
+    p_admin_id: Number(adminId),
+    p_approved: Boolean(approved),
+    p_note: String(note || '').trim()
+  });
+  if (error) throw unpaidShippingError(error, data);
+  if (data?.error) throw new Error(data.error);
+  return data;
 }
 
 // ═══ PAYMENTS ═══
