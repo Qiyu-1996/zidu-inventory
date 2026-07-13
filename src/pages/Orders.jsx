@@ -3,7 +3,7 @@ import { Search, ArrowLeft, Download, Printer, DollarSign, Trash2, RefreshCw, Co
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, Badge, PaymentBadge, fmtY, now16, STATUS_MAP, PAYMENT_STATUS_MAP, exportCSV, unitPriceHint } from '../components/ui';
-import { printOrder, printShipment, downloadShipmentImage } from '../lib/printOrder';
+import { printOrder, printShipment } from '../lib/printOrder';
 import { PAYMENT_METHODS } from '../lib/payment';
 import * as api from '../lib/api';
 import TrackingTimeline from '../components/TrackingTimeline';
@@ -946,7 +946,6 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
           </div>
           <div className="flex flex-wrap gap-2 mt-2">
             <button onClick={() => printShipment(order, customer, seller)} className="flex items-center gap-1 text-sm px-3 py-1.5 border rounded-lg text-purple-700 hover:bg-purple-50"><Printer size={14} />打印发货单</button>
-            <button onClick={() => downloadShipmentImage(order, customer, seller)} className="flex items-center gap-1 text-sm px-3 py-1.5 border rounded-lg text-purple-700 hover:bg-purple-50"><Download size={14} />下载发货单图片</button>
           </div>
           <div className="mt-3 pt-3 border-t">
             <TrackingTimeline shipment={order.shipment} />

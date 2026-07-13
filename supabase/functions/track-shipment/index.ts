@@ -76,6 +76,25 @@ function normalizeEvents(data: unknown) {
   }));
 }
 
+function upstreamErrorMessage(payload: Record<string, unknown>) {
+  const code = String(payload.returnCode || payload.status || payload.code || "");
+  const raw = String(payload.message || "").trim();
+  const messages: Record<string, string> = {
+    "400": "物流查询参数无效，请检查快递公司和单号",
+    "403": "快递100签名验证失败，请检查企业授权信息",
+    "500": "暂未查询到该运单，请确认快递公司和单号",
+    "501": "物流服务暂时异常，请稍后重试",
+    "503": "快递100签名验证失败，请检查企业授权信息",
+    "600": "快递100查询额度已用完，请补充接口额度",
+    "601": "快递100授权已过期，请更新企业授权",
+  };
+  if (messages[code]) return messages[code];
+  if (!raw || /^fail$/i.test(raw)) {
+    return "物流服务未返回有效结果，请检查快递单号及快递100接口配置";
+  }
+  return raw;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json(405, { error: "仅支持 POST 请求" });
@@ -161,7 +180,7 @@ Deno.serve(async (req) => {
     const updatedAt = new Date().toISOString();
 
     if (!response.ok || String(payload.status || "") !== "200") {
-      const message = String(payload.message || "物流服务暂时未返回轨迹，请稍后再试");
+      const message = upstreamErrorMessage(payload);
       await supabase.from("shipments").update({
         tracking_message: message,
         tracking_updated_at: updatedAt,

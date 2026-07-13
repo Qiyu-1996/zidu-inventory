@@ -4,7 +4,7 @@ import { useData } from '../contexts/DataContext';
 import { Card, Badge, now16, today, STATUS_MAP } from '../components/ui';
 import * as api from '../lib/api';
 import TrackingTimeline from '../components/TrackingTimeline';
-import { printShipment, downloadShipmentImage } from '../lib/printOrder';
+import { printShipment } from '../lib/printOrder';
 
 const ALL_CARRIERS = ['顺丰','韵达','加运美','德邦','壹米滴答快运','中通快递','圆通速递','申通快递','京东物流','极兔速递','邮政EMS','跨越速运','其他'];
 
@@ -185,7 +185,6 @@ export default function ShippingWorkbench() {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button onClick={() => printShipment(o, c, seller)} className="px-3 py-1.5 rounded-lg border border-purple-200 bg-white text-purple-700">打印发货单</button>
-                    <button onClick={() => downloadShipmentImage(o, c, seller)} className="px-3 py-1.5 rounded-lg border border-purple-200 bg-white text-purple-700">下载发货单图片</button>
                   </div>
                   <TrackingTimeline shipment={o.shipment} compact />
                 </div>

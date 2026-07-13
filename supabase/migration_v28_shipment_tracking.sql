@@ -14,3 +14,15 @@ comment on column public.shipments.tracking_state_code is '快递100物流状态
 comment on column public.shipments.tracking_message is '最新物流节点或查询提示';
 comment on column public.shipments.tracking_events is '物流轨迹节点，按时间倒序';
 comment on column public.shipments.tracking_updated_at is '最近一次主动查询时间';
+
+select count(*) = 5 as tracking_schema_ready
+from information_schema.columns
+where table_schema = 'public'
+  and table_name = 'shipments'
+  and column_name in (
+    'tracking_state',
+    'tracking_state_code',
+    'tracking_message',
+    'tracking_events',
+    'tracking_updated_at'
+  );
