@@ -1,5 +1,5 @@
 import { Fragment, useState, useEffect, useMemo } from 'react';
-import { Search, Edit2, Download, Package, X, AlertTriangle, ClipboardCopy, Boxes, CalendarClock, SlidersHorizontal, ClipboardList, Save } from 'lucide-react';
+import { Search, Edit2, Download, Package, X, AlertTriangle, ClipboardCopy, Boxes, CalendarClock, SlidersHorizontal, ClipboardList, Save, Plus, Minus, ClipboardCheck } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, fmtY, PRODUCT_CATEGORY_OPTIONS, matchesProductCategory, exportCSV, today } from '../components/ui';
@@ -31,7 +31,7 @@ const STOCK_PILL = {
 
 export default function Inventory({ nav }) {
   const { user } = useAuth();
-  const { products, stockLog, loadStockLog, adjustStock, adjustRawStock, addBatch, removeBatch } = useData();
+  const { products, stockLog, loadStockLog, adjustStock, adjustRawStock, addBatch, removeBatch, reload } = useData();
   const isAdmin = user.role === 'ADMIN';
   const canAdjust = user.role === 'ADMIN' || user.role === 'WAREHOUSE';
 
@@ -48,7 +48,8 @@ export default function Inventory({ nav }) {
   const [adjNote, setAdjNote] = useState('');
   const [adjusting, setAdjusting] = useState(false);
   const [rawStockDrafts, setRawStockDrafts] = useState({});
-  const [savingRawId, setSavingRawId] = useState(null);
+  const [rawEditMode, setRawEditMode] = useState(false);
+  const [savingRawChanges, setSavingRawChanges] = useState(false);
 
   const [batchFor, setBatchFor] = useState(null);
   const [batchData, setBatchData] = useState({ batchNo: '', gcmsNo: '', receivedDate: today(), expiryDate: '', quantity: '', unitCost: '', supplier: '', note: '' });
@@ -79,6 +80,12 @@ export default function Inventory({ nav }) {
   const belongsToStockKind = product => stockKind === 'RAW' ? isRawProduct(product) : !isRawProduct(product);
   const visibleBatches = batchList.filter(b => belongsToStockKind(products.find(p => p.id === b.productId)));
   const visibleStockLog = stockLog.filter(l => belongsToStockKind(products.find(p => p.id === l.product_id)));
+  const changedRawProducts = products.filter(p =>
+    isRawProduct(p)
+    && rawStockDrafts[p.id] !== undefined
+    && String(rawStockDrafts[p.id]).trim() !== ''
+    && Number(rawStockDrafts[p.id]) !== Number(p.baseStockKg || 0)
+  );
   const viewStats = useMemo(() => {
     const currentProducts = products.filter(p => stockKind === 'RAW' ? isRawProduct(p) : !isRawProduct(p));
     const currentBatches = batchList.filter(b => {
@@ -127,10 +134,12 @@ export default function Inventory({ nav }) {
       () => alert(`已复制 ${lines.length} 项补货清单`), () => alert('复制失败，请手动复制'));
   };
 
-  const startAdjust = (product, spec) => {
+  const startAdjust = (product, spec, type = 'IN') => {
     setBatchFor(null);
     setAdjustFor({ product, spec });
-    setAdjType('IN'); setAdjReason('PURCHASE'); setAdjQty(''); setAdjNote('');
+    setAdjType(type);
+    setAdjReason(type === 'IN' ? 'PURCHASE' : type === 'OUT' ? 'DAMAGE' : 'CORRECTION');
+    setAdjQty(''); setAdjNote('');
   };
   const handleAdjust = async () => {
     const qty = Number(adjQty);
@@ -147,34 +156,61 @@ export default function Inventory({ nav }) {
     } catch (e) { alert('调整失败: ' + e.message); } finally { setAdjusting(false); }
   };
 
-  const saveRawStock = async product => {
-    const draft = rawStockDrafts[product.id];
-    if (draft === undefined) return;
-    const quantity = Number(draft);
-    if (String(draft).trim() === '' || !Number.isFinite(quantity) || quantity < 0) {
-      alert('请输入正确的重量库存');
+  const beginRawStockEdit = () => {
+    setAdjustFor(null);
+    setBatchFor(null);
+    setRawStockDrafts(Object.fromEntries(
+      products.filter(isRawProduct).map(p => [p.id, Number(p.baseStockKg || 0).toFixed(3)])
+    ));
+    setRawEditMode(true);
+  };
+
+  const cancelRawStockEdit = () => {
+    if (savingRawChanges) return;
+    setRawStockDrafts({});
+    setRawEditMode(false);
+  };
+
+  const saveRawStockChanges = async () => {
+    const invalidProduct = products.find(p => isRawProduct(p) && (
+      String(rawStockDrafts[p.id] ?? '').trim() === ''
+      || !Number.isFinite(Number(rawStockDrafts[p.id]))
+      || Number(rawStockDrafts[p.id]) < 0
+    ));
+    if (invalidProduct) {
+      alert(`${invalidProduct.name} 的重量库存不正确`);
       return;
     }
-    if (quantity === Number(product.baseStockKg || 0)) return;
-    setSavingRawId(product.id);
+    if (!changedRawProducts.length) {
+      cancelRawStockEdit();
+      return;
+    }
+    if (!confirm(`确定保存 ${changedRawProducts.length} 项重量库存盘点结果？`)) return;
+
+    setSavingRawChanges(true);
     try {
-      await adjustRawStock(
-        product.id,
-        'CORRECTION',
-        'CORRECTION',
-        quantity,
-        '库存页直接修改重量库存',
-        defaultDensityForProduct(product)
-      );
-      setRawStockDrafts(current => {
-        const next = { ...current };
-        delete next[product.id];
-        return next;
-      });
+      for (const product of changedRawProducts) {
+        await api.adjustRawStock(
+          product.id,
+          'CORRECTION',
+          'CORRECTION',
+          Number(rawStockDrafts[product.id]),
+          '库存页批量盘点修正',
+          user.name,
+          defaultDensityForProduct(product)
+        );
+      }
+      await reload();
+      setRawStockDrafts({});
+      setRawEditMode(false);
+      alert(`已保存 ${changedRawProducts.length} 项重量库存`);
     } catch (e) {
-      alert('保存失败: ' + e.message);
+      await reload();
+      setRawStockDrafts({});
+      setRawEditMode(false);
+      alert('批量保存中断，页面已重新加载，请核对库存流水：' + e.message);
     } finally {
-      setSavingRawId(null);
+      setSavingRawChanges(false);
     }
   };
 
@@ -268,14 +304,14 @@ export default function Inventory({ nav }) {
         </div>
         <div className="flex items-center gap-2 overflow-x-auto max-w-full pb-1"><div className="zidu-segment">
         {[['list', '库存概览'], ['batches', '批次 / GC-MS 追溯'], ['log', '出入库记录']].map(([k, l]) => (
-          <button key={k} onClick={() => setTab(k)} className={tab === k ? 'active' : ''}>{l}</button>
+          <button key={k} onClick={() => { setTab(k); if (k !== 'list') cancelRawStockEdit(); }} className={tab === k ? 'active' : ''}>{l}</button>
         ))}
         </div>{canAdjust && <button onClick={() => nav?.('purchase')} className="h-10 px-3 rounded-lg border border-purple-200 text-purple-700 bg-white text-xs flex items-center gap-1.5 hover:bg-purple-50 shrink-0 whitespace-nowrap"><ClipboardList size={14} />采购管理</button>}</div>
       </div>
 
       <div className="zidu-segment self-start" aria-label="库存管理分类">
         <button onClick={() => { setStockKind('RAW'); setSf('ALL'); setAdjustFor(null); setBatchFor(null); }} className={stockKind === 'RAW' ? 'active' : ''}>原料库存（kg） · {products.filter(isRawProduct).length}</button>
-        <button onClick={() => { setStockKind('FINISHED'); setSf('ALL'); setAdjustFor(null); setBatchFor(null); }} className={stockKind === 'FINISHED' ? 'active' : ''}>成品库存（瓶 / 个） · {products.filter(p => !isRawProduct(p)).length}</button>
+        <button onClick={() => { cancelRawStockEdit(); setStockKind('FINISHED'); setSf('ALL'); setAdjustFor(null); setBatchFor(null); }} className={stockKind === 'FINISHED' ? 'active' : ''}>成品库存（瓶 / 个） · {products.filter(p => !isRawProduct(p)).length}</button>
       </div>
 
       <div className={`grid grid-cols-2 md:grid-cols-3 gap-3 ${stockKind === 'RAW' ? 'xl:grid-cols-3' : 'xl:grid-cols-5'}`}>
@@ -301,6 +337,12 @@ export default function Inventory({ nav }) {
             </div>
             <div className="flex items-center gap-2">
             <span className="text-xs text-gray-400 hidden xl:inline"><SlidersHorizontal size={13} className="inline mr-1" />显示 {filtered.length} / {products.filter(p => stockKind === 'RAW' ? isRawProduct(p) : !isRawProduct(p)).length} 项</span>
+            {stockKind === 'RAW' && canAdjust && (rawEditMode ? <>
+              <button onClick={cancelRawStockEdit} disabled={savingRawChanges} className="h-9 px-3 rounded-lg border border-gray-200 bg-white text-gray-600 text-xs disabled:opacity-40">取消</button>
+              <button onClick={saveRawStockChanges} disabled={savingRawChanges || changedRawProducts.length === 0} className="h-9 px-3 rounded-lg bg-purple-700 text-white text-xs inline-flex items-center gap-1.5 hover:bg-purple-800 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"><Save size={13} />{savingRawChanges ? '保存中' : `保存更改${changedRawProducts.length ? `（${changedRawProducts.length}）` : ''}`}</button>
+            </> : (
+              <button onClick={beginRawStockEdit} className="h-9 px-3 rounded-lg border border-purple-200 bg-white text-purple-700 text-xs inline-flex items-center gap-1.5 hover:bg-purple-50"><Edit2 size={13} />更改重量库存</button>
+            ))}
             {viewStats.low > 0 && <button onClick={copyRestockList} className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-purple-200 text-purple-700 hover:bg-purple-50"><ClipboardCopy size={14} />复制补货清单</button>}
             </div>
           </div>
@@ -311,67 +353,58 @@ export default function Inventory({ nav }) {
                 <thead><tr className="border-b">
                   <th className="text-left py-3 px-4 text-xs text-gray-500 font-medium">编号</th>
                   <th className="text-left py-3 px-4 text-xs text-gray-500 font-medium">产品</th>
-                  <th className="text-left py-3 px-4 text-xs text-gray-500 font-medium">库存基准</th>
-                  <th className="text-left py-3 px-4 text-xs text-gray-500 font-medium">{stockKind === 'RAW' ? (canAdjust ? '更改重量库存' : '重量库存') : `可售规格 · 价格${isAdmin ? ' / 成本' : ''}`}</th>
+                  <th className="text-left py-3 px-4 text-xs text-gray-500 font-medium">{stockKind === 'RAW' ? '库存管理（kg）' : `库存管理（瓶 / 个） · 价格${isAdmin ? ' / 成本' : ''}`}</th>
                 </tr></thead>
                 <tbody>{filtered.map(p => (
                   <Fragment key={p.id}>
                   <tr className="border-b last:border-0 align-top">
                     <td className="py-2.5 px-4 font-mono text-xs text-gray-500">{p.code}</td>
                     <td className="py-2.5 px-4 min-w-40"><div className="text-gray-800 font-medium">{p.name}</div><div className="text-xs text-gray-400 mt-0.5">{p.origin} · {p.series}</div></td>
-                    <td className="py-2.5 px-4 min-w-44">
-                      {isRawProduct(p) ? <>
-                        <div className="flex items-baseline gap-1"><span className="text-lg font-medium text-purple-700 tabular-nums">{Number(p.baseStockKg || 0).toFixed(3)}</span><span className="text-xs text-gray-400">kg</span></div>
-                        <div className="text-[11px] text-gray-400 mt-0.5">按 kg 管理</div>
-                        {canAdjust && p.specs[0] && <div className="flex gap-1 mt-2">
-                          <button onClick={() => startBatch(p, p.specs[0])} className="h-7 px-2 rounded-md border border-green-200 text-green-700 text-[11px] inline-flex items-center gap-1"><Package size={11} />批次入库</button>
-                        </div>}
-                      </> : <><div className="text-xs font-medium text-gray-600">独立规格瓶数</div><div className="text-[11px] text-gray-400 mt-1">2ml / 5ml / 15ml 等各自入库扣减</div></>}
-                    </td>
                     <td className="py-2.5 px-4">
                       {isRawProduct(p) ? (
-                        <div className="max-w-lg">
+                        <div className="max-w-xl space-y-2">
                           <div className="flex items-center gap-2">
-                            <div className="relative min-w-44 flex-1">
+                            <div className="relative min-w-44 max-w-xs flex-1">
                               <input
                                 type="number"
                                 min="0"
                                 step="0.001"
                                 aria-label={`${p.name}重量库存 kg`}
-                                value={rawStockDrafts[p.id] ?? Number(p.baseStockKg || 0).toFixed(3)}
-                                onFocus={e => e.target.select()}
-                                onChange={e => setRawStockDrafts(current => ({ ...current, [p.id]: e.target.value }))}
-                                onKeyDown={e => { if (e.key === 'Enter' && canAdjust && rawStockDrafts[p.id] !== undefined) saveRawStock(p); }}
-                                disabled={!canAdjust || savingRawId === p.id}
-                                className="w-full h-9 rounded-lg border border-gray-200 bg-white pl-3 pr-9 text-sm tabular-nums focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-100 disabled:bg-gray-50 disabled:text-gray-500"
+                                value={rawEditMode ? (rawStockDrafts[p.id] ?? Number(p.baseStockKg || 0).toFixed(3)) : Number(p.baseStockKg || 0).toFixed(3)}
+                                onFocus={e => { if (rawEditMode) e.target.select(); }}
+                                onChange={e => { if (rawEditMode) setRawStockDrafts(current => ({ ...current, [p.id]: e.target.value })); }}
+                                readOnly={!rawEditMode}
+                                disabled={!canAdjust || savingRawChanges}
+                                className={`w-full h-9 rounded-lg border pl-3 pr-9 text-sm tabular-nums focus:outline-none disabled:text-gray-500 ${rawEditMode ? 'border-purple-300 bg-white focus:ring-2 focus:ring-purple-100' : 'border-gray-200 bg-gray-50 cursor-default'}`}
                               />
                               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">kg</span>
                             </div>
-                            {canAdjust && (
-                              <button
-                                onClick={() => saveRawStock(p)}
-                                disabled={savingRawId === p.id || rawStockDrafts[p.id] === undefined || String(rawStockDrafts[p.id]).trim() === '' || Number(rawStockDrafts[p.id]) === Number(p.baseStockKg || 0)}
-                                className="h-9 px-3 rounded-lg bg-purple-700 text-white text-xs inline-flex items-center gap-1.5 hover:bg-purple-800 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
-                              >
-                                <Save size={13} />{savingRawId === p.id ? '保存中' : '保存'}
-                              </button>
-                            )}
+                            {rawEditMode && Number(rawStockDrafts[p.id]) !== Number(p.baseStockKg || 0) && <span className="text-[11px] text-purple-700 whitespace-nowrap">已修改</span>}
                           </div>
-                          <div className="text-[11px] text-gray-400 mt-1.5">直接设置当前总重量，保存后记入盘点修正流水</div>
-                          <div className="text-[11px] text-gray-400 mt-1 truncate" title={p.specs.map(s => s.spec).join(' / ')}>销售规格：{p.specs.map(s => s.spec).join(' / ')}</div>
+                          {canAdjust && p.specs[0] && !rawEditMode && (
+                            <div className="flex flex-wrap gap-1.5">
+                              <button onClick={() => startAdjust(p, p.specs[0], 'IN')} className="h-7 px-2.5 rounded-md border border-green-200 bg-green-50 text-green-700 text-[11px] inline-flex items-center gap-1"><Plus size={12} />入库</button>
+                              <button onClick={() => startAdjust(p, p.specs[0], 'OUT')} className="h-7 px-2.5 rounded-md border border-red-200 bg-red-50 text-red-700 text-[11px] inline-flex items-center gap-1"><Minus size={12} />出库</button>
+                              <button onClick={() => startBatch(p, p.specs[0])} className="h-7 px-2.5 rounded-md border border-purple-200 bg-white text-purple-700 text-[11px] inline-flex items-center gap-1"><Package size={12} />批次入库</button>
+                            </div>
+                          )}
                         </div>
                       ) : (
-                        <div className="flex flex-wrap gap-1.5">
+                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-2 min-w-[420px]">
                           {p.specs.map(s => (
-                            <div key={s.id} className={`inline-flex items-center gap-1 text-xs px-2 py-1.5 rounded-md ${STOCK_PILL[level(s.stock, s.safeStock)]}`}>
-                              <span>{s.spec}</span>
-                              {user.role !== 'SALES' && <span>· {fmtY(s.price)}</span>}
-                              {isAdmin && <span className="opacity-70">/{s.cost ? fmtY(s.cost) : '未录'}</span>}
-                              <span>· {s.stock} 瓶</span>
-                              {canAdjust && (<>
-                                <button onClick={() => startAdjust(p, s)} title="调整库存" className="ml-1 w-5 h-5 inline-flex items-center justify-center rounded hover:bg-white/60 text-purple-600"><Edit2 size={11} /></button>
-                                <button onClick={() => startBatch(p, s)} title="批次入库" className="w-5 h-5 inline-flex items-center justify-center rounded hover:bg-white/60 text-green-700"><Package size={11} /></button>
-                              </>)}
+                            <div key={s.id} className="border border-[#E9E2D8] rounded-md bg-[#FCFBF8] p-2">
+                              <div className="flex items-center justify-between gap-3 text-xs">
+                                <div className="min-w-0"><span className="font-medium text-gray-800">{s.spec}</span>{user.role !== 'SALES' && <span className="text-gray-500"> · {fmtY(s.price)}</span>}{isAdmin && <span className="text-gray-400"> / {s.cost ? fmtY(s.cost) : '未录'}</span>}</div>
+                                <span className={`shrink-0 px-2 py-0.5 rounded-md tabular-nums ${STOCK_PILL[level(s.stock, s.safeStock)]}`}>{s.stock} 瓶 / 个</span>
+                              </div>
+                              {canAdjust && (
+                                <div className="flex flex-wrap gap-1.5 mt-2">
+                                  <button onClick={() => startAdjust(p, s, 'IN')} className="h-7 px-2 rounded-md border border-green-200 bg-white text-green-700 text-[11px] inline-flex items-center gap-1"><Plus size={12} />入库</button>
+                                  <button onClick={() => startAdjust(p, s, 'OUT')} className="h-7 px-2 rounded-md border border-red-200 bg-white text-red-700 text-[11px] inline-flex items-center gap-1"><Minus size={12} />出库</button>
+                                  <button onClick={() => startAdjust(p, s, 'CORRECTION')} className="h-7 px-2 rounded-md border border-purple-200 bg-white text-purple-700 text-[11px] inline-flex items-center gap-1"><ClipboardCheck size={12} />盘点</button>
+                                  <button onClick={() => startBatch(p, s)} className="h-7 px-2 rounded-md border border-purple-200 bg-white text-purple-700 text-[11px] inline-flex items-center gap-1"><Package size={12} />批次</button>
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -380,14 +413,14 @@ export default function Inventory({ nav }) {
                   </tr>
                   {(batchFor?.product.id === p.id || adjustFor?.product.id === p.id) && (
                     <tr className="border-b bg-[#FAF8F4]">
-                      <td colSpan="4" className="p-3">
+                      <td colSpan="3" className="p-3">
                         {batchFor?.product.id === p.id ? batchEditor : adjustmentEditor}
                       </td>
                     </tr>
                   )}
                   </Fragment>
                 ))}
-                {filtered.length === 0 && <tr><td colSpan="4" className="text-center py-12 text-gray-400 text-sm">{lowOnly ? '没有缺货产品 👍' : '暂无产品'}</td></tr>}</tbody>
+                {filtered.length === 0 && <tr><td colSpan="3" className="text-center py-12 text-gray-400 text-sm">{lowOnly ? '没有缺货产品' : '暂无产品'}</td></tr>}</tbody>
               </table>
             </div>
           </Card>

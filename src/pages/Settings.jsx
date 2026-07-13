@@ -4,7 +4,6 @@ import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, fmtY, SERIES_LIST, CUSTOMER_TYPES, DEFAULT_SPEC_OPTIONS } from '../components/ui';
 import * as api from '../lib/api';
-import { backfillSpecCost } from '../lib/api';
 import { defaultDensityForProduct } from '../lib/densityDefaults';
 
 const CHANNEL_OPTIONS = [
@@ -196,7 +195,7 @@ function UserMgmt() {
 function ProductMgmt() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
-  const { products, addProduct, editProduct, removeProduct, reload } = useData();
+  const { products, addProduct, editProduct, removeProduct } = useData();
   const [show, setShow] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [code, setCode] = useState('');
@@ -211,7 +210,6 @@ function ProductMgmt() {
   const [specs, setSpecs] = useState([{ spec: '10ml', price: '', cost: '', stock: '', safeStock: 10 }]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [backfilling, setBackfilling] = useState(false);
 
   const reset = () => {
     setShow(false); setEditingId(null); setCode(''); setName(''); setSeries(''); setOrigin('');
@@ -255,16 +253,6 @@ function ProductMgmt() {
     } catch (e) { setError(e.message); } finally { setSaving(false); }
   };
 
-  const handleBackfill = async () => {
-    if (!confirm('将用每个规格的最新批次成本回填「成本」字段（已有成本会被覆盖），确定继续？')) return;
-    setBackfilling(true);
-    try {
-      const n = await backfillSpecCost();
-      await reload();
-      alert(`已回填 ${n} 个规格成本`);
-    } catch (e) { alert('回填失败: ' + e.message); } finally { setBackfilling(false); }
-  };
-
   const handleDelete = async (p) => {
     if (!confirm(`确定删除产品 "${p.name}" 吗？此操作不可恢复。`)) return;
     try { await removeProduct(p.id); }
@@ -276,11 +264,6 @@ function ProductMgmt() {
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <div className="text-sm font-semibold text-gray-700">产品管理（{products.length} SKU）</div>
         <div className="flex items-center gap-3">
-          {isAdmin && (
-            <button onClick={handleBackfill} disabled={backfilling} className="flex items-center gap-1 text-sm font-medium text-purple-700 disabled:opacity-40" title="按每个规格的最新批次成本，批量回填成本字段">
-              <Truck size={15} />{backfilling ? '回填中...' : '用最新批次成本一键带入'}
-            </button>
-          )}
           <button onClick={() => show ? reset() : setShow(true)} className="flex items-center gap-1 text-sm font-medium text-purple-700"><Plus size={16} />添加产品</button>
         </div>
       </div>

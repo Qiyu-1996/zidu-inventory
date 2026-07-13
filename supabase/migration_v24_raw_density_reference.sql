@@ -9,19 +9,12 @@
 -- 3. 本迁移不修改 products.base_stock_kg，不会重置已经录入的实际 kg。
 -- ============================================================
 
--- 使用普通中转表而不是 TEMP TABLE：Supabase SQL Editor 可能在语句间提交，
--- TEMP TABLE 会被提前清理。中转表在脚本末尾删除，失败后也可直接整份重跑。
-DROP TABLE IF EXISTS public.zidu_density_defaults_stage;
-CREATE TABLE public.zidu_density_defaults_stage (
-  code TEXT PRIMARY KEY,
-  density_g_ml NUMERIC(8,5) NOT NULL,
-  source TEXT NOT NULL
-);
-
 -- 单方精油：取公开供应商 TDS/SDS 或 ISO 常见范围的代表值。
 -- 参考资料入口：Florihana Technical Data Sheets / Chromatography Sheets；
 -- Sigma-Aldrich natural essential oil product data。批次 COA 始终优先。
-INSERT INTO public.zidu_density_defaults_stage (code, density_g_ml, source) VALUES
+-- 所有参考值都放在同一条 WITH ... UPDATE 语句内，不创建中转表，
+-- 因此可直接粘贴到 Supabase SQL Editor 并重复运行。
+WITH zidu_density_defaults (code, density_g_ml, source) AS (VALUES
   ('/',           0.85200, '天然精油公开TDS常见范围参考值；以本批次COA为准'),
   ('ZD -1014',    1.03500, '肉桂皮油公开TDS常见范围参考值；以本批次COA为准'),
   ('ZD -1016',    1.04000, '肉桂叶油公开TDS常见范围参考值；以本批次COA为准'),
@@ -139,10 +132,9 @@ INSERT INTO public.zidu_density_defaults_stage (code, density_g_ml, source) VALU
   ('ZD-1191',     0.98000, '缅栀花净油公开TDS常见范围参考值；以本批次COA为准'),
   ('ZD-127',      0.89000, '香叶天竺葵公开TDS常见范围参考值；以本批次COA为准'),
   ('ZD-129',      0.89500, '波旁天竺葵公开TDS常见范围参考值；以本批次COA为准'),
-  ('ZD-129-1',    0.89200, '玫瑰天竺葵公开TDS常见范围参考值；以本批次COA为准');
+  ('ZD-129-1',    0.89200, '玫瑰天竺葵公开TDS常见范围参考值；以本批次COA为准'),
 
 -- 基础油：典型相对密度参考值。以后新增 ml 规格也会直接使用该产品自己的值。
-INSERT INTO public.zidu_density_defaults_stage (code, density_g_ml, source) VALUES
   ('ZD-23001', 0.92000, 'Codex CXS 210杏仁油相对密度范围代表值；以本批次COA为准'),
   ('ZD-23002', 0.92500, '基础油公开规格典型值；以本批次COA为准'),
   ('ZD-23003', 0.86500, '荷荷巴油公开规格典型值；以本批次COA为准'),
@@ -158,16 +150,16 @@ INSERT INTO public.zidu_density_defaults_stage (code, density_g_ml, source) VALU
   ('ZD-23013', 0.92000, '仙人掌籽油公开规格典型值；以本批次COA为准'),
   ('ZD-23014', 0.81000, '植物角鲨烷公开规格典型值；以本批次COA为准'),
   ('ZD-23015', 0.92000, '黑种草籽油公开规格典型值；以本批次COA为准'),
-  ('ZD-23016', 0.91000, '白池花籽油公开规格典型值；以本批次COA为准');
+  ('ZD-23016', 0.91000, '白池花籽油公开规格典型值；以本批次COA为准'),
 
 -- 自有配方没有通用文献密度，先按配方形态给库存换算初始值；
 -- 管理员可在商品管理中用实测称重值直接覆盖。
-INSERT INTO public.zidu_density_defaults_stage (code, density_g_ml, source) VALUES
   ('ZD-3022', 0.91000, '油剂配方初始换算值；管理员可按实测值修正'),
   ('ZD-3023', 0.91000, '油剂配方初始换算值；管理员可按实测值修正'),
   ('ZD-3024', 0.91000, '油剂配方初始换算值；管理员可按实测值修正'),
   ('ZD-3025', 1.00000, '乳霜配方初始换算值；管理员可按实测值修正'),
-  ('ZD-3026', 1.00000, '水剂配方初始换算值；管理员可按实测值修正');
+  ('ZD-3026', 1.00000, '水剂配方初始换算值；管理员可按实测值修正')
+)
 
 -- 只填补空值，保留管理员已经录入/确认的密度。
 UPDATE public.products p
@@ -181,7 +173,7 @@ SET density_g_ml = coalesce(p.density_g_ml, d.density_g_ml),
       WHEN p.density_g_ml IS NULL OR p.density_status = 'UNSET' THEN 'REFERENCE'
       ELSE p.density_status
     END
-FROM public.zidu_density_defaults_stage d
+FROM zidu_density_defaults d
 WHERE p.channel = 'RAW'
   AND trim(p.code) = trim(d.code);
 
@@ -222,8 +214,6 @@ BEGIN
 END $$;
 
 NOTIFY pgrst, 'reload schema';
-
-DROP TABLE public.zidu_density_defaults_stage;
 
 -- 正确结果：volume_products_without_density = 0，raw_not_mass = 0。
 SELECT

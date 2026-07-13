@@ -3,7 +3,7 @@ import { Download, RefreshCw, Wallet, FileText, Table2, ReceiptText, Boxes } fro
 import { useData } from '../contexts/DataContext';
 import { Card, StatCard, fmtY, exportCSV, today, STATUS_MAP, PAYMENT_STATUS_MAP } from '../components/ui';
 
-const METHODS = ['全部', '转账', '现金', '微信', '支付宝', '其他'];
+const METHODS = ['全部', '微信', '支付宝', '对公账户转账', '对私银行账户转账', '转账', '现金', '其他'];
 const TABS = [
   { key: 'orders', label: '订单汇总', icon: FileText },
   { key: 'items', label: '商品明细', icon: Table2 },
