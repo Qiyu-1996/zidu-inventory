@@ -113,6 +113,26 @@ WHERE p.inventory_mode = 'MASS'
 GROUP BY p.id, p.code, p.name, p.base_stock_kg, p.density_g_ml, p.density_status
 ORDER BY unconvertible_specs DESC, p.code;
 
+-- 3c) 原料必须使用产品级 kg 库存；待补密度的原料允许暂未启用，
+-- 但其旧规格库存必须已清零，不能继续出现 999 占位库存。
+SELECT
+  p.code,
+  p.name,
+  p.inventory_mode,
+  p.base_stock_kg,
+  p.density_g_ml,
+  count(*) FILTER (WHERE s.stock = 999) AS legacy_999_specs,
+  CASE
+    WHEN p.inventory_mode = 'MASS' THEN 'OK'
+    WHEN p.density_g_ml IS NULL THEN 'PENDING_DENSITY'
+    ELSE 'CHECK'
+  END AS raw_inventory_status
+FROM public.products p
+LEFT JOIN public.product_specs s ON s.product_id = p.id
+WHERE p.channel = 'RAW'
+GROUP BY p.id, p.code, p.name, p.inventory_mode, p.base_stock_kg, p.density_g_ml
+ORDER BY raw_inventory_status DESC, p.code;
+
 -- 4) User roles and FINANCE constraint
 SELECT
   role,

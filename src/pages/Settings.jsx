@@ -230,7 +230,7 @@ function ProductMgmt() {
   const startEdit = (p) => {
     setEditingId(p.id); setCode(p.code); setName(p.name); setSeries(p.series); setOrigin(p.origin);
     setChannel(p.channel || 'BOTH');
-    setInventoryMode(p.inventoryMode || 'SKU'); setBaseStockKg(p.baseStockKg || '');
+    setInventoryMode(p.channel === 'RAW' ? 'MASS' : (p.inventoryMode || 'SKU')); setBaseStockKg(p.baseStockKg || '');
     setSafeStockKg(p.safeStockKg || ''); setDensityGml(p.densityGml || '');
     setDensityTemperatureC(p.densityTemperatureC || 20); setDensitySource(p.densitySource || '');
     setDensityStatus(p.densityStatus || 'UNSET');
@@ -252,7 +252,8 @@ function ProductMgmt() {
     try {
       const payload = {
         code: code.trim(), name: name.trim(), series, origin: origin.trim() || '中国', channel,
-        inventoryMode, baseStockKg: Number(baseStockKg) || 0, safeStockKg: Number(safeStockKg) || 0,
+        inventoryMode: channel === 'RAW' ? 'MASS' : inventoryMode,
+        baseStockKg: Number(baseStockKg) || 0, safeStockKg: Number(safeStockKg) || 0,
         densityGml: densityGml ? Number(densityGml) : null,
         densityTemperatureC: Number(densityTemperatureC) || 20,
         densitySource: densitySource.trim(), densityStatus,
@@ -309,7 +310,7 @@ function ProductMgmt() {
             </div>
             <div><label className="block text-xs text-gray-500 mb-1">产地</label><input value={origin} onChange={e => setOrigin(e.target.value)} placeholder="中国" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
             <div><label className="block text-xs text-gray-500 mb-1">归属 *</label>
-              <select value={channel} onChange={e => setChannel(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
+              <select value={channel} onChange={e => { const next = e.target.value; setChannel(next); if (next === 'RAW') setInventoryMode('MASS'); }} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
                 {CHANNEL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
@@ -318,9 +319,11 @@ function ProductMgmt() {
             <div className="border border-purple-200 bg-white rounded-lg p-3 space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <div><div className="text-xs font-medium text-gray-700">原料重量库存</div><div className="text-xs text-gray-400 mt-0.5">按 kg 入库；ml 规格按该原料密度自动换算扣减</div></div>
-                <select value={inventoryMode} onChange={e => setInventoryMode(e.target.value)} className="border rounded-lg px-3 py-2 text-sm bg-white">
-                  <option value="SKU">各规格独立库存</option><option value="MASS">按 kg 统一库存</option>
-                </select>
+                {channel === 'RAW' ? <span className="text-xs px-2.5 py-1.5 rounded-md bg-green-50 border border-green-200 text-green-700">固定按 kg 统一库存</span> : (
+                  <select value={inventoryMode} onChange={e => setInventoryMode(e.target.value)} className="border rounded-lg px-3 py-2 text-sm bg-white">
+                    <option value="SKU">各规格独立库存</option><option value="MASS">按 kg 统一库存</option>
+                  </select>
+                )}
               </div>
               {inventoryMode === 'MASS' && <>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -350,7 +353,7 @@ function ProductMgmt() {
                 <input list="product-spec-options" value={s.spec} onChange={e => updateSpec(i, 'spec', e.target.value)} placeholder="规格" className="border rounded-lg px-2 py-1.5 text-sm w-36" />
                 <input type="number" value={s.price} onChange={e => updateSpec(i, 'price', e.target.value)} placeholder="售价" className="border rounded-lg px-2 py-1.5 text-sm w-20" />
                 <input type="number" value={s.cost} onChange={e => updateSpec(i, 'cost', e.target.value)} placeholder="成本" className="border rounded-lg px-2 py-1.5 text-sm w-20" title="成本（留空或 0 表示未录）" />
-                <input type="number" value={s.stock} onChange={e => updateSpec(i, 'stock', e.target.value)} placeholder={inventoryMode === 'MASS' ? '自动' : '库存'} disabled={inventoryMode === 'MASS'} className="border rounded-lg px-2 py-1.5 text-sm w-20 disabled:bg-gray-100 disabled:text-gray-400" />
+                <input type="number" value={s.stock} onChange={e => updateSpec(i, 'stock', e.target.value)} placeholder={channel === 'RAW' || inventoryMode === 'MASS' ? '按kg' : '瓶数'} disabled={channel === 'RAW' || inventoryMode === 'MASS'} className="border rounded-lg px-2 py-1.5 text-sm w-20 disabled:bg-gray-100 disabled:text-gray-400" />
                 <input type="number" value={s.safeStock} onChange={e => updateSpec(i, 'safeStock', e.target.value)} placeholder="安全" className="border rounded-lg px-2 py-1.5 text-sm w-16" />
                 {specs.length > 1 && <button onClick={() => removeSpec(i)} className="text-gray-400 hover:text-red-500"><X size={14} /></button>}
               </div>

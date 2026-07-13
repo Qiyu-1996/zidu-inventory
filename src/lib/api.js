@@ -1282,6 +1282,27 @@ export async function adjustStock(specId, productId, type, reason, quantity, not
   return result;
 }
 
+export async function adjustRawStock(productId, type, reason, quantityKg, note, operatorName, densityGml = null, densityTemperatureC = 20) {
+  const { data, error } = await supabase.rpc('zidu_adjust_raw_inventory', {
+    p_product_id: productId,
+    p_type: type,
+    p_quantity_kg: Number(quantityKg),
+    p_reason: reason,
+    p_note: note || '',
+    p_operator_name: operatorName || '',
+    p_density_g_ml: densityGml ? Number(densityGml) : null,
+    p_density_temperature_c: Number(densityTemperatureC || 20)
+  });
+  if (error) {
+    if (/zidu_adjust_raw_inventory|schema cache|could not find the function/i.test(error.message || '')) {
+      throw new Error('请先在 Supabase 运行 migration_v23_raw_kg_inventory.sql');
+    }
+    throw new Error(error.message);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
 export async function fetchStockLog(limit = 100) {
   const { data, error } = await supabase.from('stock_adjustments')
     .select('*').order('created_at', { ascending: false }).limit(limit);
@@ -1689,7 +1710,7 @@ export function calculateRestockSuggestions(products, orders) {
 
   const suggestions = [];
   products.forEach(p => {
-    if (p.inventoryMode === 'MASS') {
+    if (p.channel === 'RAW') {
       const toKg = item => {
         const spec = String(item.spec || '').trim().toLowerCase().replace(/\s+/g, '');
         const match = spec.match(/^(\d+(?:\.\d+)?)(kg|公斤|千克|g|克|ml|毫升|l|升)/);

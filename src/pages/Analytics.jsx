@@ -65,11 +65,11 @@ export default function Analytics() {
     return { grossProfit: gp, rev, margin: rev > 0 ? gp / rev : 0, costed, totalOrders: vo.length };
   }, [isAdmin, vo]);
 
-  // 库存成本价值：Σ(spec.stock*spec.cost)，cost=0 计 0，另统计未录成本 SKU 数。
+  // 成品库存成本价值：原料以 kg 管理，当前销售规格成本不是 kg 成本，避免重复估值。
   const inv = useMemo(() => {
     if (!isAdmin) return null;
     let costVal = 0, missing = 0;
-    products.forEach(p => (p.specs || []).forEach(s => {
+    products.filter(p => p.channel !== 'RAW').forEach(p => (p.specs || []).forEach(s => {
       const c = s.cost || 0;
       if (c > 0) costVal += (s.stock || 0) * c; else missing++;
     }));
@@ -180,7 +180,8 @@ export default function Analytics() {
       const r30 = vo.filter(o => now - new Date(o.createdAt).getTime() < d30).reduce((s, o) => s + o.items.filter(it => it.productId === p.pid && (it.spec || '') === (p.spec || '')).reduce((s2, it) => s2 + it.subtotal, 0), 0);
       const p30 = vo.filter(o => { const a = now - new Date(o.createdAt).getTime(); return a >= d30 && a < d60; }).reduce((s, o) => s + o.items.filter(it => it.productId === p.pid && (it.spec || '') === (p.spec || '')).reduce((s2, it) => s2 + it.subtotal, 0), 0);
       const trend = p30 > 0 ? Math.round((r30 / p30 - 1) * 100) : r30 > 0 ? 100 : 0;
-      return { name: prod?.name || '', code: prod?.code || '', spec: p.spec, series: prod?.series || '', qty: p.qty, rev: p.rev, orderCount: p.orders.size, custCount: p.custs.size, trend, stock: specObj?.stock || 0, safeStock: specObj?.safeStock || 0, r30 };
+      const isRaw = prod?.channel === 'RAW';
+      return { name: prod?.name || '', code: prod?.code || '', spec: p.spec, series: prod?.series || '', qty: p.qty, rev: p.rev, orderCount: p.orders.size, custCount: p.custs.size, trend, stock: isRaw ? Number(prod?.baseStockKg || 0) : (specObj?.stock || 0), safeStock: isRaw ? Number(prod?.safeStockKg || 0) : (specObj?.safeStock || 0), stockUnit: isRaw ? 'kg' : '瓶', r30 };
     }).sort((a, b) => b.rev - a.rev);
   }, [vo, products]);
 
@@ -192,16 +193,16 @@ export default function Analytics() {
     const rising = prodAnalytics.filter(p => p.trend > 50 && p.r30 > 500);
     if (rising.length > 0) recs.push({ type: "success", title: "爆品趋势", desc: `${rising.slice(0, 3).map(p => `${p.name}(${p.spec})`).join("、")} 近30天环比增长超50%。建议确保库存充足。`, priority: 2 });
     const lowHot = prodAnalytics.filter(p => p.stock <= p.safeStock && p.r30 > 0);
-    if (lowHot.length > 0) recs.push({ type: "warning", title: "热销品库存告急", desc: `${lowHot.slice(0, 4).map(p => `${p.name}(${p.spec}) 剩${p.stock}`).join("、")}。建议立即补货。`, priority: 1 });
+    if (lowHot.length > 0) recs.push({ type: "warning", title: "热销品库存告急", desc: `${lowHot.slice(0, 4).map(p => `${p.name}(${p.spec}) 剩${p.stock}${p.stockUnit}`).join("、")}。建议立即补货。`, priority: 1 });
     const slow = prodAnalytics.filter(p => p.stock > p.safeStock * 5 && p.r30 === 0);
-    if (slow.length > 0) recs.push({ type: "info", title: "滞销库存提醒", desc: `${slow.slice(0, 3).map(p => `${p.name}(${p.spec}) 库存${p.stock}`).join("、")} 近30天零销售。建议促销清仓。`, priority: 4 });
+    if (slow.length > 0) recs.push({ type: "info", title: "滞销库存提醒", desc: `${slow.slice(0, 3).map(p => `${p.name}(${p.spec}) 库存${p.stock}${p.stockUnit}`).join("、")} 近30天零销售。建议促销清仓。`, priority: 4 });
     if (custAnalytics.length >= 5) { const top3Rev = custAnalytics.slice(0, 3).reduce((s, c) => s + c.revenue, 0); const ratio = totR > 0 ? Math.round(top3Rev / totR * 100) : 0; if (ratio > 60) recs.push({ type: "info", title: `客户集中度偏高 (Top3占${ratio}%)`, desc: `前3大客户贡献了${ratio}%的销售额。建议拓展新客户。`, priority: 3 }); }
     return recs.sort((a, b) => a.priority - b.priority);
   }, [custAnalytics, prodAnalytics, totR]);
 
   const exportTrend = () => exportCSV(["周期","销售额","订单数","折扣额"], timeData.map(d => [d.name, d.sales, d.count, d.disc]), `趋势_${period}.csv`);
   const exportCust = () => exportCSV(["客户","类型","销售","订单数","累计金额","客单价","最近下单","趋势%","常购产品"], custAnalytics.map(c => [c.name, c.type, c.seller, c.orders, c.revenue, c.avgOrder, c.lastDate, c.trend, c.topProds.join("/")]), "客户分析.csv");
-  const exportProd = () => exportCSV(["产品","编码","规格","系列","销量","销售额","订单数","客户数","趋势%","库存"], prodAnalytics.map(p => [p.name, p.code, p.spec, p.series, p.qty, p.rev, p.orderCount, p.custCount, p.trend, p.stock]), "产品分析.csv");
+  const exportProd = () => exportCSV(["产品","编码","规格","系列","销量","销售额","订单数","客户数","趋势%","库存","库存单位"], prodAnalytics.map(p => [p.name, p.code, p.spec, p.series, p.qty, p.rev, p.orderCount, p.custCount, p.trend, p.stock, p.stockUnit]), "产品分析.csv");
 
   const InsightCard = ({ type, title, desc }) => {
     const styles = { warning: "border-l-4 border-l-orange-400 bg-orange-50", success: "border-l-4 border-l-green-400 bg-green-50", info: "border-l-4 border-l-blue-400 bg-blue-50" };
@@ -221,7 +222,7 @@ export default function Analytics() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <StatCard label="毛利" value={fmtY(profit.grossProfit)} icon={Wallet} color="#5C4B73" />
           <StatCard label="毛利率" value={`${(profit.margin * 100).toFixed(1)}%`} icon={Coins} color="#7B8F67" />
-          <StatCard label="库存成本价值" value={fmtY(inv.costVal)} sub={inv.missing > 0 ? `${inv.missing} 个 SKU 未录成本` : undefined} icon={Boxes} color="#5F7689" />
+          <StatCard label="成品库存成本价值" value={fmtY(inv.costVal)} sub={inv.missing > 0 ? `${inv.missing} 个成品 SKU 未录成本` : undefined} icon={Boxes} color="#5F7689" />
         </div>
         <div className="text-xs text-gray-400 -mt-1 px-1">
           毛利基于 {profit.costed} 笔已录成本订单（共 {profit.totalOrders} 笔）

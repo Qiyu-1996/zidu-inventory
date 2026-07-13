@@ -165,6 +165,11 @@ export function DataProvider({ children }) {
     setProducts(p => p.map(pr => pr.id === productId ? { ...pr, specs: pr.specs.map(s => s.id === specId ? { ...s, stock: result.after } : s) } : pr));
     return result;
   }, [user]);
+  const adjustRawStock = useCallback(async (productId, type, reason, qtyKg, note, densityGml, densityTemperatureC) => {
+    const result = await api.adjustRawStock(productId, type, reason, qtyKg, note, user.name, densityGml, densityTemperatureC);
+    setProducts(await api.fetchProducts());
+    return result;
+  }, [user]);
   const loadStockLog = useCallback(async () => { const log = await api.fetchStockLog(); setStockLog(log); return log; }, []);
 
   // Purchase Orders
@@ -252,7 +257,7 @@ export function DataProvider({ children }) {
       addOrder, updateOrderStatus, removeOrder, editOrderItems, recordPayment, processAfterSale,
       createAfterSale, processAfterSaleWarehouse, completeAfterSaleFinance,
       addUser, resetUserPassword, toggleUserStatus, updateUserRole, archiveUser,
-      adjustStock, loadStockLog,
+      adjustStock, adjustRawStock, loadStockLog,
       addPurchaseOrder, editPurchaseOrder, removePurchaseOrder, updatePOStatus, receivePOItems,
       updateTiers, getCustomerTier,
       updatePackageItems,

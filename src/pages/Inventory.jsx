@@ -18,6 +18,9 @@ function level(stock, safe) {
   if (stock <= safe * 2) return 'warn';
   return 'ok';
 }
+function isRawProduct(product) {
+  return product?.channel === 'RAW';
+}
 const STOCK_PILL = {
   ok: 'bg-green-50 text-green-700 border border-green-200',
   warn: 'bg-amber-50 text-amber-700 border border-amber-200',
@@ -27,7 +30,7 @@ const STOCK_PILL = {
 
 export default function Inventory({ nav }) {
   const { user } = useAuth();
-  const { products, stockLog, loadStockLog, adjustStock, addBatch, removeBatch } = useData();
+  const { products, stockLog, loadStockLog, adjustStock, adjustRawStock, addBatch, removeBatch } = useData();
   const isAdmin = user.role === 'ADMIN';
   const canAdjust = user.role === 'ADMIN' || user.role === 'WAREHOUSE';
 
@@ -42,6 +45,7 @@ export default function Inventory({ nav }) {
   const [adjReason, setAdjReason] = useState('PURCHASE');
   const [adjQty, setAdjQty] = useState('');
   const [adjNote, setAdjNote] = useState('');
+  const [adjDensityGml, setAdjDensityGml] = useState('');
   const [adjusting, setAdjusting] = useState(false);
 
   const [batchFor, setBatchFor] = useState(null);
@@ -59,17 +63,17 @@ export default function Inventory({ nav }) {
   const stats = useMemo(() => {
     let sku = 0, low = 0, out = 0, costVal = 0, retailVal = 0, noCost = 0, rawKg = 0, massProducts = 0, densityMissing = 0;
     products.forEach(p => {
-      const productLow = p.inventoryMode === 'MASS'
+      const productLow = isRawProduct(p)
         ? Number(p.baseStockKg || 0) <= Number(p.safeStockKg || 0)
         : p.specs.some(s => s.stock <= s.safeStock);
-      const productOut = p.inventoryMode === 'MASS'
+      const productOut = isRawProduct(p)
         ? Number(p.baseStockKg || 0) <= 0
         : p.specs.length > 0 && p.specs.every(s => s.stock <= 0);
       if (productLow) low++;
       if (productOut) out++;
-      if (p.inventoryMode === 'MASS') {
+      if (isRawProduct(p)) {
         rawKg += Number(p.baseStockKg || 0);
-        massProducts++;
+        if (p.inventoryMode === 'MASS') massProducts++;
       } else {
         p.specs.forEach(s => {
           costVal += s.stock * (s.cost || 0);
@@ -94,15 +98,19 @@ export default function Inventory({ nav }) {
       if (cf === 'MASS' && p.inventoryMode !== 'MASS') return false;
       if (cf === 'DENSITY' && !(p.channel === 'RAW' && p.specs.some(s => /(?:ml|毫升|l|升)/i.test(s.spec)) && !p.densityGml)) return false;
       if (search && !`${p.code} ${p.name}`.toLowerCase().includes(search.toLowerCase())) return false;
-      if (lowOnly && !(p.inventoryMode === 'MASS' ? Number(p.baseStockKg || 0) <= Number(p.safeStockKg || 0) : p.specs.some(s => s.stock <= s.safeStock))) return false;
+      if (lowOnly && !(isRawProduct(p) ? Number(p.baseStockKg || 0) <= Number(p.safeStockKg || 0) : p.specs.some(s => s.stock <= s.safeStock))) return false;
       return true;
     })
-    .sort((a, b) => (b.specs.some(s => s.stock <= s.safeStock) ? 1 : 0) - (a.specs.some(s => s.stock <= s.safeStock) ? 1 : 0));
+    .sort((a, b) => {
+      const aLow = isRawProduct(a) ? Number(a.baseStockKg || 0) <= Number(a.safeStockKg || 0) : a.specs.some(s => s.stock <= s.safeStock);
+      const bLow = isRawProduct(b) ? Number(b.baseStockKg || 0) <= Number(b.safeStockKg || 0) : b.specs.some(s => s.stock <= s.safeStock);
+      return Number(bLow) - Number(aLow);
+    });
 
   const copyRestockList = () => {
     const lines = [];
     products.forEach(p => {
-      if (p.inventoryMode === 'MASS') {
+      if (isRawProduct(p)) {
         const stock = Number(p.baseStockKg || 0);
         const safe = Number(p.safeStockKg || 0);
         if (stock <= safe) lines.push(`${p.name} 实际${stock.toFixed(3)}kg/安全${safe.toFixed(3)}kg${stock <= 0 ? '（售罄）' : ''}`);
@@ -117,13 +125,21 @@ export default function Inventory({ nav }) {
       () => alert(`已复制 ${lines.length} 项补货清单`), () => alert('复制失败，请手动复制'));
   };
 
-  const startAdjust = (product, spec) => { setAdjustFor({ product, spec }); setAdjType('IN'); setAdjReason('PURCHASE'); setAdjQty(''); setAdjNote(''); };
+  const startAdjust = (product, spec) => {
+    setAdjustFor({ product, spec });
+    setAdjType('IN'); setAdjReason('PURCHASE'); setAdjQty(''); setAdjNote('');
+    setAdjDensityGml(product.densityGml || '');
+  };
   const handleAdjust = async () => {
     const qty = Number(adjQty);
     if (qty < 0 || (adjType !== 'CORRECTION' && !qty)) return;
     setAdjusting(true);
     try {
-      await adjustStock(adjustFor.spec.id, adjustFor.product.id, adjType, adjReason, qty, adjNote);
+      if (isRawProduct(adjustFor.product)) {
+        await adjustRawStock(adjustFor.product.id, adjType, adjReason, qty, adjNote, adjDensityGml || null, adjustFor.product.densityTemperatureC || 20);
+      } else {
+        await adjustStock(adjustFor.spec.id, adjustFor.product.id, adjType, adjReason, qty, adjNote);
+      }
       setAdjustFor(null);
       if (tab === 'log') await loadStockLog();
     } catch (e) { alert('调整失败: ' + e.message); } finally { setAdjusting(false); }
@@ -250,7 +266,7 @@ export default function Inventory({ nav }) {
 
           {adjustFor && (
             <Card className="p-4 border-purple-200 bg-[#FBF9FD]">
-              <div className="text-sm font-medium mb-3">调整库存：{adjustFor.product.name}（{adjustFor.spec.spec}）· 当前库存 {adjustFor.spec.stock}</div>
+              <div className="text-sm font-medium mb-3">调整库存：{adjustFor.product.name}{!isRawProduct(adjustFor.product) && `（${adjustFor.spec.spec}）`} · 当前库存 {isRawProduct(adjustFor.product) ? `${Number(adjustFor.product.baseStockKg || 0).toFixed(3)} kg` : `${adjustFor.spec.stock} 瓶`}</div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div><label className="block text-xs text-gray-500 mb-1">类型</label>
                   <select value={adjType} onChange={e => { setAdjType(e.target.value); setAdjReason(e.target.value === 'IN' ? 'PURCHASE' : e.target.value === 'OUT' ? 'DAMAGE' : 'CORRECTION'); }} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
@@ -262,8 +278,11 @@ export default function Inventory({ nav }) {
                     {adjType === 'OUT' && <><option value="DAMAGE">损耗/报废</option><option value="OTHER">其他</option></>}
                     {adjType === 'CORRECTION' && <option value="CORRECTION">盘点修正</option>}
                   </select></div>
-                <div><label className="block text-xs text-gray-500 mb-1">{adjustFor.product.inventoryMode === 'MASS' ? (adjType === 'CORRECTION' ? '实际库存 kg' : '重量 kg') : (adjType === 'CORRECTION' ? '新库存值' : '数量')}</label><input type="number" min="0" step={adjustFor.product.inventoryMode === 'MASS' ? '0.001' : '1'} value={adjQty} onChange={e => setAdjQty(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+                <div><label className="block text-xs text-gray-500 mb-1">{isRawProduct(adjustFor.product) ? (adjType === 'CORRECTION' ? '实际库存 kg' : '重量 kg') : (adjType === 'CORRECTION' ? '实际瓶数' : '瓶数')}</label><input type="number" min="0" step={isRawProduct(adjustFor.product) ? '0.001' : '1'} value={adjQty} onChange={e => setAdjQty(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
                 <div><label className="block text-xs text-gray-500 mb-1">备注</label><input value={adjNote} onChange={e => setAdjNote(e.target.value)} placeholder="可选" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+                {isRawProduct(adjustFor.product) && adjustFor.product.inventoryMode !== 'MASS' && adjustFor.product.specs.some(s => /(?:ml|毫升|l|升)/i.test(s.spec)) && (
+                  <div><label className="block text-xs text-gray-500 mb-1">密度 g/ml *</label><input type="number" min="0.001" step="0.00001" value={adjDensityGml} onChange={e => setAdjDensityGml(e.target.value)} placeholder="首次录入 kg 时必填" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+                )}
               </div>
               <div className="flex gap-2 mt-3">
                 <button onClick={() => setAdjustFor(null)} className="px-3 py-2 text-sm border rounded-lg bg-white">取消</button>
@@ -286,20 +305,24 @@ export default function Inventory({ nav }) {
                     <td className="py-2.5 px-4 font-mono text-xs text-gray-500">{p.code}</td>
                     <td className="py-2.5 px-4 min-w-40"><div className="text-gray-800 font-medium">{p.name}</div><div className="text-xs text-gray-400 mt-0.5">{p.origin} · {p.series}</div></td>
                     <td className="py-2.5 px-4 min-w-44">
-                      {p.inventoryMode === 'MASS' ? <>
+                      {isRawProduct(p) ? <>
                         <div className="flex items-baseline gap-1"><span className="text-lg font-medium text-purple-700 tabular-nums">{Number(p.baseStockKg || 0).toFixed(3)}</span><span className="text-xs text-gray-400">kg</span></div>
-                        <div className="text-[11px] text-gray-400 mt-0.5">共享重量库存 · {p.densityGml ? `${p.densityGml} g/ml @ ${p.densityTemperatureC}°C` : '密度未录'}</div>
-                      </> : <><div className="text-xs font-medium text-gray-600">独立 SKU 库存</div><div className="text-[11px] text-gray-400 mt-1">{p.channel === 'RAW' ? '原料尚未启用 kg 管理' : '各规格分别入库与扣减'}</div></>}
+                        <div className="text-[11px] text-gray-400 mt-0.5">{p.inventoryMode === 'MASS' ? '共享重量库存' : '待首次录入实际 kg'} · {p.densityGml ? `${p.densityGml} g/ml @ ${p.densityTemperatureC}°C` : '密度未录'}</div>
+                        {canAdjust && p.specs[0] && <div className="flex gap-1 mt-2">
+                          <button onClick={() => startAdjust(p, p.specs[0])} className="h-7 px-2 rounded-md border border-purple-200 text-purple-700 text-[11px] inline-flex items-center gap-1"><Edit2 size={11} />调整 kg</button>
+                          <button onClick={() => startBatch(p, p.specs[0])} className="h-7 px-2 rounded-md border border-green-200 text-green-700 text-[11px] inline-flex items-center gap-1"><Package size={11} />批次入库</button>
+                        </div>}
+                      </> : <><div className="text-xs font-medium text-gray-600">独立规格瓶数</div><div className="text-[11px] text-gray-400 mt-1">2ml / 5ml / 15ml 等各自入库扣减</div></>}
                     </td>
                     <td className="py-2.5 px-4">
                       <div className="flex flex-wrap gap-1.5">
                         {p.specs.map(s => (
-                          <div key={s.id} className={`inline-flex items-center gap-1 text-xs px-2 py-1.5 rounded-md ${STOCK_PILL[level(s.stock, s.safeStock)]}`}>
+                          <div key={s.id} className={`inline-flex items-center gap-1 text-xs px-2 py-1.5 rounded-md ${isRawProduct(p) ? 'bg-gray-50 text-gray-700 border border-gray-200' : STOCK_PILL[level(s.stock, s.safeStock)]}`}>
                             <span>{s.spec}</span>
                             {user.role !== 'SALES' && <span>· {fmtY(s.price)}</span>}
                             {isAdmin && <span className="opacity-70">/{s.cost ? fmtY(s.cost) : '未录'}</span>}
-                            <span>· 剩{s.stock}</span>
-                            {canAdjust && (<>
+                            {isRawProduct(p) ? <span className="text-gray-400">· 销售规格</span> : <span>· {s.stock} 瓶</span>}
+                            {canAdjust && !isRawProduct(p) && (<>
                               <button onClick={() => startAdjust(p, s)} title="调整库存" className="ml-1 w-5 h-5 inline-flex items-center justify-center rounded hover:bg-white/60 text-purple-600"><Edit2 size={11} /></button>
                               <button onClick={() => startBatch(p, s)} title={p.inventoryMode === 'MASS' || p.channel === 'RAW' ? '按 kg 批次入库' : '批次入库'} className="w-5 h-5 inline-flex items-center justify-center rounded hover:bg-white/60 text-green-700"><Package size={11} /></button>
                             </>)}

@@ -120,8 +120,18 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
         {filtered.map(p => (
           <Card key={p.id} className="p-4">
             <div className="mb-2">
-              <div className="font-medium text-gray-800 text-sm">{p.name}</div>
-              <div className="text-xs text-gray-400">{p.code} · {p.origin}</div>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-medium text-gray-800 text-sm">{p.name}</div>
+                  <div className="text-xs text-gray-400">{p.code} · {p.origin}</div>
+                </div>
+                {p.channel === 'RAW' && (
+                  <div className={`text-right shrink-0 ${p.inventoryMode === 'MASS' ? 'text-green-700' : 'text-amber-700'}`}>
+                    <div className="text-sm font-medium tabular-nums">{Number(p.baseStockKg || 0).toFixed(3)} kg</div>
+                    <div className="text-[10px]">{p.inventoryMode === 'MASS' ? '原料余量' : '待录实际库存'}</div>
+                  </div>
+                )}
+              </div>
               <span className="text-xs px-2 py-0.5 rounded bg-purple-50 text-purple-600 mt-1 inline-block">{p.series}</span>
             </div>
             <div className="space-y-1.5 mt-3">
@@ -134,7 +144,7 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
                       <span className="text-gray-400 mx-1">·</span>
                       <span className="font-medium" style={{ color: "#5C4B73" }}>{fmtY(s.price)}</span>
                       {unitPriceHint(s.spec, s.price) && <span className="text-amber-700 text-xs ml-1 font-medium">{unitPriceHint(s.spec, s.price)}</span>}
-                      {s.stock <= s.safeStock && <span className="text-red-500 text-xs ml-1">库存{s.stock}</span>}
+                      {p.channel !== 'RAW' && s.stock <= s.safeStock && <span className="text-red-500 text-xs ml-1">库存 {s.stock} 瓶</span>}
                     </div>
                     {inCart ? (
                       <div className="flex items-center gap-1">
@@ -143,8 +153,8 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
                         <button onClick={() => updateCartQty(inCart.key, inCart.quantity + 1)} className="w-6 h-6 rounded-full border text-xs flex items-center justify-center"><Plus size={12} /></button>
                       </div>
                     ) : (
-                      <button onClick={() => addToCart(p, s)} className="text-xs px-2.5 py-1 rounded-lg border border-purple-200 text-purple-700 hover:bg-purple-50">
-                        <Plus size={12} className="inline -mt-0.5" /> 加购
+                      <button disabled={p.channel === 'RAW' && p.inventoryMode !== 'MASS'} onClick={() => addToCart(p, s)} className="text-xs px-2.5 py-1 rounded-lg border border-purple-200 text-purple-700 hover:bg-purple-50 disabled:border-gray-200 disabled:text-gray-400 disabled:bg-gray-50">
+                        {p.channel === 'RAW' && p.inventoryMode !== 'MASS' ? '待录库存' : <><Plus size={12} className="inline -mt-0.5" /> 加购</>}
                       </button>
                     )}
                   </div>
