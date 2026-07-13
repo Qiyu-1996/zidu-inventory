@@ -81,4 +81,7 @@ $$;
 GRANT EXECUTE ON FUNCTION public.admin_update_user_role(INTEGER, INTEGER, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_archive_user(INTEGER, INTEGER) TO anon, authenticated;
 
+-- 让 PostgREST 立即识别新建/更新后的 RPC，避免短时间内提示 schema cache 找不到函数。
+NOTIFY pgrst, 'reload schema';
+
 SELECT id, name, role, status FROM public.users ORDER BY id;

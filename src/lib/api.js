@@ -45,7 +45,7 @@ export async function updateUserRole(adminId, targetUserId, newRole) {
   const { data, error } = await supabase.rpc('admin_update_user_role', {
     p_admin_id: adminId, p_target_user_id: targetUserId, p_new_role: newRole
   });
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(/admin_update_user_role|schema cache|could not find/i.test(error.message || '') ? '请先在 Supabase 运行 migration_v20_user_role_and_archive.sql' : error.message);
   if (data?.error) throw new Error(data.error);
   return data;
 }
@@ -54,7 +54,7 @@ export async function archiveUser(adminId, targetUserId) {
   const { data, error } = await supabase.rpc('admin_archive_user', {
     p_admin_id: adminId, p_target_user_id: targetUserId
   });
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(/admin_archive_user|schema cache|could not find/i.test(error.message || '') ? '请先在 Supabase 运行 migration_v20_user_role_and_archive.sql' : error.message);
   if (data?.error) throw new Error(data.error);
   return data;
 }
