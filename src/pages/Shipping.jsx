@@ -156,7 +156,12 @@ export default function ShippingWorkbench() {
                   <div className="text-xs text-gray-400 mt-1">{o.items.map(it => `${it.productName}(${it.spec})x${it.quantity}`).join("，")}</div>
                 </div>
                 <div className="flex gap-2 shrink-0">
-	                  {["CONFIRMED","PREPARING"].includes(o.status) && <button onClick={() => doAdvance(o, "SHIPPED")} disabled={updating} className="px-3 py-1.5 text-sm rounded-lg text-white bg-green-600 disabled:opacity-40">发货</button>}
+                  {["CONFIRMED","PREPARING"].includes(o.status) && (
+                    <>
+                      <button onClick={() => printShipment(o, c, seller)} className="px-3 py-1.5 text-sm rounded-lg border border-purple-200 bg-white text-purple-700">打印发货单</button>
+                      <button onClick={() => doAdvance(o, "SHIPPED")} disabled={updating} className="px-3 py-1.5 text-sm rounded-lg text-white bg-green-600 disabled:opacity-40">填写快递并发货</button>
+                    </>
+                  )}
                   {["SHIPPED","DELIVERED"].includes(o.status) && <button onClick={() => doAdvance(o, "COMPLETED")} disabled={updating} className="px-4 py-1.5 text-sm rounded-lg border border-purple-300 text-purple-700 disabled:opacity-40">完成订单</button>}
                 </div>
               </div>
@@ -182,9 +187,6 @@ export default function ShippingWorkbench() {
                     <span>📦 {o.shipment.carrier} · {o.shipment.trackingNo}</span>
                     <button onClick={() => { navigator.clipboard.writeText(`${o.shipment.carrier} ${o.shipment.trackingNo}`); alert('已复制'); }} className="text-purple-700 underline">复制</button>
                     <button onClick={() => refreshTracking(o)} disabled={trackingOrderId === o.id} className="text-purple-700 underline disabled:opacity-50">{trackingOrderId === o.id ? '更新中...' : '更新物流'}</button>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button onClick={() => printShipment(o, c, seller)} className="px-3 py-1.5 rounded-lg border border-purple-200 bg-white text-purple-700">打印发货单</button>
                   </div>
                   <TrackingTimeline shipment={o.shipment} compact />
                 </div>

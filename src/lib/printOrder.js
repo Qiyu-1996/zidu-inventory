@@ -137,12 +137,12 @@ function shipmentDocumentHtml(order, customer, seller) {
     <div class="wide"><span class="label">收件地址</span>${escapeHtml(fullAddress)}</div>
   </div></div>
   <div class="section"><div class="section-title">发货明细</div><table><thead><tr><th>产品编号</th><th>产品名称</th><th>规格</th><th class="qty">数量</th></tr></thead><tbody>${rows}</tbody></table></div>
-  <div class="section"><div class="section-title">物流信息</div><div class="grid">
+  ${order.shipment ? `<div class="section"><div class="section-title">物流信息</div><div class="grid">
     <div><span class="label">快递公司</span>${escapeHtml(shipment.carrier || '—')}</div>
     <div><span class="label">快递单号</span>${escapeHtml(shipment.trackingNo || '—')}</div>
     <div><span class="label">发货日期</span>${escapeHtml(shipment.shippedAt || '—')}</div>
     <div><span class="label">操作人员</span>${escapeHtml(shipment.operator || '—')}</div>
-  </div></div>
+  </div></div>` : ''}
   ${order.notes ? `<div class="section"><div class="section-title">发货备注</div><div class="note">${escapeHtml(order.notes)}</div></div>` : ''}
   <div class="signatures">
     <div class="signature">发货人员签字<div class="sig-line"></div></div>

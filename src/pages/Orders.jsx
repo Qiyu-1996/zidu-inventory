@@ -667,7 +667,10 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
         {needsShipping && (
           <div className="pt-3 border-t bg-orange-50 -mx-5 -mb-5 px-5 py-3 rounded-b-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="text-sm text-orange-700">订单已收款待发货，可前往“发货管理”填写快递公司和快递单号。</div>
-            <button type="button" onClick={onShipping} className="px-3 py-1.5 text-sm text-white rounded-lg shrink-0" style={{ background: '#5C4B73' }}>去发货</button>
+            <div className="flex gap-2 shrink-0">
+              <button type="button" onClick={() => printShipment(order, customer, seller)} className="flex items-center gap-1 px-3 py-1.5 text-sm border border-purple-200 bg-white text-purple-700 rounded-lg"><Printer size={14} />打印发货单</button>
+              <button type="button" onClick={onShipping} className="px-3 py-1.5 text-sm text-white rounded-lg" style={{ background: '#5C4B73' }}>去发货</button>
+            </div>
           </div>
         )}
 
@@ -943,9 +946,6 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
           <div className="flex gap-2 mt-3 pt-3 border-t">
             <button onClick={copyTracking} className="flex items-center gap-1 text-sm px-3 py-1.5 border rounded-lg text-purple-700 hover:bg-purple-50"><Copy size={14} />复制快递信息</button>
             <button onClick={handleRefreshTracking} disabled={trackingLoading} className="flex items-center gap-1 text-sm px-3 py-1.5 border rounded-lg text-purple-700 hover:bg-purple-50 disabled:opacity-50"><RefreshCw size={14} className={trackingLoading ? 'animate-spin' : ''} />{trackingLoading ? '更新中' : '更新物流'}</button>
-          </div>
-          <div className="flex flex-wrap gap-2 mt-2">
-            <button onClick={() => printShipment(order, customer, seller)} className="flex items-center gap-1 text-sm px-3 py-1.5 border rounded-lg text-purple-700 hover:bg-purple-50"><Printer size={14} />打印发货单</button>
           </div>
           <div className="mt-3 pt-3 border-t">
             <TrackingTimeline shipment={order.shipment} />
