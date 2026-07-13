@@ -38,7 +38,6 @@ export default function Inventory({ nav }) {
   const [search, setSearch] = useState('');
   const [stockKind, setStockKind] = useState('RAW');
   const [sf, setSf] = useState('ALL');
-  const [cf, setCf] = useState('ALL');
   const [lowOnly, setLowOnly] = useState(false);
 
   const [adjustFor, setAdjustFor] = useState(null);
@@ -46,11 +45,10 @@ export default function Inventory({ nav }) {
   const [adjReason, setAdjReason] = useState('PURCHASE');
   const [adjQty, setAdjQty] = useState('');
   const [adjNote, setAdjNote] = useState('');
-  const [adjDensityGml, setAdjDensityGml] = useState('');
   const [adjusting, setAdjusting] = useState(false);
 
   const [batchFor, setBatchFor] = useState(null);
-  const [batchData, setBatchData] = useState({ batchNo: '', gcmsNo: '', receivedDate: today(), expiryDate: '', quantity: '', unitCost: '', supplier: '', note: '', densityGml: '', densityTemperatureC: 20 });
+  const [batchData, setBatchData] = useState({ batchNo: '', gcmsNo: '', receivedDate: today(), expiryDate: '', quantity: '', unitCost: '', supplier: '', note: '' });
   const [savingBatch, setSavingBatch] = useState(false);
   const [batchList, setBatchList] = useState([]);
   const [loadingBatches, setLoadingBatches] = useState(false);
@@ -62,7 +60,7 @@ export default function Inventory({ nav }) {
   }, []);
 
   const stats = useMemo(() => {
-    let sku = 0, low = 0, out = 0, costVal = 0, retailVal = 0, noCost = 0, rawKg = 0, massProducts = 0, densityMissing = 0;
+    let sku = 0, low = 0, out = 0, costVal = 0, retailVal = 0, noCost = 0, rawKg = 0, massProducts = 0;
     products.forEach(p => {
       const productLow = isRawProduct(p)
         ? Number(p.baseStockKg || 0) <= Number(p.safeStockKg || 0)
@@ -82,13 +80,12 @@ export default function Inventory({ nav }) {
           if (!s.cost) noCost++;
         });
       }
-      if (p.channel === 'RAW' && p.specs.some(s => /(?:ml|毫升|l|升)/i.test(s.spec)) && !p.densityGml) densityMissing++;
       sku += p.specs.length;
     });
     const now = Date.now();
     const expiring = batchList.filter(b => b.expiryDate && new Date(b.expiryDate).getTime() >= now && new Date(b.expiryDate).getTime() - now < 90 * 86400000).length;
     const expired = batchList.filter(b => b.expiryDate && new Date(b.expiryDate).getTime() < now && Number(b.remainingQty || 0) > 0).length;
-    return { sku, low, out, costVal, retailVal, margin: retailVal - costVal, noCost, rawKg, massProducts, densityMissing, expiring, expired };
+    return { sku, low, out, costVal, retailVal, margin: retailVal - costVal, noCost, rawKg, massProducts, expiring, expired };
   }, [products, batchList]);
 
   const filtered = products
@@ -96,8 +93,6 @@ export default function Inventory({ nav }) {
       if (stockKind === 'RAW' && !isRawProduct(p)) return false;
       if (stockKind === 'FINISHED' && isRawProduct(p)) return false;
       if (sf !== 'ALL' && p.series !== sf) return false;
-      if (cf === 'MASS' && p.inventoryMode !== 'MASS') return false;
-      if (cf === 'DENSITY' && !(p.channel === 'RAW' && p.specs.some(s => /(?:ml|毫升|l|升)/i.test(s.spec)) && !p.densityGml)) return false;
       if (search && !`${p.code} ${p.name}`.toLowerCase().includes(search.toLowerCase())) return false;
       if (lowOnly && !(isRawProduct(p) ? Number(p.baseStockKg || 0) <= Number(p.safeStockKg || 0) : p.specs.some(s => s.stock <= s.safeStock))) return false;
       return true;
@@ -126,8 +121,7 @@ export default function Inventory({ nav }) {
         quantity: currentProducts.reduce((sum, p) => sum + Number(p.baseStockKg || 0), 0),
         low: currentProducts.filter(p => Number(p.baseStockKg || 0) <= Number(p.safeStockKg || 0)).length,
         out: currentProducts.filter(p => Number(p.baseStockKg || 0) <= 0).length,
-        densityMissing: currentProducts.filter(p => p.specs.some(s => /(?:ml|毫升|l|升)/i.test(s.spec)) && !p.densityGml).length,
-        ready: currentProducts.filter(p => p.inventoryMode === 'MASS').length,
+        volumeProducts: currentProducts.filter(p => p.specs.some(s => /(?:ml|毫升|l|升)/i.test(s.spec))).length,
         expiring, expired
       };
     }
@@ -163,7 +157,6 @@ export default function Inventory({ nav }) {
   const startAdjust = (product, spec) => {
     setAdjustFor({ product, spec });
     setAdjType('IN'); setAdjReason('PURCHASE'); setAdjQty(''); setAdjNote('');
-    setAdjDensityGml(product.densityGml || '');
   };
   const handleAdjust = async () => {
     const qty = Number(adjQty);
@@ -171,7 +164,7 @@ export default function Inventory({ nav }) {
     setAdjusting(true);
     try {
       if (isRawProduct(adjustFor.product)) {
-        await adjustRawStock(adjustFor.product.id, adjType, adjReason, qty, adjNote, adjDensityGml || null, adjustFor.product.densityTemperatureC || 20);
+        await adjustRawStock(adjustFor.product.id, adjType, adjReason, qty, adjNote);
       } else {
         await adjustStock(adjustFor.spec.id, adjustFor.product.id, adjType, adjReason, qty, adjNote);
       }
@@ -180,7 +173,7 @@ export default function Inventory({ nav }) {
     } catch (e) { alert('调整失败: ' + e.message); } finally { setAdjusting(false); }
   };
 
-  const startBatch = (product, spec) => { setBatchFor({ product, spec }); setBatchData({ batchNo: '', gcmsNo: '', receivedDate: today(), expiryDate: '', quantity: '', unitCost: '', supplier: '', note: '', densityGml: product.densityGml || '', densityTemperatureC: product.densityTemperatureC || 20 }); };
+  const startBatch = (product, spec) => { setBatchFor({ product, spec }); setBatchData({ batchNo: '', gcmsNo: '', receivedDate: today(), expiryDate: '', quantity: '', unitCost: '', supplier: '', note: '' }); };
   const handleSaveBatch = async () => {
     const qty = Number(batchData.quantity);
     if (!batchData.batchNo || !batchData.receivedDate || !qty || qty <= 0) return;
@@ -189,9 +182,7 @@ export default function Inventory({ nav }) {
       await addBatch({
         productId: batchFor.product.id, specId: batchFor.spec.id, batchNo: batchData.batchNo, gcmsNo: batchData.gcmsNo,
         receivedDate: batchData.receivedDate, expiryDate: batchData.expiryDate || null, quantity: qty,
-        unitCost: Number(batchData.unitCost) || 0, supplier: batchData.supplier, note: batchData.note,
-        densityGml: batchData.densityGml ? Number(batchData.densityGml) : null,
-        densityTemperatureC: Number(batchData.densityTemperatureC || 20)
+        unitCost: Number(batchData.unitCost) || 0, supplier: batchData.supplier, note: batchData.note
       });
       setBatchFor(null); alert('入库成功');
       if (tab === 'batches') { const fresh = await api.fetchBatches(); setBatchList(fresh); }
@@ -229,15 +220,15 @@ export default function Inventory({ nav }) {
       </div>
 
       <div className="zidu-segment self-start" aria-label="库存管理分类">
-        <button onClick={() => { setStockKind('RAW'); setCf('ALL'); setSf('ALL'); setAdjustFor(null); setBatchFor(null); }} className={stockKind === 'RAW' ? 'active' : ''}>原料库存（kg） · {products.filter(isRawProduct).length}</button>
-        <button onClick={() => { setStockKind('FINISHED'); setCf('ALL'); setSf('ALL'); setAdjustFor(null); setBatchFor(null); }} className={stockKind === 'FINISHED' ? 'active' : ''}>成品库存（瓶 / 个） · {products.filter(p => !isRawProduct(p)).length}</button>
+        <button onClick={() => { setStockKind('RAW'); setSf('ALL'); setAdjustFor(null); setBatchFor(null); }} className={stockKind === 'RAW' ? 'active' : ''}>原料库存（kg） · {products.filter(isRawProduct).length}</button>
+        <button onClick={() => { setStockKind('FINISHED'); setSf('ALL'); setAdjustFor(null); setBatchFor(null); }} className={stockKind === 'FINISHED' ? 'active' : ''}>成品库存（瓶 / 个） · {products.filter(p => !isRawProduct(p)).length}</button>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
         <Card className="p-4"><div className="flex items-center justify-between"><div><div className="text-xs text-gray-500">{stockKind === 'RAW' ? '原料产品' : '成品 / 包材'}</div><div className="text-2xl font-medium mt-1 tabular-nums">{viewStats.products}</div><div className="text-[11px] text-gray-400 mt-1">{viewStats.specs} 个销售规格</div></div><div className="w-9 h-9 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center"><Boxes size={18} /></div></div></Card>
-        <Card className="p-4"><div className="flex items-center justify-between"><div><div className="text-xs text-gray-500">{stockKind === 'RAW' ? '原料实际库存' : '成品实际库存'}</div><div className="text-2xl font-medium mt-1 tabular-nums">{stockKind === 'RAW' ? viewStats.quantity.toFixed(3) : viewStats.quantity.toLocaleString()}<span className="text-xs text-gray-400 ml-1">{stockKind === 'RAW' ? 'kg' : '瓶 / 个'}</span></div><div className="text-[11px] text-gray-400 mt-1">{stockKind === 'RAW' ? `${viewStats.ready} 项已启用共享重量` : '各规格独立累计'}</div></div><div className="w-9 h-9 rounded-lg bg-green-50 text-green-700 flex items-center justify-center"><Scale size={18} /></div></div></Card>
+        <Card className="p-4"><div className="flex items-center justify-between"><div><div className="text-xs text-gray-500">{stockKind === 'RAW' ? '原料实际库存' : '成品实际库存'}</div><div className="text-2xl font-medium mt-1 tabular-nums">{stockKind === 'RAW' ? viewStats.quantity.toFixed(3) : viewStats.quantity.toLocaleString()}<span className="text-xs text-gray-400 ml-1">{stockKind === 'RAW' ? 'kg' : '瓶 / 个'}</span></div><div className="text-[11px] text-gray-400 mt-1">{stockKind === 'RAW' ? '产品级共享重量库存' : '各规格独立累计'}</div></div><div className="w-9 h-9 rounded-lg bg-green-50 text-green-700 flex items-center justify-center"><Scale size={18} /></div></div></Card>
         <Card className={viewStats.low ? 'p-4 border-amber-200' : 'p-4'}><div className="flex items-center justify-between"><div><div className="text-xs text-gray-500">需要补货</div><div className={`text-2xl font-medium mt-1 tabular-nums ${viewStats.low ? 'text-amber-700' : ''}`}>{viewStats.low}</div><div className="text-[11px] text-gray-400 mt-1">{viewStats.out} {stockKind === 'RAW' ? '项售罄' : '个规格售罄'}</div></div><div className="w-9 h-9 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center"><AlertTriangle size={18} /></div></div></Card>
-        {stockKind === 'RAW' ? <Card className={viewStats.densityMissing ? 'p-4 border-red-200' : 'p-4'}><div className="flex items-center justify-between"><div><div className="text-xs text-gray-500">待补密度</div><div className={`text-2xl font-medium mt-1 tabular-nums ${viewStats.densityMissing ? 'text-red-600' : ''}`}>{viewStats.densityMissing}</div><div className="text-[11px] text-gray-400 mt-1">影响 ml 自动换算</div></div><div className="w-9 h-9 rounded-lg bg-red-50 text-red-600 flex items-center justify-center"><TestTube2 size={18} /></div></div></Card> : <Card className="p-4"><div className="flex items-center justify-between"><div><div className="text-xs text-gray-500">独立库存规格</div><div className="text-2xl font-medium mt-1 tabular-nums">{viewStats.specs}</div><div className="text-[11px] text-gray-400 mt-1">分别盘点瓶数 / 个数</div></div><div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center"><Package size={18} /></div></div></Card>}
+        {stockKind === 'RAW' ? <Card className="p-4"><div className="flex items-center justify-between"><div><div className="text-xs text-gray-500">密度自动换算</div><div className="text-2xl font-medium mt-1 tabular-nums">{viewStats.volumeProducts}</div><div className="text-[11px] text-gray-400 mt-1">款 ml 规格独立换算</div></div><div className="w-9 h-9 rounded-lg bg-purple-50 text-purple-700 flex items-center justify-center"><TestTube2 size={18} /></div></div></Card> : <Card className="p-4"><div className="flex items-center justify-between"><div><div className="text-xs text-gray-500">独立库存规格</div><div className="text-2xl font-medium mt-1 tabular-nums">{viewStats.specs}</div><div className="text-[11px] text-gray-400 mt-1">分别盘点瓶数 / 个数</div></div><div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center"><Package size={18} /></div></div></Card>}
         <Card className={(viewStats.expiring || viewStats.expired) ? 'p-4 border-orange-200 col-span-2 md:col-span-1' : 'p-4 col-span-2 md:col-span-1'}><div className="flex items-center justify-between"><div><div className="text-xs text-gray-500">批次效期</div><div className="text-2xl font-medium mt-1 tabular-nums">{viewStats.expiring + viewStats.expired}</div><div className="text-[11px] text-gray-400 mt-1">临期 {viewStats.expiring} · 过期 {viewStats.expired}</div></div><div className="w-9 h-9 rounded-lg bg-orange-50 text-orange-700 flex items-center justify-center"><CalendarClock size={18} /></div></div></Card>
       </div>
 
@@ -266,9 +257,6 @@ export default function Inventory({ nav }) {
               <option value="ALL">全部系列</option>
               {SERIES_LIST.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
-            {stockKind === 'RAW' && <select value={cf} onChange={e => setCf(e.target.value)} className="border rounded-lg px-3 py-2 text-sm bg-white">
-              <option value="ALL">全部原料</option><option value="MASS">已启用 kg</option><option value="DENSITY">待补密度</option>
-            </select>}
             <button onClick={() => setLowOnly(!lowOnly)} className={`flex items-center justify-center gap-1.5 px-3 py-2 text-sm rounded-lg border ${lowOnly ? 'bg-red-600 border-red-600 text-white' : 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'}`}><AlertTriangle size={14} />仅看缺货</button>
             </div>
             <div className="flex items-center gap-2">
@@ -291,10 +279,6 @@ export default function Inventory({ nav }) {
                 <div><label className="block text-xs text-gray-500 mb-1">保质期至</label><input type="date" value={batchData.expiryDate} onChange={e => setBatchData({ ...batchData, expiryDate: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
                 <div><label className="block text-xs text-gray-500 mb-1">单位成本</label><input type="number" min="0" step="0.01" value={batchData.unitCost} onChange={e => setBatchData({ ...batchData, unitCost: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
                 <div><label className="block text-xs text-gray-500 mb-1">供应商</label><input value={batchData.supplier} onChange={e => setBatchData({ ...batchData, supplier: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-                {batchFor.product.channel === 'RAW' && batchFor.product.inventoryMode !== 'MASS' && batchFor.product.specs.some(s => /(?:ml|毫升|l|升)/i.test(s.spec)) && <>
-                  <div><label className="block text-xs text-gray-500 mb-1">密度 g/ml *</label><input type="number" min="0.001" step="0.00001" value={batchData.densityGml} onChange={e => setBatchData({ ...batchData, densityGml: e.target.value })} placeholder="如 0.898" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-                  <div><label className="block text-xs text-gray-500 mb-1">参考温度 °C</label><input type="number" step="0.1" value={batchData.densityTemperatureC} onChange={e => setBatchData({ ...batchData, densityTemperatureC: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-                </>}
                 <div className="col-span-2"><label className="block text-xs text-gray-500 mb-1">备注</label><input value={batchData.note} onChange={e => setBatchData({ ...batchData, note: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
               </div>
               <div className="flex gap-2 mt-3">
@@ -320,9 +304,6 @@ export default function Inventory({ nav }) {
                   </select></div>
                 <div><label className="block text-xs text-gray-500 mb-1">{isRawProduct(adjustFor.product) ? (adjType === 'CORRECTION' ? '实际库存 kg' : '重量 kg') : (adjType === 'CORRECTION' ? '实际瓶数' : '瓶数')}</label><input type="number" min="0" step={isRawProduct(adjustFor.product) ? '0.001' : '1'} value={adjQty} onChange={e => setAdjQty(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
                 <div><label className="block text-xs text-gray-500 mb-1">备注</label><input value={adjNote} onChange={e => setAdjNote(e.target.value)} placeholder="可选" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-                {isRawProduct(adjustFor.product) && adjustFor.product.inventoryMode !== 'MASS' && adjustFor.product.specs.some(s => /(?:ml|毫升|l|升)/i.test(s.spec)) && (
-                  <div><label className="block text-xs text-gray-500 mb-1">密度 g/ml *</label><input type="number" min="0.001" step="0.00001" value={adjDensityGml} onChange={e => setAdjDensityGml(e.target.value)} placeholder="首次录入 kg 时必填" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-                )}
               </div>
               <div className="flex gap-2 mt-3">
                 <button onClick={() => setAdjustFor(null)} className="px-3 py-2 text-sm border rounded-lg bg-white">取消</button>
@@ -347,7 +328,7 @@ export default function Inventory({ nav }) {
                     <td className="py-2.5 px-4 min-w-44">
                       {isRawProduct(p) ? <>
                         <div className="flex items-baseline gap-1"><span className="text-lg font-medium text-purple-700 tabular-nums">{Number(p.baseStockKg || 0).toFixed(3)}</span><span className="text-xs text-gray-400">kg</span></div>
-                        <div className="text-[11px] text-gray-400 mt-0.5">{p.inventoryMode === 'MASS' ? '共享重量库存' : '待首次录入实际 kg'} · {p.densityGml ? `${p.densityGml} g/ml @ ${p.densityTemperatureC}°C` : '密度未录'}</div>
+                        <div className="text-[11px] text-gray-400 mt-0.5">共享重量库存{p.densityGml ? ` · ${p.densityGml} g/ml 自动换算` : ''}</div>
                         {canAdjust && p.specs[0] && <div className="flex gap-1 mt-2">
                           <button onClick={() => startAdjust(p, p.specs[0])} className="h-7 px-2 rounded-md border border-purple-200 text-purple-700 text-[11px] inline-flex items-center gap-1"><Edit2 size={11} />调整 kg</button>
                           <button onClick={() => startBatch(p, p.specs[0])} className="h-7 px-2 rounded-md border border-green-200 text-green-700 text-[11px] inline-flex items-center gap-1"><Package size={11} />批次入库</button>

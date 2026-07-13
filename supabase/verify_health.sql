@@ -114,8 +114,7 @@ WHERE p.inventory_mode = 'MASS'
 GROUP BY p.id, p.code, p.name, p.base_stock_kg, p.density_g_ml, p.density_status
 ORDER BY unconvertible_specs DESC, p.code;
 
--- 3c) 原料必须使用产品级 kg 库存；待补密度的原料允许暂未启用，
--- 但其旧规格库存必须已清零，不能继续出现 999 占位库存。
+-- 3c) 原料必须使用产品级 kg 库存；含 ml/L 规格的产品必须配置密度。
 SELECT
   p.code,
   p.name,
@@ -124,9 +123,13 @@ SELECT
   p.density_g_ml,
   count(*) FILTER (WHERE s.stock = 999) AS legacy_999_specs,
   CASE
-    WHEN p.inventory_mode = 'MASS' THEN 'OK'
-    WHEN p.density_g_ml IS NULL THEN 'PENDING_DENSITY'
-    ELSE 'CHECK'
+    WHEN p.inventory_mode <> 'MASS' THEN 'ERROR_NOT_MASS'
+    WHEN p.density_g_ml IS NULL AND EXISTS (
+      SELECT 1 FROM public.product_specs x
+      WHERE x.product_id = p.id
+        AND x.spec ~* '^[[:space:]]*[0-9]+([.][0-9]+)?[[:space:]]*(ml|毫升|l|升)'
+    ) THEN 'ERROR_VOLUME_DENSITY'
+    ELSE 'OK'
   END AS raw_inventory_status
 FROM public.products p
 LEFT JOIN public.product_specs s ON s.product_id = p.id

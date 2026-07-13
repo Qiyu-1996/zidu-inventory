@@ -126,9 +126,9 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
                   <div className="text-xs text-gray-400">{p.code} · {p.origin}</div>
                 </div>
                 {p.channel === 'RAW' && (
-                  <div className={`text-right shrink-0 ${p.inventoryMode === 'MASS' ? 'text-green-700' : 'text-amber-700'}`}>
+                  <div className="text-right shrink-0 text-green-700">
                     <div className="text-sm font-medium tabular-nums">{Number(p.baseStockKg || 0).toFixed(3)} kg</div>
-                    <div className="text-[10px]">{p.inventoryMode === 'MASS' ? '原料余量' : '待录实际库存'}</div>
+                    <div className="text-[10px]">原料余量</div>
                   </div>
                 )}
               </div>
@@ -153,8 +153,8 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
                         <button onClick={() => updateCartQty(inCart.key, inCart.quantity + 1)} className="w-6 h-6 rounded-full border text-xs flex items-center justify-center"><Plus size={12} /></button>
                       </div>
                     ) : (
-                      <button disabled={p.channel === 'RAW' && p.inventoryMode !== 'MASS'} onClick={() => addToCart(p, s)} className="text-xs px-2.5 py-1 rounded-lg border border-purple-200 text-purple-700 hover:bg-purple-50 disabled:border-gray-200 disabled:text-gray-400 disabled:bg-gray-50">
-                        {p.channel === 'RAW' && p.inventoryMode !== 'MASS' ? '待录库存' : <><Plus size={12} className="inline -mt-0.5" /> 加购</>}
+                      <button disabled={p.channel === 'RAW' && (Number(p.baseStockKg || 0) <= 0 || Number(s.stock || 0) <= 0)} onClick={() => addToCart(p, s)} className="text-xs px-2.5 py-1 rounded-lg border border-purple-200 text-purple-700 hover:bg-purple-50 disabled:border-gray-200 disabled:text-gray-400 disabled:bg-gray-50">
+                        {p.channel === 'RAW' && (Number(p.baseStockKg || 0) <= 0 || Number(s.stock || 0) <= 0) ? '缺货' : <><Plus size={12} className="inline -mt-0.5" /> 加购</>}
                       </button>
                     )}
                   </div>

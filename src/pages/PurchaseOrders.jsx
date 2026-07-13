@@ -178,20 +178,14 @@ export function PurchaseOrderDetail({ poId, onBack, onEdit }) {
   const po = purchaseOrders.find(p => p.id === poId);
   const [receiving, setReceiving] = useState(false);
   const [receiveQtys, setReceiveQtys] = useState({});
-  const [receiveDensities, setReceiveDensities] = useState({});
   const [processing, setProcessing] = useState(false);
 
   if (!po) return <div className="text-center py-12 text-gray-400">采购单不存在</div>;
 
   const startReceive = () => {
     const init = {};
-    const densities = {};
     po.items.forEach(it => { init[it.id] = 0; });
-    po.items.forEach(it => {
-      const product = products.find(p => p.id === it.productId);
-      densities[it.id] = product?.densityGml || '';
-    });
-    setReceiveQtys(init); setReceiveDensities(densities); setReceiving(true);
+    setReceiveQtys(init); setReceiving(true);
   };
 
   const handleReceive = async () => {
@@ -199,9 +193,7 @@ export function PurchaseOrderDetail({ poId, onBack, onEdit }) {
       const receiveQty = Number(receiveQtys[it.id] || 0);
       return {
         itemId: it.id, specId: it.specId, productId: it.productId, poNo: po.poNo,
-        receiveQty,
-        densityGml: receiveDensities[it.id] ? Number(receiveDensities[it.id]) : null,
-        densityTemperatureC: 20
+        receiveQty
       };
     }).filter(r => r.receiveQty > 0);
 
@@ -275,7 +267,6 @@ export function PurchaseOrderDetail({ poId, onBack, onEdit }) {
             const remaining = it.quantity - (it.receivedQty || 0);
             const product = products.find(p => p.id === it.productId);
             const isRaw = product?.channel === 'RAW';
-            const needsDensity = isRaw && product?.inventoryMode !== 'MASS' && product?.specs?.some(s => /(?:ml|毫升|l|升)/i.test(s.spec));
             return (
               <tr key={it.id} className="border-b last:border-0">
                 <td className="py-2 px-3">{it.productName}</td>
@@ -285,7 +276,6 @@ export function PurchaseOrderDetail({ poId, onBack, onEdit }) {
                 {receiving && (
                   <td className="py-2 px-3 text-right">
                     <div className="flex items-center justify-end gap-1"><input type="number" min="0" max={remaining} step={isRaw ? '0.001' : '1'} value={receiveQtys[it.id] || ''} onChange={e => setReceiveQtys(q => ({ ...q, [it.id]: e.target.value }))} className="w-20 border rounded px-2 py-1 text-sm text-right" placeholder="0" /><span className="text-xs text-gray-400">{isRaw ? 'kg' : '件'}</span></div>
-                    {needsDensity && <input type="number" min="0.001" step="0.00001" value={receiveDensities[it.id] || ''} onChange={e => setReceiveDensities(d => ({ ...d, [it.id]: e.target.value }))} className="w-28 border rounded px-2 py-1 text-xs text-right mt-1" placeholder="密度 g/ml" />}
                   </td>
                 )}
                 <td className="py-2 px-3 text-right text-gray-600">{fmtY(it.unitCost)}</td>

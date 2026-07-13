@@ -213,7 +213,7 @@ function ProductMgmt() {
   const [densityGml, setDensityGml] = useState('');
   const [densityTemperatureC, setDensityTemperatureC] = useState(20);
   const [densitySource, setDensitySource] = useState('');
-  const [densityStatus, setDensityStatus] = useState('UNSET');
+  const [densityStatus, setDensityStatus] = useState('REFERENCE');
   const [specs, setSpecs] = useState([{ spec: '10ml', price: '', cost: '', stock: '', safeStock: 10 }]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -223,7 +223,7 @@ function ProductMgmt() {
     setShow(false); setEditingId(null); setCode(''); setName(''); setSeries(''); setOrigin('');
     setChannel('FINISHED');
     setInventoryMode('SKU'); setBaseStockKg(''); setSafeStockKg(''); setDensityGml('');
-    setDensityTemperatureC(20); setDensitySource(''); setDensityStatus('UNSET');
+    setDensityTemperatureC(20); setDensitySource(''); setDensityStatus('REFERENCE');
     setSpecs([{ spec: '10ml', price: '', cost: '', stock: '', safeStock: 10 }]);
   };
 
@@ -233,7 +233,7 @@ function ProductMgmt() {
     setInventoryMode(p.channel === 'RAW' ? 'MASS' : (p.inventoryMode || 'SKU')); setBaseStockKg(p.baseStockKg || '');
     setSafeStockKg(p.safeStockKg || ''); setDensityGml(p.densityGml || '');
     setDensityTemperatureC(p.densityTemperatureC || 20); setDensitySource(p.densitySource || '');
-    setDensityStatus(p.densityStatus || 'UNSET');
+    setDensityStatus(p.densityStatus === 'CONFIRMED' ? 'CONFIRMED' : 'REFERENCE');
     setSpecs(p.specs.map(s => ({ id: s.id, spec: s.spec, price: s.price, cost: s.cost ?? '', stock: s.stock, safeStock: s.safeStock })));
     setShow(true);
   };
@@ -329,11 +329,11 @@ function ProductMgmt() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div><label className="block text-xs text-gray-500 mb-1">实际库存 kg *</label><input type="number" min="0" step="0.001" value={baseStockKg} onChange={e => setBaseStockKg(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
                   <div><label className="block text-xs text-gray-500 mb-1">安全库存 kg</label><input type="number" min="0" step="0.001" value={safeStockKg} onChange={e => setSafeStockKg(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-                  <div><label className="block text-xs text-gray-500 mb-1">密度 g/ml</label><input type="number" min="0" step="0.00001" value={densityGml} onChange={e => setDensityGml(e.target.value)} placeholder="如 0.898" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+                  <div><label className="block text-xs text-gray-500 mb-1">参考密度 g/ml</label><input type="number" min="0" step="0.00001" value={densityGml} onChange={e => setDensityGml(e.target.value)} placeholder="如 0.898" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
                   <div><label className="block text-xs text-gray-500 mb-1">参考温度 °C</label><input type="number" step="0.1" value={densityTemperatureC} onChange={e => setDensityTemperatureC(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div><label className="block text-xs text-gray-500 mb-1">密度状态</label><select value={densityStatus} onChange={e => setDensityStatus(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm bg-white"><option value="UNSET">未录入</option><option value="REFERENCE">公开资料参考</option><option value="CONFIRMED">供应商/本批次确认</option></select></div>
+                  <div><label className="block text-xs text-gray-500 mb-1">换算依据</label><select value={densityStatus} onChange={e => setDensityStatus(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm bg-white"><option value="REFERENCE">参考资料</option><option value="CONFIRMED">供应商 / 批次确认</option></select></div>
                   <div className="md:col-span-2"><label className="block text-xs text-gray-500 mb-1">密度来源</label><input value={densitySource} onChange={e => setDensitySource(e.target.value)} placeholder="优先填写批次 COA/SDS 编号或资料链接" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
                 </div>
                 {!densityGml && specs.some(s => /(?:ml|毫升|l|升)/i.test(s.spec)) && <div className="text-xs text-amber-700">存在 ml/L 销售规格，启用前必须填写密度，否则系统会拒绝该规格出库。</div>}
