@@ -3,7 +3,6 @@ import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, Badge, now16, today, STATUS_MAP } from '../components/ui';
 import * as api from '../lib/api';
-import TrackingTimeline from '../components/TrackingTimeline';
 import { printShipment } from '../lib/printOrder';
 
 const ALL_CARRIERS = ['顺丰','韵达','加运美','德邦','壹米滴答快运','中通快递','圆通速递','申通快递','京东物流','极兔速递','邮政EMS','跨越速运','其他'];
@@ -30,14 +29,13 @@ function uniqueCarriers(list) {
 
 export default function ShippingWorkbench() {
   const { user } = useAuth();
-  const { orders, customers, users, updateOrderStatus, refreshShipment } = useData();
+  const { orders, customers, users, updateOrderStatus } = useData();
   const [sf, setSf] = useState('ALL');
   const [shippingOrderId, setShippingOrderId] = useState(null);
   const [carrier, setCarrier] = useState('顺丰');
   const [customCarrier, setCustomCarrier] = useState('');
   const [trackingNo, setTrackingNo] = useState('');
   const [updating, setUpdating] = useState(false);
-  const [trackingOrderId, setTrackingOrderId] = useState(null);
   const [carriers, setCarriers] = useState(ALL_CARRIERS);
 
   // 按历史使用频率排序快递公司
@@ -80,19 +78,6 @@ export default function ShippingWorkbench() {
       alert('操作失败: ' + e.message);
     } finally {
       setUpdating(false);
-    }
-  };
-
-  const refreshTracking = async (o) => {
-    if (!o.shipment?.trackingNo || trackingOrderId) return;
-    setTrackingOrderId(o.id);
-    try {
-      const result = await refreshShipment(o.id);
-      if (result.cached) alert('已显示最近一次物流信息；同一运单每 30 分钟更新一次');
-    } catch (e) {
-      alert(e.message || '物流查询失败');
-    } finally {
-      setTrackingOrderId(null);
     }
   };
 
@@ -182,13 +167,11 @@ export default function ShippingWorkbench() {
                 </div>
               )}
               {o.shipment && (
-                <div className="mt-3 pt-3 border-t bg-green-50 -mx-4 -mb-4 px-4 py-3 rounded-b-xl text-sm text-green-800 space-y-3">
+                <div className="mt-3 pt-3 border-t bg-green-50 -mx-4 -mb-4 px-4 py-3 rounded-b-xl text-sm text-green-800">
                   <div className="flex items-center flex-wrap gap-2">
                     <span>📦 {o.shipment.carrier} · {o.shipment.trackingNo}</span>
                     <button onClick={() => { navigator.clipboard.writeText(`${o.shipment.carrier} ${o.shipment.trackingNo}`); alert('已复制'); }} className="text-purple-700 underline">复制</button>
-                    <button onClick={() => refreshTracking(o)} disabled={trackingOrderId === o.id} className="text-purple-700 underline disabled:opacity-50">{trackingOrderId === o.id ? '更新中...' : '更新物流'}</button>
                   </div>
-                  <TrackingTimeline shipment={o.shipment} compact />
                 </div>
               )}
             </Card>

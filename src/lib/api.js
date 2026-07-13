@@ -1273,42 +1273,6 @@ export async function fetchCarriersByUsage() {
   return Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([c]) => c);
 }
 
-function trackingErrorMessage(value) {
-  const raw = String(value || '').trim();
-  if (!raw) return '物流查询失败，请稍后重试';
-  if (/requested function was not found|function.*not found|NOT_FOUND/i.test(raw)) {
-    return '物流自动查询服务尚未部署，请先部署 track-shipment 云函数';
-  }
-  if (/tracking_updated_at|tracking_events|tracking_state|column shipments|schema cache/i.test(raw)) {
-    return '物流轨迹数据库尚未更新，请先运行 migration_v28_shipment_tracking.sql';
-  }
-  if (/KUAIDI100_KEY|KUAIDI100_CUSTOMER|物流查询尚未配置/i.test(raw)) {
-    return '快递100接口尚未配置，请先设置企业授权信息';
-  }
-  if (/^fail$/i.test(raw) || /edge function returned a non-2xx status code/i.test(raw)) {
-    return '物流服务未返回有效结果，请检查快递单号，或确认快递100实时查询接口已开通';
-  }
-  return raw;
-}
-
-export async function trackShipment(orderId) {
-  const { data, error } = await supabase.functions.invoke('track-shipment', {
-    body: { orderId: Number(orderId) }
-  });
-  if (error) {
-    let message = data?.error || error.message || '物流查询失败';
-    if (error.context) {
-      try {
-        const detail = await error.context.json();
-        message = detail?.error || detail?.message || message;
-      } catch { /* response body may already be consumed */ }
-    }
-    throw new Error(trackingErrorMessage(message));
-  }
-  if (!data?.shipment) throw new Error(trackingErrorMessage(data?.error || '物流查询未返回数据'));
-  return { shipment: mapShipment(data.shipment), cached: Boolean(data.cached) };
-}
-
 export async function updateOrderStatus(orderId, newStatus, logEntry, shipmentData) {
   const { error: orderError } = await supabase.from('orders').update({ status: newStatus }).eq('id', orderId);
   if (orderError) throw new Error(orderError.message);

@@ -1,12 +1,11 @@
 import { useState } from 'react';
-import { Search, ArrowLeft, Download, Printer, DollarSign, Trash2, RefreshCw, Copy, RotateCcw } from 'lucide-react';
+import { Search, ArrowLeft, Download, Printer, DollarSign, Trash2, Copy, RotateCcw } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, Badge, PaymentBadge, fmtY, now16, STATUS_MAP, PAYMENT_STATUS_MAP, exportCSV, unitPriceHint } from '../components/ui';
 import { printOrder, printShipment } from '../lib/printOrder';
 import { PAYMENT_METHODS } from '../lib/payment';
 import * as api from '../lib/api';
-import TrackingTimeline from '../components/TrackingTimeline';
 
 // 订单录入来源标签：展示订单从哪里创建；原料/成品来源由订单号/明细识别。
 const SOURCE_MAP = {
@@ -285,7 +284,7 @@ export function OrderList({ nav }) {
 export function OrderDetail({ orderId, onBack, onShipping }) {
   const { user } = useAuth();
   const {
-    orders, customers, users, updateOrderStatus, refreshShipment, removeOrder, editOrderItems, recordPayment,
+    orders, customers, users, updateOrderStatus, removeOrder, editOrderItems, recordPayment,
     createAfterSale, processAfterSaleWarehouse, completeAfterSaleFinance
   } = useData();
   const [updating, setUpdating] = useState(false);
@@ -312,7 +311,6 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
   const [editingItems, setEditingItems] = useState(false);
   const [editItems, setEditItems] = useState([]);
   const [savingItems, setSavingItems] = useState(false);
-  const [trackingLoading, setTrackingLoading] = useState(false);
 
   const order = orders.find(o => o.id === orderId);
   if (!order) return <div className="text-center py-12 text-gray-400">订单不存在</div>;
@@ -442,18 +440,6 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
     if (!order.shipment) return;
     const txt = `${order.shipment.carrier} ${order.shipment.trackingNo}`;
     navigator.clipboard.writeText(txt).then(() => alert('已复制：' + txt));
-  };
-  const handleRefreshTracking = async () => {
-    if (!order.shipment?.trackingNo || trackingLoading) return;
-    setTrackingLoading(true);
-    try {
-      const result = await refreshShipment(order.id);
-      if (result.cached) alert('已显示最近一次物流信息；同一运单每 30 分钟更新一次');
-    } catch (e) {
-      alert(e.message || '物流查询失败');
-    } finally {
-      setTrackingLoading(false);
-    }
   };
   const handleDelete = async () => {
     if (!confirm(`确定删除订单 ${order.orderNo}？\n删除后会进入管理员“删除订单库”保留 30 天。${order.status !== 'CANCELLED' ? '\n注意：库存将恢复。' : ''}`)) return;
@@ -945,10 +931,6 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
           </div>
           <div className="flex gap-2 mt-3 pt-3 border-t">
             <button onClick={copyTracking} className="flex items-center gap-1 text-sm px-3 py-1.5 border rounded-lg text-purple-700 hover:bg-purple-50"><Copy size={14} />复制快递信息</button>
-            <button onClick={handleRefreshTracking} disabled={trackingLoading} className="flex items-center gap-1 text-sm px-3 py-1.5 border rounded-lg text-purple-700 hover:bg-purple-50 disabled:opacity-50"><RefreshCw size={14} className={trackingLoading ? 'animate-spin' : ''} />{trackingLoading ? '更新中' : '更新物流'}</button>
-          </div>
-          <div className="mt-3 pt-3 border-t">
-            <TrackingTimeline shipment={order.shipment} />
           </div>
         </Card>
       )}
