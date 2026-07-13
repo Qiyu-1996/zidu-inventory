@@ -1,14 +1,17 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Download, RefreshCw, Wallet, FileText, Table2, ReceiptText, Boxes } from 'lucide-react';
+import { Download, RefreshCw, Wallet, FileText, Table2, ReceiptText, Boxes, BadgePercent, Save } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 import { Card, StatCard, fmtY, exportCSV, today, STATUS_MAP, PAYMENT_STATUS_MAP } from '../components/ui';
+import { PAYMENT_METHODS } from '../lib/payment';
+import { exportExcel } from '../lib/excel';
 
-const METHODS = ['全部', '微信', '支付宝', '对公账户转账', '对私银行账户转账', '转账', '现金', '其他'];
+const METHODS = ['全部', ...PAYMENT_METHODS];
 const TABS = [
   { key: 'orders', label: '订单汇总', icon: FileText },
   { key: 'items', label: '商品明细', icon: Table2 },
   { key: 'products', label: '产品汇总', icon: Boxes },
-  { key: 'payments', label: '收款流水', icon: ReceiptText }
+  { key: 'payments', label: '收款流水', icon: ReceiptText },
+  { key: 'commission', label: '销售业绩与提成', icon: BadgePercent }
 ];
 
 function day(v) {
@@ -56,12 +59,16 @@ function businessTypeLabel(type) {
 }
 
 export default function Finance() {
-  const { orders, customers, users, products, reload } = useData();
+  const { orders, customers, users, products, updateOrderDiscountResponsibility, reload } = useData();
   const [from, setFrom] = useState(() => today().slice(0, 7) + '-01');
   const [to, setTo] = useState(() => today());
   const [method, setMethod] = useState('全部');
   const [tab, setTab] = useState('orders');
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedSalesId, setSelectedSalesId] = useState('ALL');
+  const [commissionRate, setCommissionRate] = useState('');
+  const [discountDrafts, setDiscountDrafts] = useState({});
+  const [savingDiscountOrderId, setSavingDiscountOrderId] = useState(null);
 
   const cust = useCallback((id) => customers.find(x => x.id === id), [customers]);
   const userName = useCallback((id) => users.find(x => x.id === id)?.name || '', [users]);
@@ -160,6 +167,9 @@ export default function Finance() {
           productType,
           shippedDate: day(o.shipment?.shippedAt),
           orderNo: o.orderNo,
+          orderSubtotal: Number(o.subtotal || 0),
+          orderDiscount: Number(o.discountAmount || 0),
+          orderTotal: Number(o.total || 0),
           productCode: it.productCode || product?.code || '',
           productName: it.productName || product?.name || '',
           spec: it.spec || '',
@@ -239,6 +249,83 @@ export default function Finance() {
     return rows.sort((a, b) => (b.paymentTime || '').localeCompare(a.paymentTime || ''));
   }, [validOrders, cust, userName, from, to, method]);
 
+  const salesUsers = useMemo(() => (
+    users
+      .filter(u => u.role === 'SALES')
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'zh-CN'))
+  ), [users]);
+
+  const commissionRateValue = Math.min(100, Math.max(0, Number(commissionRate) || 0));
+  const commissionRows = useMemo(() => {
+    const salesIds = new Set(salesUsers.map(u => Number(u.id)));
+    return reportOrders
+      .filter(o => salesIds.has(Number(o.salesId)))
+      .filter(o => selectedSalesId === 'ALL' || Number(o.salesId) === Number(selectedSalesId))
+      .map(o => {
+        const c = cust(o.customerId);
+        const grossGoods = Math.max(0, Number(o.subtotal || 0));
+        const discount = Math.max(0, Number(o.discountAmount || 0));
+        const netGoods = Math.max(0, grossGoods - discount);
+        const orderTotal = Math.max(0, Number(o.total || 0));
+        const paid = Math.max(0, Number(o.paidAmount || 0));
+        const settledRatio = orderTotal > 0 ? Math.min(1, paid / orderTotal) : 0;
+        const responsibility = o.discountResponsibility === 'SALES' ? 'SALES' : 'COMPANY';
+        const salesAmount = roundMoney(netGoods * settledRatio);
+        const commissionBase = roundMoney((grossGoods - (responsibility === 'SALES' ? discount : 0)) * settledRatio);
+        return {
+          id: o.id,
+          orderDate: day(o.createdAt),
+          orderNo: o.orderNo,
+          salesId: o.salesId,
+          sales: userName(o.salesId) || '—',
+          customer: c?.name || (o.source === 'wechat_2c' ? '微信零售' : '—'),
+          grossGoods,
+          discount,
+          discountRate: grossGoods > 0 ? roundMoney(discount / grossGoods * 100) : 0,
+          responsibility,
+          reason: o.discountReason || '',
+          salesAmount,
+          commissionBase,
+          commission: roundMoney(commissionBase * commissionRateValue / 100),
+          paymentStatus: payLabel(o.paymentStatus),
+          settledRatio: roundMoney(settledRatio * 100)
+        };
+      })
+      .sort((a, b) => `${b.orderDate}-${b.id}`.localeCompare(`${a.orderDate}-${a.id}`));
+  }, [reportOrders, salesUsers, selectedSalesId, cust, userName, commissionRateValue]);
+
+  const commissionSummary = useMemo(() => ({
+    grossGoods: roundMoney(commissionRows.reduce((sum, row) => sum + row.grossGoods, 0)),
+    salesAmount: roundMoney(commissionRows.reduce((sum, row) => sum + row.salesAmount, 0)),
+    companyDiscount: roundMoney(commissionRows.filter(row => row.responsibility === 'COMPANY').reduce((sum, row) => sum + row.discount, 0)),
+    salesDiscount: roundMoney(commissionRows.filter(row => row.responsibility === 'SALES').reduce((sum, row) => sum + row.discount, 0)),
+    commissionBase: roundMoney(commissionRows.reduce((sum, row) => sum + row.commissionBase, 0)),
+    commission: roundMoney(commissionRows.reduce((sum, row) => sum + row.commission, 0))
+  }), [commissionRows]);
+
+  const updateDiscountDraft = (orderId, patch) => {
+    setDiscountDrafts(current => ({ ...current, [orderId]: { ...(current[orderId] || {}), ...patch } }));
+  };
+
+  const saveDiscountResponsibility = async (row) => {
+    const draft = discountDrafts[row.id] || {};
+    const responsibility = draft.responsibility || row.responsibility;
+    const reason = draft.reason == null ? row.reason : draft.reason;
+    setSavingDiscountOrderId(row.id);
+    try {
+      await updateOrderDiscountResponsibility(row.id, responsibility, reason);
+      setDiscountDrafts(current => {
+        const next = { ...current };
+        delete next[row.id];
+        return next;
+      });
+    } catch (e) {
+      alert('保存失败：' + e.message);
+    } finally {
+      setSavingDiscountOrderId(null);
+    }
+  };
+
   const summary = useMemo(() => {
     const receivable = orderRows.reduce((s, r) => s + r.receivable, 0);
     const paid = orderRows.reduce((s, r) => s + r.paid, 0);
@@ -278,17 +365,44 @@ export default function Finance() {
     `财务_收款流水_${from || '全部'}_${to || today()}.csv`
   );
 
-  const exportSalesDetails = () => exportCSV(
-    ['品牌','销售员','客户名称','客户类型','产品类型','发货日期','销售单号','产品编号','产品名称','规格','数量','单价','金额','电话','地址'],
-    salesDetailRows.map(r => [r.brand, r.sales, r.customer, r.customerType, r.productType, r.shippedDate, r.orderNo, r.productCode, r.productName, r.spec, r.quantity, r.unitPrice, r.amount, r.phone, r.address]),
-    `财务_销售明细_${from || '全部'}_${to || today()}.csv`
+  const exportCommission = () => exportCSV(
+    ['订单日期','订单编号','销售员','客户','折前商品金额','折扣率','折扣额','折扣承担方','折扣说明','商品实收业绩','收款完成度','提成基数','提成比例','提成金额','付款状态'],
+    commissionRows.map(r => [
+      r.orderDate, r.orderNo, r.sales, r.customer, r.grossGoods, r.discountRate, r.discount,
+      r.responsibility === 'SALES' ? '销售承担' : '公司承担', r.reason, r.salesAmount,
+      `${r.settledRatio}%`, r.commissionBase, commissionRateValue, r.commission, r.paymentStatus
+    ]),
+    `财务_销售业绩与提成_${selectedSalesId === 'ALL' ? '全部销售' : (salesUsers.find(u => Number(u.id) === Number(selectedSalesId))?.name || selectedSalesId)}_${from || '全部'}_${to || today()}.csv`
   );
+
+  const exportSalesDetails = async () => {
+    try {
+      await exportExcel(
+        ['品牌','销售员','客户名称','客户类型','产品类型','发货日期','销售单号','订单金额（折前）','订单折扣','订单最终金额','产品编号','产品名称','规格','数量','单价','行金额','电话','地址'],
+        salesDetailRows.map(r => [
+          r.brand, r.sales, r.customer, r.customerType, r.productType, r.shippedDate, r.orderNo,
+          r.orderSubtotal, r.orderDiscount, r.orderTotal,
+          r.productCode, r.productName, r.spec, r.quantity, r.unitPrice, r.amount, r.phone, r.address
+        ]),
+        `财务_销售明细_${from || '全部'}_${to || today()}.xlsx`,
+        {
+          sheet: '销售明细',
+          moneyColumns: [7, 8, 9, 14, 15],
+          integerColumns: [13],
+          widths: [10, 12, 18, 14, 12, 14, 22, 16, 13, 16, 14, 22, 12, 9, 12, 14, 16, 34]
+        }
+      );
+    } catch (e) {
+      alert('Excel 导出失败：' + e.message);
+    }
+  };
 
   const exportCurrent = () => {
     if (tab === 'orders') exportOrders();
     else if (tab === 'items') exportItems();
     else if (tab === 'products') exportProducts();
-    else exportPayments();
+    else if (tab === 'payments') exportPayments();
+    else exportCommission();
   };
 
   return (
@@ -320,12 +434,12 @@ export default function Finance() {
               <Download size={14} />导出当前
             </button>
             <button onClick={exportSalesDetails} disabled={salesDetailRows.length === 0} className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg text-white disabled:opacity-40" style={{ background: '#5C4B73' }}>
-              <Download size={14} />一键导出销售明细
+              <Download size={14} />一键导出Excel
             </button>
           </div>
         </div>
         <div className="text-xs text-gray-400 mt-3">
-          订单/商品/产品按订单日期筛选；收款流水按收款日期筛选。销售明细包含品牌、销售员、客户、产品、发货、金额及收件信息。
+          订单/商品/产品按订单日期筛选；收款流水按收款日期筛选。Excel 销售明细包含订单折前金额、折扣、最终金额及产品、发货、收件信息。
         </div>
       </Card>
 
@@ -450,6 +564,103 @@ export default function Finance() {
             </table>
           </div>
         </Card>
+      )}
+
+      {tab === 'commission' && (
+        <>
+          <Card className="p-4 space-y-4">
+            <div className="flex flex-col lg:flex-row lg:items-end gap-3 justify-between">
+              <div className="flex flex-wrap gap-3 items-end">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1.5">销售人员</label>
+                  <select value={selectedSalesId} onChange={e => setSelectedSalesId(e.target.value)} className="min-w-44 border rounded-lg px-3 py-2 text-sm bg-white">
+                    <option value="ALL">全部销售人员</option>
+                    {salesUsers.map(sales => <option key={sales.id} value={sales.id}>{sales.name}{sales.status !== 'active' ? '（停用）' : ''}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1.5">提成比例 (%)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    value={commissionRate}
+                    onFocus={e => e.target.select()}
+                    onChange={e => setCommissionRate(e.target.value)}
+                    placeholder="输入比例"
+                    className="w-36 border rounded-lg px-3 py-2 text-sm tabular-nums"
+                  />
+                </div>
+              </div>
+              <div className="text-xs text-gray-400 lg:text-right">
+                共 {commissionRows.length} 笔订单 · 提成比例仅用于本次计算和导出，不会改订单金额
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 lg:grid-cols-5 border-y divide-x bg-gray-50/60">
+              <div className="p-3"><div className="text-xs text-gray-400">折前商品额</div><div className="mt-1 font-semibold text-gray-800">{fmtY(commissionSummary.grossGoods)}</div></div>
+              <div className="p-3"><div className="text-xs text-gray-400">商品实收业绩</div><div className="mt-1 font-semibold text-green-700">{fmtY(commissionSummary.salesAmount)}</div></div>
+              <div className="p-3"><div className="text-xs text-gray-400">公司/销售承担折扣</div><div className="mt-1 text-sm"><span className="text-purple-700">{fmtY(commissionSummary.companyDiscount)}</span><span className="text-gray-300 mx-1">/</span><span className="text-orange-700">{fmtY(commissionSummary.salesDiscount)}</span></div></div>
+              <div className="p-3"><div className="text-xs text-gray-400">提成基数</div><div className="mt-1 font-semibold text-gray-800">{fmtY(commissionSummary.commissionBase)}</div></div>
+              <div className="p-3 col-span-2 lg:col-span-1"><div className="text-xs text-gray-400">预计总提成</div><div className="mt-1 font-semibold text-lg text-purple-700">{fmtY(commissionSummary.commission)}</div></div>
+            </div>
+
+            <div className="text-xs text-gray-500 leading-5">
+              计算口径：只按商品实际收款比例计算，运费不计提成，退款会降低收款比例。公司承担折扣会加回提成基数；销售承担折扣按折后商品实收计算。历史订单默认公司承担，可在下方逐单修正。
+            </div>
+          </Card>
+
+          <Card>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[1180px]">
+                <thead><tr className="border-b bg-gray-50/80">
+                  {['日期/订单','销售/客户','折前商品额','折扣','承担方与说明','商品实收业绩','提成基数','提成'].map(h => <th key={h} className={`py-2 px-3 text-xs text-gray-500 font-medium ${['折前商品额','折扣','商品实收业绩','提成基数','提成'].includes(h) ? 'text-right' : 'text-left'}`}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {commissionRows.map(row => {
+                    const draft = discountDrafts[row.id] || {};
+                    const draftResponsibility = draft.responsibility || row.responsibility;
+                    const draftReason = draft.reason == null ? row.reason : draft.reason;
+                    const dirty = draftResponsibility !== row.responsibility || draftReason !== row.reason;
+                    return (
+                      <tr key={row.id} className="border-b last:border-0 align-top hover:bg-gray-50/60">
+                        <td className="py-3 px-3 whitespace-nowrap"><div className="text-xs text-gray-500">{row.orderDate}</div><div className="font-mono text-xs mt-1">{row.orderNo}</div><div className="text-[11px] text-gray-400 mt-1">{row.paymentStatus} · 收款 {row.settledRatio}%</div></td>
+                        <td className="py-3 px-3 min-w-36"><div className="font-medium text-gray-800">{row.sales}</div><div className="text-xs text-gray-400 mt-1">{row.customer}</div></td>
+                        <td className="py-3 px-3 text-right whitespace-nowrap">{fmtY(row.grossGoods)}</td>
+                        <td className="py-3 px-3 text-right whitespace-nowrap"><div className={row.discount > 0 ? 'text-orange-700' : 'text-gray-400'}>{fmtY(row.discount)}</div><div className="text-xs text-gray-400 mt-1">{row.discountRate}%</div></td>
+                        <td className="py-3 px-3 min-w-[310px]">
+                          {row.discount > 0 ? (
+                            <div className="flex items-center gap-2">
+                              <select value={draftResponsibility} onChange={e => updateDiscountDraft(row.id, { responsibility: e.target.value })} className="w-28 border rounded-lg px-2 py-2 text-xs bg-white">
+                                <option value="COMPANY">公司承担</option>
+                                <option value="SALES">销售承担</option>
+                              </select>
+                              <input value={draftReason} onChange={e => updateDiscountDraft(row.id, { reason: e.target.value })} placeholder="折扣说明（选填）" className="min-w-0 flex-1 border rounded-lg px-2.5 py-2 text-xs" />
+                              <button
+                                type="button"
+                                title="保存折扣承担方"
+                                onClick={() => saveDiscountResponsibility(row)}
+                                disabled={!dirty || savingDiscountOrderId === row.id}
+                                className="zidu-icon-button !w-9 !h-9 text-purple-700 disabled:opacity-30"
+                              >
+                                <Save size={14} />
+                              </button>
+                            </div>
+                          ) : <span className="text-xs text-gray-400">无折扣</span>}
+                        </td>
+                        <td className="py-3 px-3 text-right text-green-700 font-medium whitespace-nowrap">{fmtY(row.salesAmount)}</td>
+                        <td className="py-3 px-3 text-right font-medium whitespace-nowrap">{fmtY(row.commissionBase)}</td>
+                        <td className="py-3 px-3 text-right text-purple-700 font-semibold whitespace-nowrap">{fmtY(row.commission)}</td>
+                      </tr>
+                    );
+                  })}
+                  {commissionRows.length === 0 && <tr><td colSpan="8" className="text-center py-12 text-gray-400">当前销售和时间范围内暂无订单</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </>
       )}
     </div>
   );

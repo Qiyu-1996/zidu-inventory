@@ -153,6 +153,8 @@ export function Checkout({ cart, initialCustomerId = null, onBack, onPlaceOrder,
   const [customerId, setCustomerId] = useState(initialCustomerId ? String(initialCustomerId) : '');
   const [businessType, setBusinessType] = useState('院线');
   const [discount, setDiscount] = useState('');
+  const [discountResponsibility, setDiscountResponsibility] = useState('');
+  const [discountReason, setDiscountReason] = useState('');
   const [shippingFee, setShippingFee] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -202,10 +204,24 @@ export function Checkout({ cart, initialCustomerId = null, onBack, onPlaceOrder,
     if (user.role === 'ADMIN' && selectedCustomer?.salesId) setOrderSalesId(String(selectedCustomer.salesId));
   }, [selectedCustomer?.salesId, user.role]);
 
+  useEffect(() => {
+    if (dealerDiscount > 0) {
+      setDiscountResponsibility('COMPANY');
+      setDiscountReason('经销商等级价');
+    }
+  }, [dealerDiscount]);
+
   const onSelectCustomer = (id) => {
     const customer = myCustomers.find(c => c.id === Number(id));
     setCustomerId(id);
     setDiscount(distributorDiscount(customer?.distributorLevel) || '');
+    if (distributorDiscount(customer?.distributorLevel) > 0) {
+      setDiscountResponsibility('COMPANY');
+      setDiscountReason('经销商等级价');
+    } else {
+      setDiscountResponsibility('');
+      setDiscountReason('');
+    }
     if (user.role === 'ADMIN' && customer?.salesId) setOrderSalesId(String(customer.salesId));
     setShowCustList(false);
     setCustSearch('');
@@ -218,6 +234,8 @@ export function Checkout({ cart, initialCustomerId = null, onBack, onPlaceOrder,
     setCustSearch('');
     setShowCustList(true);
     setDiscount('');
+    setDiscountResponsibility('');
+    setDiscountReason('');
   };
 
   const quickPickPreset = async (label) => {
@@ -236,6 +254,8 @@ export function Checkout({ cart, initialCustomerId = null, onBack, onPlaceOrder,
     }
     setCustomerId(String(preset.id));
     setDiscount('');
+    setDiscountResponsibility('');
+    setDiscountReason('');
     setShowCustList(false);
     setCustSearch('');
   };
@@ -260,6 +280,10 @@ export function Checkout({ cart, initialCustomerId = null, onBack, onPlaceOrder,
 
   const handlePlace = async () => {
 		    if (!customerId || cart.length === 0 || !orderSalesId || submitting) return;
+	    if (discountAmount > 0 && !discountResponsibility) {
+	      alert('请选择折扣由公司承担还是销售承担');
+	      return;
+	    }
 	    setSubmitting(true);
 	    try {
 	      const now = new Date();
@@ -280,6 +304,10 @@ export function Checkout({ cart, initialCustomerId = null, onBack, onPlaceOrder,
         subtotal,
         discountPercent: effectiveDiscount,
         discountAmount,
+        discountResponsibility: discountAmount > 0 ? discountResponsibility : 'COMPANY',
+        discountReason: discountAmount > 0 ? (dealerDiscount > 0 ? '经销商等级价' : discountReason.trim()) : '',
+        discountResponsibilityUpdatedBy: user.name,
+        discountResponsibilityUpdatedAt: new Date().toISOString(),
         total,
         notes,
 	        createdAt: localDateKey(now),
@@ -472,6 +500,29 @@ export function Checkout({ cart, initialCustomerId = null, onBack, onPlaceOrder,
           </div>
         </div>
 
+        {discountAmount > 0 && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-2">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <div className="text-xs font-medium text-gray-700">折扣承担方 *</div>
+                <div className="text-xs text-gray-400 mt-0.5">公司承担不会减少提成基数；销售承担会按折后商品实收计算。</div>
+              </div>
+              <div className="zidu-segment shrink-0" aria-label="折扣承担方">
+                <button type="button" onClick={() => setDiscountResponsibility('COMPANY')} className={discountResponsibility === 'COMPANY' ? 'active' : ''}>公司承担</button>
+                <button type="button" disabled={dealerDiscount > 0} onClick={() => setDiscountResponsibility('SALES')} className={discountResponsibility === 'SALES' ? 'active' : ''}>销售承担</button>
+              </div>
+            </div>
+            <input
+              value={discountReason}
+              onChange={e => setDiscountReason(e.target.value)}
+              disabled={dealerDiscount > 0}
+              placeholder="折扣原因或活动名称（选填）"
+              className="w-full border rounded-lg px-3 py-2 text-sm bg-white disabled:bg-gray-50"
+            />
+            {!discountResponsibility && <div className="text-xs text-red-500">请选择折扣承担方后再提交订单</div>}
+          </div>
+        )}
+
         <div>
           <label className="block text-xs text-gray-500 mb-1.5">备注</label>
           <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="订单备注（可选）" />
@@ -493,7 +544,7 @@ export function Checkout({ cart, initialCustomerId = null, onBack, onPlaceOrder,
         </div>
         <button
           onClick={handlePlace}
-          disabled={!customerId || !orderSalesId || cart.length === 0 || submitting}
+          disabled={!customerId || !orderSalesId || cart.length === 0 || submitting || (discountAmount > 0 && !discountResponsibility)}
           className="btn-primary w-full mt-4 text-sm"
         >
           {submitting ? '提交中...' : `提交订单 ${fmtY(total)}`}

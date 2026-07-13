@@ -3,6 +3,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, Badge, now16, today, STATUS_MAP } from '../components/ui';
 import * as api from '../lib/api';
+import TrackingTimeline from '../components/TrackingTimeline';
+import { printShipment, downloadShipmentImage } from '../lib/printOrder';
 
 const ALL_CARRIERS = ['顺丰','韵达','加运美','德邦','壹米滴答快运','中通快递','圆通速递','申通快递','京东物流','极兔速递','邮政EMS','跨越速运','其他'];
 
@@ -28,13 +30,14 @@ function uniqueCarriers(list) {
 
 export default function ShippingWorkbench() {
   const { user } = useAuth();
-  const { orders, customers, updateOrderStatus } = useData();
+  const { orders, customers, users, updateOrderStatus, refreshShipment } = useData();
   const [sf, setSf] = useState('ALL');
   const [shippingOrderId, setShippingOrderId] = useState(null);
   const [carrier, setCarrier] = useState('顺丰');
   const [customCarrier, setCustomCarrier] = useState('');
   const [trackingNo, setTrackingNo] = useState('');
   const [updating, setUpdating] = useState(false);
+  const [trackingOrderId, setTrackingOrderId] = useState(null);
   const [carriers, setCarriers] = useState(ALL_CARRIERS);
 
   // 按历史使用频率排序快递公司
@@ -48,12 +51,15 @@ export default function ShippingWorkbench() {
     }).catch(() => {});
   }, []);
 
-  const shippable = orders.filter(o =>
-    ["CONFIRMED","PREPARING","SHIPPED"].includes(o.status) &&
-    (o.paymentStatus === 'PAID' || o.status === 'SHIPPED'));
+  const roleOrders = user.role === 'SALES' ? orders.filter(o => String(o.salesId) === String(user.id)) : orders;
+  const shippable = roleOrders.filter(o =>
+    (["CONFIRMED","PREPARING"].includes(o.status) && o.paymentStatus === 'PAID') ||
+    (["SHIPPED","DELIVERED"].includes(o.status)) ||
+    (o.status === 'COMPLETED' && Boolean(o.shipment)));
   const filtered = sf === 'ALL' ? shippable
-    : sf === 'PENDING' ? shippable.filter(o => o.status !== 'SHIPPED')
-      : shippable.filter(o => o.status === 'SHIPPED');
+    : sf === 'PENDING' ? shippable.filter(o => ["CONFIRMED","PREPARING"].includes(o.status))
+      : sf === 'SHIPPED' ? shippable.filter(o => ["SHIPPED","DELIVERED"].includes(o.status))
+        : shippable.filter(o => o.status === 'COMPLETED');
 
   const doAdvance = async (o, newStatus) => {
     if (newStatus === 'SHIPPED') {
@@ -63,6 +69,7 @@ export default function ShippingWorkbench() {
       setTrackingNo('');
       return;
     }
+    if (newStatus === 'COMPLETED' && !confirm(`确认将订单 ${o.orderNo} 标记为已完成？`)) return;
     if (updating) return;
     setUpdating(true);
     try {
@@ -73,6 +80,19 @@ export default function ShippingWorkbench() {
       alert('操作失败: ' + e.message);
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const refreshTracking = async (o) => {
+    if (!o.shipment?.trackingNo || trackingOrderId) return;
+    setTrackingOrderId(o.id);
+    try {
+      const result = await refreshShipment(o.id);
+      if (result.cached) alert('已显示最近一次物流信息；同一运单每 30 分钟更新一次');
+    } catch (e) {
+      alert(e.message || '物流查询失败');
+    } finally {
+      setTrackingOrderId(null);
     }
   };
 
@@ -106,9 +126,9 @@ export default function ShippingWorkbench() {
   return (
     <div className="space-y-4">
       <div className="flex gap-2 flex-wrap">
-        {[['ALL', '全部'], ['PENDING', '待发货'], ['SHIPPED', '已发货']].map(([s, label]) => (
+        {[['ALL', '全部'], ['PENDING', '待发货'], ['SHIPPED', '已发货'], ['COMPLETED', '已完成']].map(([s, label]) => (
           <button key={s} onClick={() => setSf(s)} className={`px-3 py-1.5 text-sm rounded-lg border ${sf === s ? "bg-purple-100 border-purple-300 text-purple-700" : "bg-white text-gray-600"}`}>
-            {label}({s === "ALL" ? shippable.length : s === 'PENDING' ? shippable.filter(o => o.status !== 'SHIPPED').length : shippable.filter(o => o.status === s).length})
+            {label}({s === "ALL" ? shippable.length : s === 'PENDING' ? shippable.filter(o => ["CONFIRMED","PREPARING"].includes(o.status)).length : s === 'SHIPPED' ? shippable.filter(o => ["SHIPPED","DELIVERED"].includes(o.status)).length : shippable.filter(o => o.status === 'COMPLETED').length})
           </button>
         ))}
       </div>
@@ -116,6 +136,7 @@ export default function ShippingWorkbench() {
       <div className="space-y-3">
         {filtered.sort((a, b) => b.id - a.id).map(o => {
           const c = customers.find(c => c.id === o.customerId);
+          const seller = users.find(u => u.id === o.salesId);
           return (
             <Card key={o.id} className="p-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -135,8 +156,8 @@ export default function ShippingWorkbench() {
                   <div className="text-xs text-gray-400 mt-1">{o.items.map(it => `${it.productName}(${it.spec})x${it.quantity}`).join("，")}</div>
                 </div>
                 <div className="flex gap-2 shrink-0">
-	                  {o.status !== "SHIPPED" && <button onClick={() => doAdvance(o, "SHIPPED")} disabled={updating} className="px-3 py-1.5 text-sm rounded-lg text-white bg-green-600 disabled:opacity-40">发货</button>}
-                  {o.status === "SHIPPED" && <button onClick={() => doAdvance(o, "DELIVERED")} disabled={updating} className="px-3 py-1.5 text-sm rounded-lg border text-gray-600 disabled:opacity-40">签收</button>}
+	                  {["CONFIRMED","PREPARING"].includes(o.status) && <button onClick={() => doAdvance(o, "SHIPPED")} disabled={updating} className="px-3 py-1.5 text-sm rounded-lg text-white bg-green-600 disabled:opacity-40">发货</button>}
+                  {["SHIPPED","DELIVERED"].includes(o.status) && <button onClick={() => doAdvance(o, "COMPLETED")} disabled={updating} className="px-4 py-1.5 text-sm rounded-lg border border-purple-300 text-purple-700 disabled:opacity-40">完成订单</button>}
                 </div>
               </div>
 
@@ -155,11 +176,18 @@ export default function ShippingWorkbench() {
                   </div>
                 </div>
               )}
-              {o.shipment && o.status === 'SHIPPED' && (
-                <div className="mt-3 pt-3 border-t bg-green-50 -mx-4 -mb-4 px-4 py-2 rounded-b-xl text-sm text-green-800 flex items-center flex-wrap gap-2">
-                  <span>📦 {o.shipment.carrier} · {o.shipment.trackingNo}</span>
-                  <button onClick={() => { navigator.clipboard.writeText(`${o.shipment.carrier} ${o.shipment.trackingNo}`); alert('已复制'); }} className="text-purple-700 underline">复制</button>
-                  <a href={`https://www.kuaidi100.com/chaxun?nu=${encodeURIComponent(o.shipment.trackingNo)}`} target="_blank" rel="noopener noreferrer" className="text-purple-700 underline">查询物流</a>
+              {o.shipment && (
+                <div className="mt-3 pt-3 border-t bg-green-50 -mx-4 -mb-4 px-4 py-3 rounded-b-xl text-sm text-green-800 space-y-3">
+                  <div className="flex items-center flex-wrap gap-2">
+                    <span>📦 {o.shipment.carrier} · {o.shipment.trackingNo}</span>
+                    <button onClick={() => { navigator.clipboard.writeText(`${o.shipment.carrier} ${o.shipment.trackingNo}`); alert('已复制'); }} className="text-purple-700 underline">复制</button>
+                    <button onClick={() => refreshTracking(o)} disabled={trackingOrderId === o.id} className="text-purple-700 underline disabled:opacity-50">{trackingOrderId === o.id ? '更新中...' : '更新物流'}</button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={() => printShipment(o, c, seller)} className="px-3 py-1.5 rounded-lg border border-purple-200 bg-white text-purple-700">打印发货单</button>
+                    <button onClick={() => downloadShipmentImage(o, c, seller)} className="px-3 py-1.5 rounded-lg border border-purple-200 bg-white text-purple-700">下载发货单图片</button>
+                  </div>
+                  <TrackingTimeline shipment={o.shipment} compact />
                 </div>
               )}
             </Card>

@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { requirePaymentMethod } from './payment';
 
 // ═══ AUTH ═══
 export async function login(phone, password) {
@@ -140,6 +141,10 @@ function isMissingCustomerMetaError(error) {
   return error?.code === 'PGRST204' || /province.*customers|distributor_level.*customers|schema cache/i.test(error?.message || '');
 }
 
+function isMissingDiscountResponsibilityError(error) {
+  return /discount_responsibility|discount_reason|discount_responsibility_updated/i.test(error?.message || '');
+}
+
 function customerRow(customer, includeMeta = true) {
   const row = {
     name: customer.name,
@@ -156,7 +161,7 @@ function customerRow(customer, includeMeta = true) {
   return row;
 }
 
-function orderRow(order, includeSource = true) {
+function orderRow(order, includeSource = true, includeDiscountMeta = true) {
   const row = {
     order_no: order.orderNo,
     customer_id: order.customerId,
@@ -170,6 +175,12 @@ function orderRow(order, includeSource = true) {
     business_type: order.businessType || '院线',
     created_at: order.createdAt
   };
+  if (includeDiscountMeta) {
+    row.discount_responsibility = order.discountResponsibility || 'COMPANY';
+    row.discount_reason = order.discountReason || '';
+    row.discount_responsibility_updated_by = order.discountResponsibilityUpdatedBy || '';
+    row.discount_responsibility_updated_at = order.discountResponsibilityUpdatedAt || null;
+  }
   if (includeSource) {
     row.source = order.source || 'web_admin';
     row.channel_meta = order.channelMeta || {};
@@ -329,11 +340,36 @@ export async function addCustomerNote(customerId, text, byUser) {
 }
 
 // ═══ ORDERS ═══
+function mapShipment(s) {
+  if (!s) return null;
+  return {
+    id: s.id,
+    carrier: s.carrier,
+    trackingNo: s.tracking_no,
+    shippedAt: s.shipped_at,
+    operator: s.operator,
+    trackingState: s.tracking_state || '',
+    trackingStateCode: s.tracking_state_code || '',
+    trackingMessage: s.tracking_message || '',
+    trackingEvents: Array.isArray(s.tracking_events) ? s.tracking_events : [],
+    trackingUpdatedAt: s.tracking_updated_at || null
+  };
+}
+
+function latestShipment(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  return rows.reduce((latest, row) => Number(row.id || 0) > Number(latest.id || 0) ? row : latest, rows[0]);
+}
+
 function mapOrder(o) {
   return {
     id: o.id, orderNo: o.order_no, customerId: o.customer_id, salesId: o.sales_id,
     status: o.status, subtotal: Number(o.subtotal), discountPercent: Number(o.discount_percent),
     discountAmount: Number(o.discount_amount), total: Number(o.total), notes: o.notes || '',
+    discountResponsibility: o.discount_responsibility === 'SALES' ? 'SALES' : 'COMPANY',
+    discountReason: o.discount_reason || '',
+    discountResponsibilityUpdatedBy: o.discount_responsibility_updated_by || '',
+    discountResponsibilityUpdatedAt: o.discount_responsibility_updated_at || null,
     businessType: o.business_type || '院线',
     source: o.source || 'b2b',
     channelMeta: o.channel_meta || null,
@@ -346,10 +382,7 @@ function mapOrder(o) {
       quantity: it.quantity, unitPrice: Number(it.unit_price), unitCost: Number(it.unit_cost || 0), subtotal: Number(it.subtotal)
     })),
     logs: (o.logs || []).sort((a, b) => a.id - b.id).map(l => ({ id: l.id, time: l.time, user: l.user_name, action: l.action })),
-    shipment: o.shipment?.[0] ? {
-      carrier: o.shipment[0].carrier, trackingNo: o.shipment[0].tracking_no,
-      shippedAt: o.shipment[0].shipped_at, operator: o.shipment[0].operator
-    } : null,
+    shipment: mapShipment(latestShipment(o.shipment)),
     payments: (o.payments || []).map(p => ({
       id: p.id, amount: Number(p.amount), method: p.method, note: p.note,
       recordedBy: p.recorded_by, createdAt: p.created_at
@@ -634,6 +667,7 @@ export async function completeAfterSaleFinance(afterSaleId, payload) {
   const time = payload.time || new Date().toISOString().slice(0, 16);
   const note = (payload.note || '').trim();
   const financeAmount = roundMoney(Number(payload.amount || 0));
+  const paymentMethod = financeAmount !== 0 ? requirePaymentMethod(payload.method) : '';
   const refundOnly = /^仅退款/.test(row.request_note || '');
   const expectedRefund = roundMoney(Number(row.requested_amount || 0));
   if (row.type === 'RETURN_REFUND') {
@@ -663,7 +697,7 @@ export async function completeAfterSaleFinance(afterSaleId, payload) {
     const { error } = await supabase.from('payment_records').insert({
       order_id: row.order_id,
       amount: financeAmount,
-      method: payload.method || '转账',
+      method: paymentMethod,
       note: `${financeAmount < 0 ? '退款' : '补款'}：${note || afterSaleSummary(row.items || [])}`,
       recorded_by: operatorName
     });
@@ -673,7 +707,7 @@ export async function completeAfterSaleFinance(afterSaleId, payload) {
   const { error } = await supabase.from('after_sales').update({
     status: 'COMPLETED',
     finance_amount: financeAmount,
-    finance_method: payload.method || '转账',
+    finance_method: paymentMethod,
     finance_note: note,
     finance_by: operatorName,
     finance_at: new Date().toISOString(),
@@ -716,6 +750,7 @@ export async function processOrderAfterSale(orderId, payload) {
 
   if (type === 'RETURN_REFUND') {
     const refundAmount = roundMoney(Number(payload.refundAmount || 0));
+    const refundMethod = refundAmount > 0 ? requirePaymentMethod(payload.refundMethod) : '';
     if (refundAmount < 0) throw new Error('退款金额不能为负数');
     if (refundAmount > Number(order.paid_amount || 0) + 0.01) throw new Error('退款金额不能大于当前已收金额');
 
@@ -762,7 +797,7 @@ export async function processOrderAfterSale(orderId, payload) {
       const { error: refundError } = await supabase.from('payment_records').insert({
         order_id: orderId,
         amount: -refundAmount,
-        method: payload.refundMethod || '转账',
+        method: refundMethod,
         note: `退款：${note || summary}`,
         recorded_by: operatorName
       });
@@ -822,15 +857,26 @@ export async function createOrder(order) {
       }
     }
   }
-  let { data: o, error: oe } = await supabase.from('orders')
-    .insert(orderRow(order))
-    .select().single();
-  if (isMissingOrderSourceError(oe)) {
-    const retry = await supabase.from('orders')
-      .insert(orderRow(order, false))
+  let o;
+  let oe;
+  let includeSource = true;
+  let includeDiscountMeta = true;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const result = await supabase.from('orders')
+      .insert(orderRow(order, includeSource, includeDiscountMeta))
       .select().single();
-    o = retry.data;
-    oe = retry.error;
+    o = result.data;
+    oe = result.error;
+    if (!oe) break;
+    if (includeDiscountMeta && isMissingDiscountResponsibilityError(oe)) {
+      includeDiscountMeta = false;
+      continue;
+    }
+    if (includeSource && isMissingOrderSourceError(oe)) {
+      includeSource = false;
+      continue;
+    }
+    break;
   }
   if (oe) throw new Error(oe.message);
 
@@ -863,6 +909,35 @@ export async function createOrder(order) {
     }
   }
   return o.id;
+}
+
+export async function updateOrderDiscountResponsibility(orderId, responsibility, reason, updatedBy = '') {
+  const normalized = responsibility === 'SALES' ? 'SALES' : 'COMPANY';
+  const updatedAt = new Date().toISOString();
+  const { error } = await supabase.from('orders').update({
+    discount_responsibility: normalized,
+    discount_reason: String(reason || '').trim(),
+    discount_responsibility_updated_by: updatedBy,
+    discount_responsibility_updated_at: updatedAt
+  }).eq('id', orderId);
+  if (error) {
+    if (isMissingDiscountResponsibilityError(error)) {
+      throw new Error('请先在 Supabase 运行 supabase/migration_v29_sales_commission.sql');
+    }
+    throw new Error(error.message);
+  }
+  await insertOrderLog(
+    orderId,
+    updatedAt.slice(0, 16),
+    updatedBy,
+    `确认折扣承担：${normalized === 'SALES' ? '销售承担' : '公司承担'}${reason ? `；${String(reason).trim()}` : ''}`
+  );
+  return {
+    discountResponsibility: normalized,
+    discountReason: String(reason || '').trim(),
+    discountResponsibilityUpdatedBy: updatedBy,
+    discountResponsibilityUpdatedAt: updatedAt
+  };
 }
 
 export async function updateOrderItems(orderId, changes, totals, logEntry) {
@@ -991,6 +1066,10 @@ export async function restoreDeletedOrder(deletedOrderId, restoredBy = '') {
     subtotal: Number(old.subtotal || 0),
     discount_percent: Number(old.discount_percent || 0),
     discount_amount: Number(old.discount_amount || 0),
+    discount_responsibility: old.discount_responsibility === 'SALES' ? 'SALES' : 'COMPANY',
+    discount_reason: old.discount_reason || '',
+    discount_responsibility_updated_by: old.discount_responsibility_updated_by || '',
+    discount_responsibility_updated_at: old.discount_responsibility_updated_at || null,
     total: Number(old.total || deleted.total || 0),
     notes: old.notes || '',
     business_type: old.business_type || '院线',
@@ -1081,7 +1160,7 @@ export async function restoreDeletedOrder(deletedOrderId, restoredBy = '') {
       warehouse_by: a.warehouse_by || null,
       warehouse_at: a.warehouse_at || null,
       finance_amount: a.finance_amount || 0,
-      finance_method: a.finance_method || '转账',
+      finance_method: a.finance_method || '',
       finance_note: a.finance_note || '',
       finance_by: a.finance_by || null,
       finance_at: a.finance_at || null,
@@ -1168,10 +1247,35 @@ export async function fetchCarriersByUsage() {
   return Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([c]) => c);
 }
 
+export async function trackShipment(orderId) {
+  const { data, error } = await supabase.functions.invoke('track-shipment', {
+    body: { orderId: Number(orderId) }
+  });
+  if (error) {
+    let message = data?.error || error.message || '物流查询失败';
+    if (error.context) {
+      try {
+        const detail = await error.context.json();
+        message = detail?.error || detail?.message || message;
+      } catch { /* response body may already be consumed */ }
+    }
+    throw new Error(message);
+  }
+  if (!data?.shipment) throw new Error(data?.error || '物流查询未返回数据');
+  return { shipment: mapShipment(data.shipment), cached: Boolean(data.cached) };
+}
+
 export async function updateOrderStatus(orderId, newStatus, logEntry, shipmentData) {
-  await supabase.from('orders').update({ status: newStatus }).eq('id', orderId);
-  if (logEntry) await supabase.from('order_logs').insert({ order_id: orderId, time: logEntry.time, user_name: logEntry.user, action: logEntry.action });
-  if (shipmentData) await supabase.from('shipments').insert({ order_id: orderId, carrier: shipmentData.carrier, tracking_no: shipmentData.trackingNo, shipped_at: shipmentData.shippedAt, operator: shipmentData.operator });
+  const { error: orderError } = await supabase.from('orders').update({ status: newStatus }).eq('id', orderId);
+  if (orderError) throw new Error(orderError.message);
+  if (logEntry) {
+    const { error: logError } = await supabase.from('order_logs').insert({ order_id: orderId, time: logEntry.time, user_name: logEntry.user, action: logEntry.action });
+    if (logError) throw new Error(logError.message);
+  }
+  if (shipmentData) {
+    const { error: shipmentError } = await supabase.from('shipments').insert({ order_id: orderId, carrier: shipmentData.carrier, tracking_no: shipmentData.trackingNo, shipped_at: shipmentData.shippedAt, operator: shipmentData.operator });
+    if (shipmentError) throw new Error(shipmentError.message);
+  }
 
   // If cancelled, restore stock + record adjustments
   if (newStatus === 'CANCELLED') {
@@ -1195,6 +1299,7 @@ export async function updateOrderStatus(orderId, newStatus, logEntry, shipmentDa
 
 // ═══ PAYMENTS ═══
 export async function recordPayment(orderId, amount, method, note, recordedBy, priceAdjustment = 0) {
+  const paymentMethod = requirePaymentMethod(method);
   const adjustment = roundMoney(Number(priceAdjustment || 0));
   if (adjustment !== 0) {
     const { data: current, error: orderError } = await supabase.from('orders').select('subtotal,total').eq('id', orderId).single();
@@ -1206,7 +1311,8 @@ export async function recordPayment(orderId, amount, method, note, recordedBy, p
     const { error: updateTotalError } = await supabase.from('orders').update({ subtotal, total }).eq('id', orderId);
     if (updateTotalError) throw new Error(updateTotalError.message);
   }
-  await supabase.from('payment_records').insert({ order_id: orderId, amount, method, note, recorded_by: recordedBy });
+  const { error: paymentError } = await supabase.from('payment_records').insert({ order_id: orderId, amount, method: paymentMethod, note, recorded_by: recordedBy });
+  if (paymentError) throw new Error(paymentError.message);
   // Recalculate payment status
   const { data: payments } = await supabase.from('payment_records').select('amount').eq('order_id', orderId);
   const totalPaid = (payments || []).reduce((s, p) => s + Number(p.amount), 0);

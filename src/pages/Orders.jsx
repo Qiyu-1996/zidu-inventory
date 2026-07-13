@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { Search, ArrowLeft, Download, Printer, DollarSign, Trash2, ExternalLink, Copy, RotateCcw } from 'lucide-react';
+import { Search, ArrowLeft, Download, Printer, DollarSign, Trash2, RefreshCw, Copy, RotateCcw } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, Badge, PaymentBadge, fmtY, now16, STATUS_MAP, PAYMENT_STATUS_MAP, exportCSV, unitPriceHint } from '../components/ui';
-import { printOrder } from '../lib/printOrder';
+import { printOrder, printShipment, downloadShipmentImage } from '../lib/printOrder';
+import { PAYMENT_METHODS } from '../lib/payment';
 import * as api from '../lib/api';
+import TrackingTimeline from '../components/TrackingTimeline';
 
 // 订单录入来源标签：展示订单从哪里创建；原料/成品来源由订单号/明细识别。
 const SOURCE_MAP = {
@@ -37,7 +39,7 @@ const DETAIL_NEXT = {
   SUBMITTED: ['CANCELLED'],
   CONFIRMED: ['CANCELLED'],
   PREPARING: ['CANCELLED'],
-  SHIPPED: ['DELIVERED'],
+  SHIPPED: ['COMPLETED'],
   DELIVERED: ['COMPLETED'],
   COMPLETED: [],
   CANCELLED: []
@@ -280,16 +282,16 @@ export function OrderList({ nav }) {
 }
 
 // ═══ ORDER DETAIL ═══
-export function OrderDetail({ orderId, onBack }) {
+export function OrderDetail({ orderId, onBack, onShipping }) {
   const { user } = useAuth();
   const {
-    orders, customers, users, updateOrderStatus, removeOrder, editOrderItems, recordPayment,
+    orders, customers, users, updateOrderStatus, refreshShipment, removeOrder, editOrderItems, recordPayment,
     createAfterSale, processAfterSaleWarehouse, completeAfterSaleFinance
   } = useData();
   const [updating, setUpdating] = useState(false);
   const [showPayForm, setShowPayForm] = useState(false);
   const [payAmount, setPayAmount] = useState('');
-  const [payMethod, setPayMethod] = useState('转账');
+  const [payMethod, setPayMethod] = useState('');
   const [payNote, setPayNote] = useState('');
   const [savingPay, setSavingPay] = useState(false);
   const canCreateAfterSaleRole = ['ADMIN', 'SALES'].includes(user.role);
@@ -304,12 +306,13 @@ export function OrderDetail({ orderId, onBack }) {
   const [warehouseNote, setWarehouseNote] = useState('');
   const [financeDirection, setFinanceDirection] = useState('REFUND');
   const [financeAmount, setFinanceAmount] = useState('');
-  const [financeMethod, setFinanceMethod] = useState('转账');
+  const [financeMethod, setFinanceMethod] = useState('');
   const [afterSaleNote, setAfterSaleNote] = useState('');
   const [savingAfterSale, setSavingAfterSale] = useState(false);
   const [editingItems, setEditingItems] = useState(false);
   const [editItems, setEditItems] = useState([]);
   const [savingItems, setSavingItems] = useState(false);
+  const [trackingLoading, setTrackingLoading] = useState(false);
 
   const order = orders.find(o => o.id === orderId);
   if (!order) return <div className="text-center py-12 text-gray-400">订单不存在</div>;
@@ -322,7 +325,7 @@ export function OrderDetail({ orderId, onBack }) {
   const canRecordPayment = (user.role === 'ADMIN' || user.role === 'SALES' || user.role === 'FINANCE') && order.status !== 'CANCELLED' && order.paymentStatus !== 'PAID';
   const canDelete = user.role === 'ADMIN';
   const canEditItems = user.role === 'ADMIN' && order.status !== 'CANCELLED';
-  const needsShipping = ['CONFIRMED', 'PREPARING'].includes(order.status) && order.paymentStatus === 'PAID' && (user.role === 'WAREHOUSE' || user.role === 'ADMIN');
+  const needsShipping = ['CONFIRMED', 'PREPARING'].includes(order.status) && order.paymentStatus === 'PAID' && ['ADMIN', 'SALES', 'WAREHOUSE'].includes(user.role);
   const afterSales = order.afterSales || [];
   const hasWarehouseTodo = afterSales.some(a => a.status === 'WAREHOUSE_PENDING');
   const hasFinanceTodo = afterSales.some(a => a.status === 'FINANCE_PENDING');
@@ -440,17 +443,17 @@ export function OrderDetail({ orderId, onBack }) {
     const txt = `${order.shipment.carrier} ${order.shipment.trackingNo}`;
     navigator.clipboard.writeText(txt).then(() => alert('已复制：' + txt));
   };
-  const openTracking = () => {
-    if (!order.shipment?.trackingNo) return;
-    const url = `https://www.kuaidi100.com/chaxun?nu=${encodeURIComponent(order.shipment.trackingNo)}`;
-    // 创建新 <a> 元素点击，避免 popup 拦截
-    const a = document.createElement('a');
-    a.href = url;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+  const handleRefreshTracking = async () => {
+    if (!order.shipment?.trackingNo || trackingLoading) return;
+    setTrackingLoading(true);
+    try {
+      const result = await refreshShipment(order.id);
+      if (result.cached) alert('已显示最近一次物流信息；同一运单每 30 分钟更新一次');
+    } catch (e) {
+      alert(e.message || '物流查询失败');
+    } finally {
+      setTrackingLoading(false);
+    }
   };
   const handleDelete = async () => {
     if (!confirm(`确定删除订单 ${order.orderNo}？\n删除后会进入管理员“删除订单库”保留 30 天。${order.status !== 'CANCELLED' ? '\n注意：库存将恢复。' : ''}`)) return;
@@ -478,6 +481,10 @@ export function OrderDetail({ orderId, onBack }) {
   };
 
   const handleRecordPayment = async () => {
+    if (!payMethod) {
+      alert('请选择收款方式');
+      return;
+    }
     const adjustment = roundMoney(Number(payAmount || 0));
     const amount = roundMoney(Number(remaining || 0) + adjustment);
     if (!amount || amount <= 0) {
@@ -495,7 +502,7 @@ export function OrderDetail({ orderId, onBack }) {
         const action = isWalkInCustomer(customer) ? '确认收款并完成（现场交付）' : '确认收款并确认订单';
         await updateOrderStatus(order.id, targetStatus, { time: now16(), user: user.name, action });
       }
-      setShowPayForm(false); setPayAmount(''); setPayNote('');
+      setShowPayForm(false); setPayAmount(''); setPayMethod(''); setPayNote('');
     } catch (e) { alert('记录失败: ' + e.message); } finally { setSavingPay(false); }
   };
 
@@ -576,6 +583,10 @@ export function OrderDetail({ orderId, onBack }) {
     }
     const direction = afterSale.type === 'EXCHANGE' ? financeDirection : 'REFUND';
     const signedAmount = direction === 'REFUND' ? -rawAmount : rawAmount;
+    if (rawAmount > 0 && !financeMethod) {
+      alert('请选择退款/补款方式');
+      return;
+    }
     if (signedAmount < 0 && rawAmount > Number(order.paidAmount || 0)) {
       alert('退款金额不能大于当前已收金额');
       return;
@@ -590,6 +601,7 @@ export function OrderDetail({ orderId, onBack }) {
         time: now16()
       });
       setFinanceAmount('');
+      setFinanceMethod('');
       setAfterSaleNote('');
       alert('财务已处理，售后已完成');
     } catch (e) {
@@ -624,7 +636,12 @@ export function OrderDetail({ orderId, onBack }) {
               )}
             </div>
             <div className="text-2xl font-bold" style={{ color: "#5C4B73" }}>{fmtY(order.total)}</div>
-            {order.discountAmount > 0 && <div className="text-xs text-orange-500">折扣 {fmtY(order.discountAmount)} ({order.discountPercent}%)</div>}
+            {order.discountAmount > 0 && (
+              <div className="text-xs text-orange-500">
+                折扣 {fmtY(order.discountAmount)} ({order.discountPercent}%) · {order.discountResponsibility === 'SALES' ? '销售承担' : '公司承担'}
+                {order.discountReason && <div className="text-gray-400">{order.discountReason}</div>}
+              </div>
+            )}
             {shippingFee > 0 && <div className="text-xs text-green-700">运费 {fmtY(shippingFee)}</div>}
             {order.paidAmount > 0 && order.paymentStatus !== 'PAID' && <div className="text-xs text-yellow-600">已付 {fmtY(order.paidAmount)} / 剩 {fmtY(remaining)}</div>}
           </div>
@@ -648,8 +665,9 @@ export function OrderDetail({ orderId, onBack }) {
         {order.notes && <div className="bg-yellow-50 rounded-lg p-3 mb-4 text-sm text-gray-700">{order.notes}</div>}
 
         {needsShipping && (
-          <div className="pt-3 border-t bg-orange-50 -mx-5 -mb-5 px-5 py-3 rounded-b-xl">
-            <div className="text-sm text-orange-700">订单已收款待发货，请仓库管理员前往“发货管理”填写快递公司和快递单号。</div>
+          <div className="pt-3 border-t bg-orange-50 -mx-5 -mb-5 px-5 py-3 rounded-b-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="text-sm text-orange-700">订单已收款待发货，可前往“发货管理”填写快递公司和快递单号。</div>
+            <button type="button" onClick={onShipping} className="px-3 py-1.5 text-sm text-white rounded-lg shrink-0" style={{ background: '#5C4B73' }}>去发货</button>
           </div>
         )}
 
@@ -752,14 +770,15 @@ export function OrderDetail({ orderId, onBack }) {
             <div className="grid grid-cols-2 gap-2">
               <input type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} placeholder="价格调整（可正可负，不填为0）" className="border rounded px-3 py-2 text-sm" />
               <select value={payMethod} onChange={e => setPayMethod(e.target.value)} className="border rounded px-3 py-2 text-sm bg-white">
-                <option>转账</option><option>现金</option><option>微信</option><option>支付宝</option><option>其他</option>
+                <option value="">收款方式 *</option>
+                {PAYMENT_METHODS.map(method => <option key={method} value={method}>{method}</option>)}
               </select>
             </div>
             <div className="border rounded-lg px-3 py-2 text-sm text-purple-700 bg-white">默认收款 {fmtY(remaining)}</div>
             <input value={payNote} onChange={e => setPayNote(e.target.value)} placeholder="备注（可选）" className="w-full border rounded px-3 py-2 text-sm" />
             <div className="flex gap-2">
               <button onClick={() => setShowPayForm(false)} className="px-3 py-1.5 text-sm border rounded-lg">取消</button>
-              <button onClick={handleRecordPayment} disabled={savingPay} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>{savingPay ? '保存中...' : '确认收款'}</button>
+              <button onClick={handleRecordPayment} disabled={savingPay || !payMethod} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>{savingPay ? '保存中...' : '确认收款'}</button>
             </div>
           </div>
         )}
@@ -850,12 +869,13 @@ export function OrderDetail({ orderId, onBack }) {
 	                          </select>
                           <input type="number" min="0" value={financeAmount} onChange={e => setFinanceAmount(e.target.value)} placeholder="金额" className="border rounded-lg px-3 py-2 text-sm bg-white" />
                           <select value={financeMethod} onChange={e => setFinanceMethod(e.target.value)} className="border rounded-lg px-3 py-2 text-sm bg-white">
-                            <option>转账</option><option>现金</option><option>微信</option><option>支付宝</option><option>其他</option>
+                            <option value="">退款/补款方式 *</option>
+                            {PAYMENT_METHODS.map(method => <option key={method} value={method}>{method}</option>)}
                           </select>
                           <button type="button" onClick={() => { setFinanceDirection(a.type === 'EXCHANGE' ? 'SUPPLEMENT' : 'REFUND'); setFinanceAmount(String(a.requestedAmount || suggestedRefund || 0)); }} className="border rounded-lg px-3 py-2 text-sm text-purple-700 hover:bg-purple-50">填入退款金额</button>
                         </div>
                         <input value={afterSaleNote} onChange={e => setAfterSaleNote(e.target.value)} placeholder="财务备注：退款/补款说明" className="w-full border rounded-lg px-3 py-2 text-sm bg-white" />
-                        <button onClick={() => handleFinanceAfterSale(a)} disabled={savingAfterSale} className="px-4 py-2 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: '#5C4B73' }}>
+                        <button onClick={() => handleFinanceAfterSale(a)} disabled={savingAfterSale || (Number(financeAmount || 0) > 0 && !financeMethod)} className="px-4 py-2 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: '#5C4B73' }}>
                           {savingAfterSale ? '处理中...' : '确认财务处理'}
                         </button>
                       </div>
@@ -922,7 +942,14 @@ export function OrderDetail({ orderId, onBack }) {
           </div>
           <div className="flex gap-2 mt-3 pt-3 border-t">
             <button onClick={copyTracking} className="flex items-center gap-1 text-sm px-3 py-1.5 border rounded-lg text-purple-700 hover:bg-purple-50"><Copy size={14} />复制快递信息</button>
-            <button onClick={openTracking} className="flex items-center gap-1 text-sm px-3 py-1.5 border rounded-lg text-purple-700 hover:bg-purple-50"><ExternalLink size={14} />查询物流</button>
+            <button onClick={handleRefreshTracking} disabled={trackingLoading} className="flex items-center gap-1 text-sm px-3 py-1.5 border rounded-lg text-purple-700 hover:bg-purple-50 disabled:opacity-50"><RefreshCw size={14} className={trackingLoading ? 'animate-spin' : ''} />{trackingLoading ? '更新中' : '更新物流'}</button>
+          </div>
+          <div className="flex flex-wrap gap-2 mt-2">
+            <button onClick={() => printShipment(order, customer, seller)} className="flex items-center gap-1 text-sm px-3 py-1.5 border rounded-lg text-purple-700 hover:bg-purple-50"><Printer size={14} />打印发货单</button>
+            <button onClick={() => downloadShipmentImage(order, customer, seller)} className="flex items-center gap-1 text-sm px-3 py-1.5 border rounded-lg text-purple-700 hover:bg-purple-50"><Download size={14} />下载发货单图片</button>
+          </div>
+          <div className="mt-3 pt-3 border-t">
+            <TrackingTimeline shipment={order.shipment} />
           </div>
         </Card>
       )}

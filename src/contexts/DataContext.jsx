@@ -98,10 +98,21 @@ export function DataProvider({ children }) {
     setProducts(newProducts);
   }, []);
 
+  const updateOrderDiscountResponsibility = useCallback(async (orderId, responsibility, reason) => {
+    const result = await api.updateOrderDiscountResponsibility(orderId, responsibility, reason, user?.name || '');
+    setOrders(p => p.map(o => o.id === orderId ? { ...o, ...result } : o));
+    return result;
+  }, [user]);
+
   const updateOrderStatus = useCallback(async (orderId, newStatus, logEntry, shipmentData) => {
     await api.updateOrderStatus(orderId, newStatus, logEntry, shipmentData);
     setOrders(p => p.map(o => o.id !== orderId ? o : { ...o, status: newStatus, logs: [...o.logs, logEntry], ...(shipmentData ? { shipment: shipmentData } : {}) }));
     if (newStatus === 'CANCELLED') { const np = await api.fetchProducts(); setProducts(np); }
+  }, []);
+  const refreshShipment = useCallback(async (orderId) => {
+    const result = await api.trackShipment(orderId);
+    setOrders(p => p.map(o => o.id === orderId ? { ...o, shipment: result.shipment } : o));
+    return result;
   }, []);
   const recordPayment = useCallback(async (orderId, amount, method, note, recordedBy, priceAdjustment = 0) => {
     const result = await api.recordPayment(orderId, amount, method, note, recordedBy, priceAdjustment);
@@ -254,7 +265,7 @@ export function DataProvider({ children }) {
       loading, error,
       addProduct, editProduct, removeProduct,
       addCustomer, editCustomer, removeCustomer, addCustomerNote,
-      addOrder, updateOrderStatus, removeOrder, editOrderItems, recordPayment, processAfterSale,
+      addOrder, updateOrderStatus, refreshShipment, removeOrder, editOrderItems, updateOrderDiscountResponsibility, recordPayment, processAfterSale,
       createAfterSale, processAfterSaleWarehouse, completeAfterSaleFinance,
       addUser, resetUserPassword, toggleUserStatus, updateUserRole, archiveUser,
       adjustStock, adjustRawStock, loadStockLog,

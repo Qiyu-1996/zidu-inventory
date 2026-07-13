@@ -90,6 +90,7 @@ export default function App() {
 
   const isFinance = user.role === "FINANCE";
   const canOrder = user.role === "ADMIN" || user.role === "SALES";
+  const canShip = ['ADMIN', 'SALES', 'WAREHOUSE'].includes(user.role);
   const menuItems = isFinance ? [
     // 财务：只看订单 + 收款流水
     { key: "dashboard", icon: Home, label: "工作台" },
@@ -103,7 +104,7 @@ export default function App() {
     ...(user.role !== "WAREHOUSE" ? [{ key: "tasks", icon: ClipboardCheck, label: "跟进任务" }] : []),
     { key: "inventory", icon: Package, label: "库存查看" },
     ...(user.role === "ADMIN" || user.role === "WAREHOUSE" ? [{ key: "purchase", icon: ClipboardList, label: "采购管理" }] : []),
-    ...(user.role === "WAREHOUSE" ? [{ key: "shipping", icon: Truck, label: "发货管理", badge: unreadOrders || null }] : []),
+    ...(canShip ? [{ key: "shipping", icon: Truck, label: "发货管理", badge: unreadOrders || null }] : []),
     ...(user.role !== "WAREHOUSE" ? [{ key: "analytics", icon: TrendingUp, label: "数据分析" }] : []),
     ...(user.role === "ADMIN" ? [{ key: "finance", icon: Wallet, label: "财务报表" }] : []),
     ...(user.role === "ADMIN" ? [{ key: "settings", icon: Settings, label: "系统管理" }] : []),
@@ -207,7 +208,7 @@ export default function App() {
           {page === "shop" && subView === "custom" && <CustomOrder onBack={() => setSubView(null)} onPlaceOrder={handlePlaceCustomOrder} />}
           {page === "shop" && subView === "newcust" && <CustomerCreate onSave={handleNewCustomerFromShop} onCancel={() => setSubView("checkout")} />}
           {page === "orders" && !subView && <OrderList nav={nav} />}
-          {page === "orderDetail" && <OrderDetail orderId={subView} onBack={() => nav("orders")} />}
+          {page === "orderDetail" && <OrderDetail orderId={subView} onBack={() => nav("orders")} onShipping={() => nav("shipping")} />}
           {page === "customers" && !subView && <CustomerList nav={nav} onNew={(dealerMode) => setSubView(dealerMode ? "newdealer" : "newcust")} />}
           {page === "customers" && (subView === "newcust" || subView === "newdealer") && <CustomerCreate dealerMode={subView === "newdealer"} onSave={handleNewCustomerFromList} onCancel={() => setSubView(null)} />}
           {page === "customerDetail" && <CustomerDetail customerId={subView} onBack={() => nav("customers")} />}
@@ -217,7 +218,7 @@ export default function App() {
           {page === "purchaseCreate" && <PurchaseOrderCreate onBack={() => nav('purchase')} />}
           {page === "purchaseEdit" && <PurchaseOrderCreate editPo={purchaseOrders.find(po => po.id === subView)} onBack={() => nav('purchaseDetail', subView)} />}
           {page === "purchaseDetail" && <PurchaseOrderDetail poId={subView} onBack={() => nav('purchase')} onEdit={() => nav('purchaseEdit', subView)} />}
-          {page === "shipping" && <ShippingWorkbench />}
+          {page === "shipping" && canShip && <ShippingWorkbench />}
           {page === "analytics" && <Analytics />}
           {page === "finance" && <Finance />}
           {page === "settings" && <SettingsPage />}
