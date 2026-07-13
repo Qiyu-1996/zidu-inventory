@@ -371,8 +371,21 @@ export default function Inventory({ nav }) {
                                 step="0.001"
                                 aria-label={`${p.name}重量库存 kg`}
                                 value={rawEditMode ? (rawStockDrafts[p.id] ?? Number(p.baseStockKg || 0).toFixed(3)) : Number(p.baseStockKg || 0).toFixed(3)}
-                                onFocus={e => { if (rawEditMode) e.target.select(); }}
+                                onFocus={e => {
+                                  if (!rawEditMode) return;
+                                  if (Number(rawStockDrafts[p.id]) === Number(p.baseStockKg || 0)) {
+                                    setRawStockDrafts(current => ({ ...current, [p.id]: '' }));
+                                  } else {
+                                    e.target.select();
+                                  }
+                                }}
+                                onBlur={() => {
+                                  if (rawEditMode && String(rawStockDrafts[p.id] ?? '').trim() === '') {
+                                    setRawStockDrafts(current => ({ ...current, [p.id]: Number(p.baseStockKg || 0).toFixed(3) }));
+                                  }
+                                }}
                                 onChange={e => { if (rawEditMode) setRawStockDrafts(current => ({ ...current, [p.id]: e.target.value })); }}
+                                placeholder="输入 kg"
                                 readOnly={!rawEditMode}
                                 disabled={!canAdjust || savingRawChanges}
                                 className={`w-full h-9 rounded-lg border pl-3 pr-9 text-sm tabular-nums focus:outline-none disabled:text-gray-500 ${rawEditMode ? 'border-purple-300 bg-white focus:ring-2 focus:ring-purple-100' : 'border-gray-200 bg-gray-50 cursor-default'}`}

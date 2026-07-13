@@ -56,7 +56,7 @@ function businessTypeLabel(type) {
 }
 
 export default function Finance() {
-  const { orders, customers, users, reload } = useData();
+  const { orders, customers, users, products, reload } = useData();
   const [from, setFrom] = useState(() => today().slice(0, 7) + '-01');
   const [to, setTo] = useState(() => today());
   const [method, setMethod] = useState('全部');
@@ -139,6 +139,40 @@ export default function Finance() {
     });
     return rows;
   }, [reportOrders, cust, userName]);
+
+  const salesDetailRows = useMemo(() => {
+    const rows = [];
+    reportOrders.forEach(o => {
+      const c = cust(o.customerId);
+      (o.items || []).forEach((it, idx) => {
+        const product = products.find(p => Number(p.id) === Number(it.productId));
+        const orderProductType = productSourceLabel(o);
+        let productType = orderProductType;
+        if (product?.channel === 'RAW') productType = '原料';
+        else if (product?.channel === 'FINISHED') productType = '成品';
+        else if (product?.channel === 'BOTH' && orderProductType === 'B2B平台') productType = '原料+成品';
+        rows.push({
+          key: `${o.id}-${it.id || idx}`,
+          brand: o.channelMeta?.brandName || o.channelMeta?.brand || '紫都',
+          sales: userName(o.salesId),
+          customer: c?.name || (o.source === 'wechat_2c' ? '微信零售' : '—'),
+          customerType: c?.type || '',
+          productType,
+          shippedDate: day(o.shipment?.shippedAt),
+          orderNo: o.orderNo,
+          productCode: it.productCode || product?.code || '',
+          productName: it.productName || product?.name || '',
+          spec: it.spec || '',
+          quantity: Number(it.quantity || 0),
+          unitPrice: Number(it.unitPrice || 0),
+          amount: Number(it.subtotal || 0),
+          phone: c?.phone || o.channelMeta?.phone || '',
+          address: c?.address || o.channelMeta?.address || ''
+        });
+      });
+    });
+    return rows;
+  }, [reportOrders, cust, userName, products]);
 
   const productRows = useMemo(() => {
     const map = new Map();
@@ -244,18 +278,17 @@ export default function Finance() {
     `财务_收款流水_${from || '全部'}_${to || today()}.csv`
   );
 
+  const exportSalesDetails = () => exportCSV(
+    ['品牌','销售员','客户名称','客户类型','产品类型','发货日期','销售单号','产品编号','产品名称','规格','数量','单价','金额','电话','地址'],
+    salesDetailRows.map(r => [r.brand, r.sales, r.customer, r.customerType, r.productType, r.shippedDate, r.orderNo, r.productCode, r.productName, r.spec, r.quantity, r.unitPrice, r.amount, r.phone, r.address]),
+    `财务_销售明细_${from || '全部'}_${to || today()}.csv`
+  );
+
   const exportCurrent = () => {
     if (tab === 'orders') exportOrders();
     else if (tab === 'items') exportItems();
     else if (tab === 'products') exportProducts();
     else exportPayments();
-  };
-
-  const exportFullPack = () => {
-    exportOrders();
-    exportItems();
-    exportProducts();
-    exportPayments();
   };
 
   return (
@@ -286,13 +319,13 @@ export default function Finance() {
             <button onClick={exportCurrent} className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border text-purple-700 border-purple-200 hover:bg-purple-50">
               <Download size={14} />导出当前
             </button>
-            <button onClick={exportFullPack} className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg text-white" style={{ background: '#5C4B73' }}>
-              <Download size={14} />导出完整财务包
+            <button onClick={exportSalesDetails} disabled={salesDetailRows.length === 0} className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg text-white disabled:opacity-40" style={{ background: '#5C4B73' }}>
+              <Download size={14} />一键导出销售明细
             </button>
           </div>
         </div>
         <div className="text-xs text-gray-400 mt-3">
-          订单/商品/产品按订单日期筛选；收款流水按收款日期筛选。商品明细保留产品编号、规格、数量、单价、行金额与折扣后金额。
+          订单/商品/产品按订单日期筛选；收款流水按收款日期筛选。销售明细包含品牌、销售员、客户、产品、发货、金额及收件信息。
         </div>
       </Card>
 
