@@ -5,7 +5,7 @@ import { useData } from './contexts/DataContext';
 import { LoadingScreen, unitPriceHint } from './components/ui';
 import LoginScreen from './pages/LoginScreen';
 import Dashboard from './pages/Dashboard';
-import { ShopCatalog, Checkout, CustomerCreate } from './pages/Shop';
+import { ShopCatalog, Checkout, CustomOrder, CustomerCreate } from './pages/Shop';
 import { OrderList, OrderDetail } from './pages/Orders';
 import { CustomerList, CustomerDetail } from './pages/Customers';
 import Inventory from './pages/Inventory';
@@ -19,7 +19,7 @@ import ziduLogo from './assets/zidu-logo.png';
 
 const ROLE_LABEL = { ADMIN: "管理员", SALES: "销售", WAREHOUSE: "仓库", FINANCE: "财务" };
 const PAGE_TITLE = {
-  dashboard: '工作台', shop: '产品下单', orders: '订单管理', orderDetail: '订单详情',
+  dashboard: '工作台', shop: '销售下单', orders: '订单管理', orderDetail: '订单详情',
   customers: '客户管理', customerDetail: '客户详情', tasks: '跟进任务', inventory: '库存管理',
   purchase: '采购管理', purchaseCreate: '新建采购单', purchaseEdit: '编辑采购单', purchaseDetail: '采购单详情',
   shipping: '发货管理', analytics: '数据分析', finance: '财务报表', settings: '系统管理'
@@ -33,6 +33,7 @@ export default function App() {
   const [subView, setSubView] = useState(null);
   const [sideOpen, setSideOpen] = useState(false);
   const [cart, setCart] = useState([]);
+  const [checkoutCustomerId, setCheckoutCustomerId] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
 
   // 每 30 秒自动刷新订单检查新订单
@@ -68,21 +69,27 @@ export default function App() {
   };
 
   // Cart operations
-  const addToCart = useCallback((product, specObj, qty = 1) => {
+  const addToCart = useCallback((product, specObj, qty = 1, catalogMode = null) => {
     const key = `${product.id}-${specObj.id}`;
     setCart(prev => {
       const e = prev.find(c => c.key === key);
-      if (e) return prev.map(c => c.key === key ? { ...c, quantity: c.quantity + qty } : c);
-      return [...prev, { key, productId: product.id, specId: specObj.id, spec: specObj.spec, quantity: qty, unitPrice: specObj.price, unitPriceHint: unitPriceHint(specObj.spec, specObj.price), unitCost: specObj.cost || 0, productName: product.name, productCode: product.code, channel: product.channel || 'BOTH' }];
+      if (e) return prev.map(c => c.key === key ? { ...c, quantity: Math.min(c.quantity + qty, Number(c.availableStock || c.quantity + qty)) } : c);
+      const channel = product.channel === 'BOTH' && catalogMode ? catalogMode : (product.channel || catalogMode || 'FINISHED');
+      return [...prev, { key, productId: product.id, specId: specObj.id, spec: specObj.spec, quantity: qty, unitPrice: specObj.price, unitPriceHint: unitPriceHint(specObj.spec, specObj.price), unitCost: specObj.cost || 0, productName: product.name, productCode: product.code, channel, availableStock: Number(specObj.stock || 0) }];
     });
   }, []);
-  const updateCartQty = useCallback((key, qty) => { if (qty <= 0) setCart(p => p.filter(c => c.key !== key)); else setCart(p => p.map(c => c.key === key ? { ...c, quantity: qty } : c)); }, []);
+  const updateCartQty = useCallback((key, qty) => {
+    const next = Math.max(0, Math.floor(Number(qty) || 0));
+    if (next <= 0) setCart(p => p.filter(c => c.key !== key));
+    else setCart(p => p.map(c => c.key === key ? { ...c, quantity: Math.min(next, Number(c.availableStock || next)) } : c));
+  }, []);
   const removeFromCart = useCallback(key => setCart(p => p.filter(c => c.key !== key)), []);
 
   if (!user) return <LoginScreen />;
   if (loading) return <LoadingScreen />;
 
   const isFinance = user.role === "FINANCE";
+  const canOrder = user.role === "ADMIN" || user.role === "SALES";
   const menuItems = isFinance ? [
     // 财务：只看订单 + 收款流水
     { key: "dashboard", icon: Home, label: "工作台" },
@@ -90,7 +97,7 @@ export default function App() {
     { key: "finance", icon: Wallet, label: "财务报表" },
   ] : [
     { key: "dashboard", icon: Home, label: "工作台" },
-    ...(user.role === "SALES" ? [{ key: "shop", icon: ShoppingBag, label: "产品下单", badge: cart.length || null }] : []),
+    ...(canOrder ? [{ key: "shop", icon: ShoppingBag, label: "销售下单", badge: cart.length || null }] : []),
     { key: "orders", icon: ShoppingCart, label: "订单管理", badge: unreadOrders || null },
     ...(user.role !== "WAREHOUSE" ? [{ key: "customers", icon: Users, label: "客户管理" }] : []),
     ...(user.role !== "WAREHOUSE" ? [{ key: "tasks", icon: ClipboardCheck, label: "跟进任务" }] : []),
@@ -105,11 +112,18 @@ export default function App() {
   const handlePlaceOrder = async (order) => {
     await addOrder(order);
     setCart([]);
+    setCheckoutCustomerId(null);
+    nav("orders");
+  };
+
+  const handlePlaceCustomOrder = async (order) => {
+    await addOrder(order);
     nav("orders");
   };
 
   const handleNewCustomerFromShop = async (customer) => {
-    await addCustomer(customer);
+    const created = await addCustomer(customer);
+    setCheckoutCustomerId(created.id);
     setSubView("checkout");
   };
 
@@ -179,7 +193,7 @@ export default function App() {
             <span>{user.name}</span>
             <span className="text-[11px] px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">{ROLE_LABEL[user.role] || user.role}</span>
           </div>
-          {user.role === "SALES" && (
+          {canOrder && (
             <button onClick={() => nav("shop")} className="relative p-2 rounded-lg hover:bg-gray-100">
               <ShoppingBag size={18} className="text-gray-500" />
               {cart.length > 0 && <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-purple-600 text-white text-xs rounded-full flex items-center justify-center">{cart.length}</span>}
@@ -188,8 +202,9 @@ export default function App() {
         </header>
         <main className="flex-1 overflow-y-auto p-4 md:p-6"><div className="zidu-page">
           {page === "dashboard" && <Dashboard nav={nav} />}
-          {page === "shop" && !subView && <ShopCatalog cart={cart} addToCart={addToCart} updateCartQty={updateCartQty} removeFromCart={removeFromCart} onCheckout={() => setSubView("checkout")} />}
-          {page === "shop" && subView === "checkout" && <Checkout cart={cart} onBack={() => setSubView(null)} onPlaceOrder={handlePlaceOrder} onNewCustomer={() => setSubView("newcust")} />}
+          {page === "shop" && !subView && <ShopCatalog cart={cart} addToCart={addToCart} updateCartQty={updateCartQty} removeFromCart={removeFromCart} onCheckout={() => { setCheckoutCustomerId(null); setSubView("checkout"); }} onCustom={() => setSubView("custom")} />}
+          {page === "shop" && subView === "checkout" && <Checkout cart={cart} initialCustomerId={checkoutCustomerId} onBack={() => setSubView(null)} onPlaceOrder={handlePlaceOrder} onNewCustomer={() => setSubView("newcust")} />}
+          {page === "shop" && subView === "custom" && <CustomOrder onBack={() => setSubView(null)} onPlaceOrder={handlePlaceCustomOrder} />}
           {page === "shop" && subView === "newcust" && <CustomerCreate onSave={handleNewCustomerFromShop} onCancel={() => setSubView("checkout")} />}
           {page === "orders" && !subView && <OrderList nav={nav} />}
           {page === "orderDetail" && <OrderDetail orderId={subView} onBack={() => nav("orders")} />}

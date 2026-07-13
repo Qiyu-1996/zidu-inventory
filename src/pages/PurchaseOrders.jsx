@@ -71,7 +71,7 @@ export function PurchaseOrderList({ nav }) {
 // ═══ PO CREATE ═══
 export function PurchaseOrderCreate({ onBack, editPo = null }) {
   const { user } = useAuth();
-  const { products, addPurchaseOrder, editPurchaseOrder } = useData();
+  const { products, suppliers, addPurchaseOrder, editPurchaseOrder } = useData();
   const inferredKind = editPo?.items?.length && products.find(p => p.id === editPo.items[0].productId)?.channel !== 'RAW' ? 'FINISHED' : 'RAW';
   const [supplier, setSupplier] = useState(editPo?.supplier || '');
   const [notes, setNotes] = useState(editPo?.notes || '');
@@ -149,7 +149,7 @@ export function PurchaseOrderCreate({ onBack, editPo = null }) {
           <div className="text-[11px] text-gray-400 mt-1.5">{purchaseKind === 'RAW' ? '选择原料产品即可，采购数量和收货库存统一按 kg。' : '选择具体成品规格，采购和收货按瓶 / 个计数。'}</div>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <div><label className="block text-xs text-gray-500 mb-1">供应商 *</label><input value={supplier} onChange={e => setSupplier(e.target.value)} placeholder="供应商名称" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+          <div><label className="block text-xs text-gray-500 mb-1">供应商 *</label><input list="purchase-supplier-options" value={supplier} onChange={e => setSupplier(e.target.value)} placeholder="选择或输入供应商" className="w-full border rounded-lg px-3 py-2 text-sm" /><datalist id="purchase-supplier-options">{suppliers.filter(s => s.isActive !== false).map(s => <option key={s.id} value={s.name}>{s.contact || s.phone ? [s.contact, s.phone].filter(Boolean).join(' · ') : ''}</option>)}</datalist></div>
           <div><label className="block text-xs text-gray-500 mb-1">备注</label><input value={notes} onChange={e => setNotes(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
         </div>
 
@@ -347,7 +347,7 @@ export function PurchaseOrderDetail({ poId, onBack, onEdit }) {
           <div className="mt-4 pt-3 border-t space-y-3">
             <div>
               <div className="text-sm font-medium text-gray-700">本次到货与批次信息</div>
-              <div className="text-[11px] text-gray-400 mt-0.5">确认后自动更新采购进度、批次档案、库存数量和出入库流水。</div>
+              <div className="text-[11px] text-gray-400 mt-0.5">供应商：<span className="text-gray-600">{po.supplier}</span> · 确认后自动写入批次档案、库存数量和出入库流水。</div>
             </div>
             {po.items.map(it => {
               const remaining = Number(it.quantity) - Number(it.receivedQty || 0);

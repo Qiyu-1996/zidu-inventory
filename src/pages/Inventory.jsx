@@ -31,7 +31,7 @@ const STOCK_PILL = {
 
 export default function Inventory({ nav }) {
   const { user } = useAuth();
-  const { products, stockLog, loadStockLog, adjustStock, adjustRawStock, addBatch, removeBatch, reload } = useData();
+  const { products, purchaseOrders, suppliers, stockLog, loadStockLog, adjustStock, adjustRawStock, addBatch, removeBatch, reload } = useData();
   const isAdmin = user.role === 'ADMIN';
   const canAdjust = user.role === 'ADMIN' || user.role === 'WAREHOUSE';
 
@@ -80,6 +80,13 @@ export default function Inventory({ nav }) {
   const belongsToStockKind = product => stockKind === 'RAW' ? isRawProduct(product) : !isRawProduct(product);
   const visibleBatches = batchList.filter(b => belongsToStockKind(products.find(p => p.id === b.productId)));
   const visibleStockLog = stockLog.filter(l => belongsToStockKind(products.find(p => p.id === l.product_id)));
+  const activeSuppliers = suppliers.filter(s => s.isActive !== false);
+  const purchaseOrderFor = id => purchaseOrders.find(po => po.id === id);
+  const purchaseOrderNo = id => purchaseOrderFor(id)?.poNo || '';
+  const batchSupplier = batch => batch?.supplier || purchaseOrderFor(batch?.purchaseOrderId)?.supplier || '';
+  const stockLogBatch = log => batchList.find(b => b.id === log.batch_id) || {
+    batchNo: log.batch?.batch_no || '', supplier: log.batch?.supplier || '', purchaseOrderId: null
+  };
   const changedRawProducts = products.filter(p =>
     isRawProduct(p)
     && rawStockDrafts[p.id] !== undefined
@@ -221,7 +228,7 @@ export default function Inventory({ nav }) {
   };
   const handleSaveBatch = async () => {
     const qty = Number(batchData.quantity);
-    if (!batchData.batchNo || !batchData.receivedDate || !qty || qty <= 0) return;
+    if (!batchData.batchNo || !batchData.receivedDate || !batchData.supplier.trim() || !qty || qty <= 0) return;
     setSavingBatch(true);
     try {
       await addBatch({
@@ -241,8 +248,11 @@ export default function Inventory({ nav }) {
   };
 
   const exportLog = () => exportCSV(
-    ['时间', '产品ID', '规格ID', '类型', '原因', '规格数量', '前库存', '后库存', '变动kg', '前kg', '后kg', '操作人', '备注'],
-    visibleStockLog.map(l => [l.created_at, l.product_id, l.spec_id, TYPE_LABEL[l.type], REASONS[l.reason] || l.reason, l.quantity, l.before_stock, l.after_stock, l.quantity_kg, l.before_stock_kg, l.after_stock_kg, l.operator_name, l.note]),
+    ['时间', '产品ID', '规格ID', '类型', '原因', '规格数量', '前库存', '后库存', '变动kg', '前kg', '后kg', '采购单号', '批次号', '供应商', '操作人', '备注'],
+    visibleStockLog.map(l => {
+      const batch = stockLogBatch(l);
+      return [l.created_at, l.product_id, l.spec_id, TYPE_LABEL[l.type], REASONS[l.reason] || l.reason, l.quantity, l.before_stock, l.after_stock, l.quantity_kg, l.before_stock_kg, l.after_stock_kg, purchaseOrderNo(batch.purchaseOrderId), batch.batchNo, batchSupplier(batch), l.operator_name, l.note];
+    }),
     `${stockKind === 'RAW' ? '原料kg' : '成品瓶数'}库存变动_${today()}.csv`);
 
   const batchEditor = batchFor && (
@@ -258,12 +268,12 @@ export default function Inventory({ nav }) {
         <div><label className="block text-xs text-gray-500 mb-1">入库日期 *</label><input type="date" value={batchData.receivedDate} onChange={e => setBatchData({ ...batchData, receivedDate: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
         <div><label className="block text-xs text-gray-500 mb-1">保质期至</label><input type="date" value={batchData.expiryDate} onChange={e => setBatchData({ ...batchData, expiryDate: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
         <div><label className="block text-xs text-gray-500 mb-1">单位成本</label><input type="number" min="0" step="0.01" value={batchData.unitCost} onChange={e => setBatchData({ ...batchData, unitCost: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-        <div><label className="block text-xs text-gray-500 mb-1">供应商</label><input value={batchData.supplier} onChange={e => setBatchData({ ...batchData, supplier: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+        <div><label className="block text-xs text-gray-500 mb-1">供应商 *</label><input list="inventory-supplier-options" value={batchData.supplier} onChange={e => setBatchData({ ...batchData, supplier: e.target.value })} placeholder="选择或输入供应商" className="w-full border rounded-lg px-3 py-2 text-sm" /><datalist id="inventory-supplier-options">{activeSuppliers.map(s => <option key={s.id} value={s.name}>{s.contact || s.phone ? [s.contact, s.phone].filter(Boolean).join(' · ') : ''}</option>)}</datalist></div>
         <div className="col-span-2"><label className="block text-xs text-gray-500 mb-1">备注</label><input value={batchData.note} onChange={e => setBatchData({ ...batchData, note: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
       </div>
       <div className="flex gap-2 mt-3">
         <button onClick={() => setBatchFor(null)} className="px-3 py-2 text-sm border rounded-lg bg-white">取消</button>
-        <button onClick={handleSaveBatch} disabled={!batchData.batchNo || !batchData.quantity || savingBatch} className="btn-primary text-sm">{savingBatch ? '保存中...' : '确认入库'}</button>
+        <button onClick={handleSaveBatch} disabled={!batchData.batchNo || !batchData.quantity || !batchData.supplier.trim() || savingBatch} className="btn-primary text-sm">{savingBatch ? '保存中...' : '确认入库'}</button>
       </div>
     </div>
   );
@@ -396,7 +406,7 @@ export default function Inventory({ nav }) {
                           </div>
                           {canAdjust && p.specs[0] && !rawEditMode && (
                             <div className="flex flex-wrap gap-1.5">
-                              <button onClick={() => startAdjust(p, p.specs[0], 'IN')} className="h-7 px-2.5 rounded-md border border-green-200 bg-green-50 text-green-700 text-[11px] inline-flex items-center gap-1"><Plus size={12} />入库</button>
+                              <button onClick={() => startAdjust(p, p.specs[0], 'IN')} title="不建立批次档案的快速库存调整" className="h-7 px-2.5 rounded-md border border-green-200 bg-green-50 text-green-700 text-[11px] inline-flex items-center gap-1"><Plus size={12} />快速入库</button>
                               <button onClick={() => startAdjust(p, p.specs[0], 'OUT')} className="h-7 px-2.5 rounded-md border border-red-200 bg-red-50 text-red-700 text-[11px] inline-flex items-center gap-1"><Minus size={12} />出库</button>
                               <button onClick={() => startBatch(p, p.specs[0])} className="h-7 px-2.5 rounded-md border border-purple-200 bg-white text-purple-700 text-[11px] inline-flex items-center gap-1"><Package size={12} />批次入库</button>
                             </div>
@@ -412,7 +422,7 @@ export default function Inventory({ nav }) {
                               </div>
                               {canAdjust && (
                                 <div className="flex flex-wrap gap-1.5 mt-2">
-                                  <button onClick={() => startAdjust(p, s, 'IN')} className="h-7 px-2 rounded-md border border-green-200 bg-white text-green-700 text-[11px] inline-flex items-center gap-1"><Plus size={12} />入库</button>
+                                  <button onClick={() => startAdjust(p, s, 'IN')} title="不建立批次档案的快速库存调整" className="h-7 px-2 rounded-md border border-green-200 bg-white text-green-700 text-[11px] inline-flex items-center gap-1"><Plus size={12} />快速入库</button>
                                   <button onClick={() => startAdjust(p, s, 'OUT')} className="h-7 px-2 rounded-md border border-red-200 bg-white text-red-700 text-[11px] inline-flex items-center gap-1"><Minus size={12} />出库</button>
                                   <button onClick={() => startAdjust(p, s, 'CORRECTION')} className="h-7 px-2 rounded-md border border-purple-200 bg-white text-purple-700 text-[11px] inline-flex items-center gap-1"><ClipboardCheck size={12} />盘点</button>
                                   <button onClick={() => startBatch(p, s)} className="h-7 px-2 rounded-md border border-purple-200 bg-white text-purple-700 text-[11px] inline-flex items-center gap-1"><Package size={12} />批次</button>
@@ -456,11 +466,12 @@ export default function Inventory({ nav }) {
                   <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">入库日期</th>
                   <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">保质期</th>
                   <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">入库/剩余</th>
-                  <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium hidden md:table-cell">供应商</th>
+                  <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">来源</th>
+                  <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">供应商</th>
                   {canAdjust && <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">操作</th>}
                 </tr></thead>
                 <tbody>
-                  {loadingBatches && <tr><td colSpan="8" className="text-center py-12 text-gray-400 text-sm">加载中...</td></tr>}
+                  {loadingBatches && <tr><td colSpan={canAdjust ? 9 : 8} className="text-center py-12 text-gray-400 text-sm">加载中...</td></tr>}
                   {!loadingBatches && visibleBatches.map(b => {
                     const product = products.find(p => p.id === b.productId);
                     const spec = product?.specs.find(s => s.id === b.specId);
@@ -476,12 +487,13 @@ export default function Inventory({ nav }) {
                         <td className="py-2 px-3 text-xs text-gray-600">{b.receivedDate}</td>
                         <td className="py-2 px-3 text-xs"><span className={expired ? 'text-red-600 font-medium' : expiringSoon ? 'text-amber-700 font-medium' : 'text-gray-600'}>{b.expiryDate || '—'}</span>{expired && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-600">已过期</span>}{expiringSoon && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">临期</span>}</td>
                         <td className="py-2 px-3 text-right tabular-nums">{b.initialQty}{unit} / <span className={Number(b.remainingQty) === 0 ? 'text-gray-400' : 'font-medium'}>{b.remainingQty}{unit}</span></td>
-                        <td className="py-2 px-3 text-xs text-gray-500 hidden md:table-cell">{b.supplier}</td>
+                        <td className="py-2 px-3 text-xs text-gray-500">{b.purchaseOrderId ? <span className="font-mono text-purple-700">{purchaseOrderNo(b.purchaseOrderId) || `采购单 #${b.purchaseOrderId}`}</span> : '手工入库'}</td>
+                        <td className="py-2 px-3 text-xs text-gray-700">{batchSupplier(b) || '—'}</td>
                         {canAdjust && <td className="py-2 px-3 text-right"><button onClick={() => handleDeleteBatch(b)} title="删除批次并回退库存" className="zidu-icon-button !w-7 !h-7 text-gray-400 hover:text-red-500"><X size={13} /></button></td>}
                       </tr>
                     );
                   })}
-                  {!loadingBatches && visibleBatches.length === 0 && <tr><td colSpan="8" className="text-center py-12 text-gray-400 text-sm">当前分类暂无批次记录，请在「库存概览」发起批次入库。</td></tr>}
+                  {!loadingBatches && visibleBatches.length === 0 && <tr><td colSpan={canAdjust ? 9 : 8} className="text-center py-12 text-gray-400 text-sm">当前分类暂无批次记录，请在「库存概览」发起批次入库。</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -506,11 +518,13 @@ export default function Inventory({ nav }) {
                   <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">数量</th>
                   <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">前→后</th>
                   <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">kg 变动</th>
+                  <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">批次 / 供应商</th>
                   <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium hidden md:table-cell">操作人</th>
                 </tr></thead>
                 <tbody>{visibleStockLog.map(l => {
                   const product = products.find(p => p.id === l.product_id);
                   const spec = product?.specs.find(s => s.id === l.spec_id);
+                  const batch = stockLogBatch(l);
                   return (
                     <tr key={l.id} className="border-b last:border-0">
                       <td className="py-2 px-3 text-xs text-gray-500 whitespace-nowrap">{l.created_at?.slice(0, 16).replace('T', ' ')}</td>
@@ -520,10 +534,11 @@ export default function Inventory({ nav }) {
                       <td className="py-2 px-3 text-right font-medium">{l.type === 'OUT' ? '-' : '+'}{l.quantity}</td>
                       <td className="py-2 px-3 text-right text-xs text-gray-500">{l.before_stock} → {l.after_stock}</td>
                       <td className="py-2 px-3 text-right text-xs tabular-nums">{l.quantity_kg != null ? <><span className={l.type === 'OUT' ? 'text-red-600' : 'text-green-700'}>{l.type === 'OUT' ? '-' : '+'}{Number(l.quantity_kg).toFixed(3)}</span><div className="text-[10px] text-gray-400">{l.before_stock_kg} → {l.after_stock_kg}</div></> : <span className="text-gray-300">—</span>}</td>
+                      <td className="py-2 px-3 text-xs"><div className="font-mono text-gray-600">{batch.batchNo || '—'}</div>{batchSupplier(batch) && <div className="text-gray-500 mt-0.5">{batchSupplier(batch)}</div>}{batch.purchaseOrderId && <div className="text-[10px] text-purple-600">{purchaseOrderNo(batch.purchaseOrderId) || `采购单 #${batch.purchaseOrderId}`}</div>}</td>
                       <td className="py-2 px-3 text-xs hidden md:table-cell">{l.operator_name}</td>
                     </tr>
                   );
-                })}{visibleStockLog.length === 0 && <tr><td colSpan="8" className="text-center py-12 text-gray-400 text-sm">当前分类暂无库存记录</td></tr>}</tbody>
+                })}{visibleStockLog.length === 0 && <tr><td colSpan="9" className="text-center py-12 text-gray-400 text-sm">当前分类暂无库存记录</td></tr>}</tbody>
               </table>
             </div>
           </Card>

@@ -20,19 +20,23 @@ export default function SettingsPage() {
   const { user } = useAuth();
   const [tab, setTab] = useState("users");
   if (user.role !== 'ADMIN') return <Card className="p-8 text-center text-gray-400">仅管理员可访问系统管理</Card>;
+  const tabs = [
+    { k: "users", l: "人员管理", icon: UserPlus },
+    { k: "products", l: "产品管理", icon: Layers },
+    { k: "suppliers", l: "供应商", icon: Truck },
+    { k: "targets", l: "销售目标", icon: Target },
+    { k: "config", l: "基础设置", icon: ClipboardCheck },
+    { k: "audit", l: "操作日志", icon: FileText }
+  ];
   return (
     <div className="space-y-4">
-      <div className="flex gap-2 flex-wrap">
-        {[
-          { k: "users", l: "人员管理" },
-          { k: "products", l: "产品管理" },
-          { k: "suppliers", l: "供应商" },
-          { k: "targets", l: "销售目标" },
-          { k: "config", l: "基础设置" },
-          { k: "audit", l: "操作日志" }
-        ].map(t => (
-          <button key={t.k} onClick={() => setTab(t.k)} className={`px-4 py-2 text-sm rounded-lg border ${tab === t.k ? "bg-purple-100 border-purple-300 text-purple-700" : "bg-white text-gray-600"}`}>{t.l}</button>
-        ))}
+      <div className="overflow-x-auto pb-1">
+        <div className="zidu-segment" aria-label="系统管理分类">
+          {tabs.map(t => {
+            const Icon = t.icon;
+            return <button key={t.k} onClick={() => setTab(t.k)} className={tab === t.k ? 'active' : ''}><Icon size={14} className="inline mr-1.5" />{t.l}</button>;
+          })}
+        </div>
       </div>
       {tab === "users" && <UserMgmt />}
       {tab === "products" && <ProductMgmt />}
@@ -309,22 +313,34 @@ function ProductMgmt() {
           )}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-xs text-gray-500 font-medium">规格/售价/成本/库存/安全库存</label>
+              <div className="text-xs text-gray-500 font-medium">可售规格</div>
               <button onClick={addSpec} className="text-xs text-purple-600 flex items-center gap-0.5"><Plus size={12} />添加规格</button>
             </div>
             <datalist id="product-spec-options">
               {DEFAULT_SPEC_OPTIONS.map(o => <option key={o} value={o} />)}
             </datalist>
-            {specs.map((s, i) => (
-              <div key={i} className="flex gap-2 items-center mb-2">
-                <input list="product-spec-options" value={s.spec} onChange={e => updateSpec(i, 'spec', e.target.value)} placeholder="规格" className="border rounded-lg px-2 py-1.5 text-sm w-36" />
-                <input type="number" value={s.price} onChange={e => updateSpec(i, 'price', e.target.value)} placeholder="售价" className="border rounded-lg px-2 py-1.5 text-sm w-20" />
-                <input type="number" value={s.cost} onChange={e => updateSpec(i, 'cost', e.target.value)} placeholder="成本" className="border rounded-lg px-2 py-1.5 text-sm w-20" title="成本（留空或 0 表示未录）" />
-                <input type="number" value={s.stock} onChange={e => updateSpec(i, 'stock', e.target.value)} placeholder={channel === 'RAW' || inventoryMode === 'MASS' ? '按kg' : '瓶数'} disabled={channel === 'RAW' || inventoryMode === 'MASS'} className="border rounded-lg px-2 py-1.5 text-sm w-20 disabled:bg-gray-100 disabled:text-gray-400" />
-                <input type="number" value={s.safeStock} onChange={e => updateSpec(i, 'safeStock', e.target.value)} placeholder="安全" className="border rounded-lg px-2 py-1.5 text-sm w-16" />
-                {specs.length > 1 && <button onClick={() => removeSpec(i)} className="text-gray-400 hover:text-red-500"><X size={14} /></button>}
+            <div className="overflow-x-auto pb-1">
+              <div className="min-w-[680px]">
+                <div className="grid grid-cols-[minmax(150px,1.5fr)_minmax(100px,1fr)_minmax(100px,1fr)_minmax(100px,1fr)_minmax(110px,1fr)_32px] gap-2 px-0.5 mb-1.5">
+                  <div className="text-xs text-gray-500">规格</div>
+                  <div className="text-xs text-gray-500">售价（元）</div>
+                  <div className="text-xs text-gray-500">成本（元）</div>
+                  <div className="text-xs text-gray-500">库存</div>
+                  <div className="text-xs text-gray-500">安全库存</div>
+                  <span aria-hidden="true" />
+                </div>
+                {specs.map((s, i) => (
+                  <div key={i} className="grid grid-cols-[minmax(150px,1.5fr)_minmax(100px,1fr)_minmax(100px,1fr)_minmax(100px,1fr)_minmax(110px,1fr)_32px] gap-2 items-center mb-2">
+                    <input aria-label="规格" list="product-spec-options" value={s.spec} onChange={e => updateSpec(i, 'spec', e.target.value)} placeholder="如 10ml" className="w-full min-w-0 border rounded-lg px-3 py-2 text-sm" />
+                    <input aria-label="售价" type="number" value={s.price} onChange={e => updateSpec(i, 'price', e.target.value)} placeholder="0" className="w-full min-w-0 border rounded-lg px-3 py-2 text-sm" />
+                    <input aria-label="成本" type="number" value={s.cost} onChange={e => updateSpec(i, 'cost', e.target.value)} placeholder="0" className="w-full min-w-0 border rounded-lg px-3 py-2 text-sm" title="成本（留空或 0 表示未录）" />
+                    <input aria-label="库存" type="number" value={s.stock} onChange={e => updateSpec(i, 'stock', e.target.value)} placeholder={channel === 'RAW' || inventoryMode === 'MASS' ? '按 kg' : '瓶 / 个'} disabled={channel === 'RAW' || inventoryMode === 'MASS'} className="w-full min-w-0 border rounded-lg px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-400" />
+                    <input aria-label="安全库存" type="number" value={s.safeStock} onChange={e => updateSpec(i, 'safeStock', e.target.value)} placeholder="0" className="w-full min-w-0 border rounded-lg px-3 py-2 text-sm" />
+                    {specs.length > 1 ? <button onClick={() => removeSpec(i)} title="删除规格" className="zidu-icon-button !w-8 !h-8 text-gray-400 hover:text-red-500"><X size={14} /></button> : <span aria-hidden="true" />}
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
           </div>
           {error && <div className="text-sm text-red-500">{error}</div>}
           <div className="flex gap-2">
@@ -840,55 +856,76 @@ function ConfigMgmt() {
     catch (e) { alert(e.message); }
   };
 
-  const Section = ({ title, category, placeholder }) => (
-    <div className="space-y-3">
-      <div className="text-sm font-semibold text-gray-700">{title}</div>
-      <div className="flex flex-wrap gap-2 mb-2">
-        {byCategory(category).map(opt => (
-          <span key={opt.id} className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 flex items-center gap-1.5 group">
-            {opt.value}
-            <button onClick={() => handleRemove(opt.id, opt.value)} className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"><X size={12} /></button>
-          </span>
-        ))}
+  const Section = ({ title, category, placeholder, icon: Icon, className = '' }) => {
+    const options = byCategory(category);
+    return (
+    <section className={`p-5 min-w-0 ${className}`}>
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="w-8 h-8 shrink-0 rounded-md bg-purple-50 text-purple-700 inline-flex items-center justify-center"><Icon size={15} /></span>
+          <div><div className="text-sm font-medium text-gray-800">{title}</div><div className="text-[11px] text-gray-400 mt-0.5">{options.length} 个选项</div></div>
+        </div>
       </div>
-      <div className="flex gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2 mb-4">
+        {options.map(opt => (
+          <div key={opt.id} className="min-w-0 min-h-9 px-3 rounded-md border border-[#E8E0D3] bg-[#FCFBF8] text-xs text-gray-700 flex items-center justify-between gap-2">
+            <span className="truncate" title={opt.value}>{opt.value}</span>
+            <button onClick={() => handleRemove(opt.id, opt.value)} title={`删除${opt.value}`} className="zidu-icon-button !w-7 !h-7 !border-0 !bg-transparent shrink-0 text-gray-400 hover:text-red-500"><X size={12} /></button>
+          </div>
+        ))}
+        {options.length === 0 && <div className="sm:col-span-2 xl:col-span-3 min-h-9 flex items-center text-xs text-gray-400">暂无选项</div>}
+      </div>
+      <div className="flex gap-2 max-w-lg">
         <input
           value={newVal[category]}
           onChange={e => setNewVal(v => ({ ...v, [category]: e.target.value }))}
           onKeyDown={e => { if (e.key === 'Enter') handleAdd(category); }}
           placeholder={placeholder}
-          className="flex-1 max-w-xs border rounded-lg px-3 py-1.5 text-sm"
+          className="min-w-0 flex-1 h-9 border rounded-lg px-3 text-sm"
         />
         <button
           onClick={() => handleAdd(category)}
           disabled={!newVal[category]?.trim() || saving === category}
-          className="px-3 py-1.5 text-sm text-white rounded-lg disabled:opacity-40"
-          style={{ background: "#5C4B73" }}
+          className="btn-primary !h-9 !px-3 !py-0 text-sm whitespace-nowrap"
         >
-          {saving === category ? '添加中...' : '+ 添加'}
+          <Plus size={14} />{saving === category ? '添加中...' : '添加'}
         </button>
       </div>
-    </div>
+    </section>
   );
+  };
 
   return (
-    <Card className="p-4 space-y-6">
-      <div className="space-y-2">
-        <div className="text-sm font-semibold text-gray-700">销售折扣上限</div>
-        <div className="text-xs text-gray-500">销售下单时可给的最大折扣比例（管理员本人下单不受限）。订单折扣金额会进入数据分析统计。</div>
-        <div className="flex items-center gap-2">
-          <input type="number" min="0" max="100" value={maxDisc} onChange={e => setMaxDisc(e.target.value)} className="w-24 border rounded-lg px-3 py-1.5 text-sm" />
-          <span className="text-sm text-gray-500">%</span>
-          <button onClick={saveMaxDisc} disabled={savingDisc} className="px-3 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>
-            {savingDisc ? '保存中...' : '保存'}
-          </button>
-        </div>
+    <Card className="overflow-hidden">
+      <div className="px-5 py-4 border-b border-[#EEE6D9] bg-[#FCFBF8]">
+        <div className="text-sm font-medium text-gray-800">基础设置</div>
+        <div className="text-[11px] text-gray-400 mt-1">管理销售权限和业务表单中的可选内容</div>
       </div>
-      <div className="border-t pt-4 text-xs text-gray-500 -mb-2">在此处可添加/删除下拉选项。鼠标悬停在选项上会显示删除按钮。</div>
-      <Section title="客户类型" category="CUSTOMER_TYPE" placeholder="如：连锁美容院" />
-      <Section title="产品系列" category="PRODUCT_SERIES" placeholder="如：礼盒装系列" />
-      <Section title="产品规格（下拉选项）" category="SPEC_OPTION" placeholder="如：200ml" />
-      <Section title="业务类型" category="BUSINESS_TYPE" placeholder="如：跨境电商" />
+
+      <section className="p-5 border-b border-[#EEE6D9]">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="text-sm font-medium text-gray-800">销售折扣上限</div>
+            <div className="text-xs text-gray-500 mt-1">限制销售下单时可填写的最高折扣，管理员不受限制。</div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="relative w-28">
+              <input type="number" min="0" max="100" value={maxDisc} onFocus={e => e.target.select()} onChange={e => setMaxDisc(e.target.value)} aria-label="销售折扣上限" className="w-full h-9 border rounded-lg pl-3 pr-8 text-sm tabular-nums" />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">%</span>
+            </div>
+            <button onClick={saveMaxDisc} disabled={savingDisc} className="btn-primary !h-9 !py-0 text-sm">
+              {savingDisc ? '保存中...' : '保存'}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2">
+        <Section title="客户类型" category="CUSTOMER_TYPE" placeholder="新增客户类型" icon={UserPlus} className="border-b border-[#EEE6D9] lg:border-r" />
+        <Section title="产品系列" category="PRODUCT_SERIES" placeholder="新增产品系列" icon={Layers} className="border-b border-[#EEE6D9]" />
+        <Section title="产品规格" category="SPEC_OPTION" placeholder="新增规格，如 200ml" icon={Tag} className="border-b lg:border-b-0 border-[#EEE6D9] lg:border-r" />
+        <Section title="业务类型" category="BUSINESS_TYPE" placeholder="新增业务类型" icon={ClipboardCheck} />
+      </div>
     </Card>
   );
 }
