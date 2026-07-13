@@ -279,6 +279,32 @@ export async function updateProduct(product) {
   return mapProduct(data);
 }
 
+export async function updateProductDensity(productId, densityGml) {
+  const density = Number(densityGml);
+  if (!Number.isFinite(density) || density <= 0) throw new Error('密度必须大于 0');
+
+  const { data, error } = await supabase.from('products')
+    .update({
+      density_g_ml: density,
+      density_temperature_c: 20,
+      density_source: '管理员在库存页设置',
+      density_status: 'REFERENCE'
+    })
+    .eq('id', productId)
+    .select('id, density_g_ml, density_temperature_c, density_source, density_status')
+    .single();
+  if (isMissingMassInventoryError(error)) throw new Error('请先在 Supabase 运行最新数据库迁移');
+  if (error) throw new Error(error.message);
+
+  return {
+    id: data.id,
+    densityGml: Number(data.density_g_ml),
+    densityTemperatureC: Number(data.density_temperature_c || 20),
+    densitySource: data.density_source || '',
+    densityStatus: data.density_status || 'REFERENCE'
+  };
+}
+
 export async function deleteProduct(productId) {
   const { error } = await supabase.from('products').delete().eq('id', productId);
   if (error) throw new Error(error.message);

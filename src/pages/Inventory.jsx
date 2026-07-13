@@ -31,7 +31,7 @@ const STOCK_PILL = {
 
 export default function Inventory({ nav }) {
   const { user } = useAuth();
-  const { products, purchaseOrders, suppliers, stockLog, loadStockLog, adjustStock, adjustRawStock, addBatch, removeBatch, reload } = useData();
+  const { products, purchaseOrders, suppliers, stockLog, loadStockLog, adjustStock, adjustRawStock, editProductDensity, addBatch, removeBatch, reload } = useData();
   const isAdmin = user.role === 'ADMIN';
   const canAdjust = user.role === 'ADMIN' || user.role === 'WAREHOUSE';
 
@@ -50,6 +50,9 @@ export default function Inventory({ nav }) {
   const [rawStockDrafts, setRawStockDrafts] = useState({});
   const [rawEditMode, setRawEditMode] = useState(false);
   const [savingRawChanges, setSavingRawChanges] = useState(false);
+  const [densityEditId, setDensityEditId] = useState(null);
+  const [densityDraft, setDensityDraft] = useState('');
+  const [savingDensity, setSavingDensity] = useState(false);
 
   const [batchFor, setBatchFor] = useState(null);
   const [batchData, setBatchData] = useState({ batchNo: '', gcmsNo: '', receivedDate: today(), expiryDate: '', quantity: '', unitCost: '', supplier: '', note: '' });
@@ -221,6 +224,29 @@ export default function Inventory({ nav }) {
     }
   };
 
+  const beginDensityEdit = product => {
+    setDensityEditId(product.id);
+    setDensityDraft(defaultDensityForProduct(product).toFixed(3));
+  };
+
+  const saveDensity = async product => {
+    const density = Number(densityDraft);
+    if (!Number.isFinite(density) || density < 0.5 || density > 1.5) {
+      alert('请输入 0.500–1.500 g/ml 之间的密度');
+      return;
+    }
+    setSavingDensity(true);
+    try {
+      await editProductDensity(product.id, density);
+      setDensityEditId(null);
+      setDensityDraft('');
+    } catch (e) {
+      alert('保存密度失败: ' + e.message);
+    } finally {
+      setSavingDensity(false);
+    }
+  };
+
   const startBatch = (product, spec) => {
     setAdjustFor(null);
     setBatchFor({ product, spec });
@@ -363,7 +389,7 @@ export default function Inventory({ nav }) {
                 <thead><tr className="border-b">
                   <th className="text-left py-3 px-4 text-xs text-gray-500 font-medium">编号</th>
                   <th className="text-left py-3 px-4 text-xs text-gray-500 font-medium">产品</th>
-                  <th className="text-left py-3 px-4 text-xs text-gray-500 font-medium">{stockKind === 'RAW' ? '库存管理（kg）' : `库存管理（瓶 / 个） · 价格${isAdmin ? ' / 成本' : ''}`}</th>
+                  <th className="text-left py-3 px-4 text-xs text-gray-500 font-medium">{stockKind === 'RAW' ? '库存与换算密度（kg / g/ml）' : `库存管理（瓶 / 个） · 价格${isAdmin ? ' / 成本' : ''}`}</th>
                 </tr></thead>
                 <tbody>{filtered.map(p => (
                   <Fragment key={p.id}>
@@ -403,6 +429,38 @@ export default function Inventory({ nav }) {
                               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">kg</span>
                             </div>
                             {rawEditMode && Number(rawStockDrafts[p.id]) !== Number(p.baseStockKg || 0) && <span className="text-[11px] text-purple-700 whitespace-nowrap">已修改</span>}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2 rounded-md border border-[#E9E2D8] bg-[#FCFBF8] px-2.5 py-2 text-xs">
+                            <span className="text-gray-500">换算密度</span>
+                            {densityEditId === p.id ? (
+                              <>
+                                <div className="relative w-28">
+                                  <input
+                                    autoFocus
+                                    type="number"
+                                    min="0.5"
+                                    max="1.5"
+                                    step="0.001"
+                                    value={densityDraft}
+                                    onFocus={e => e.target.select()}
+                                    onChange={e => setDensityDraft(e.target.value)}
+                                    onKeyDown={e => { if (e.key === 'Enter') saveDensity(p); }}
+                                    disabled={savingDensity}
+                                    aria-label={`${p.name}换算密度`}
+                                    className="h-8 w-full rounded-md border border-purple-300 bg-white pl-2 pr-8 tabular-nums focus:outline-none focus:ring-2 focus:ring-purple-100"
+                                  />
+                                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">g/ml</span>
+                                </div>
+                                <button onClick={() => saveDensity(p)} disabled={savingDensity} title="保存密度" className="zidu-icon-button h-8 w-8 text-purple-700"><Save size={14} /></button>
+                                <button onClick={() => { setDensityEditId(null); setDensityDraft(''); }} disabled={savingDensity} title="取消" className="zidu-icon-button h-8 w-8"><X size={14} /></button>
+                              </>
+                            ) : (
+                              <>
+                                <strong className="font-medium tabular-nums text-[#4D3F61]">{defaultDensityForProduct(p).toFixed(3)} g/ml</strong>
+                                <span className="text-gray-400">1 kg ≈ {Math.round(1000 / defaultDensityForProduct(p)).toLocaleString()} ml</span>
+                                {isAdmin && <button onClick={() => beginDensityEdit(p)} title="修改换算密度" className="ml-auto inline-flex h-7 items-center gap-1 rounded-md border border-purple-200 bg-white px-2 text-[11px] text-purple-700"><Edit2 size={12} />修改</button>}
+                              </>
+                            )}
                           </div>
                           {canAdjust && p.specs[0] && !rawEditMode && (
                             <div className="flex flex-wrap gap-1.5">

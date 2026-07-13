@@ -58,6 +58,11 @@ export function DataProvider({ children }) {
   // Products
   const addProduct = useCallback(async (product) => { const r = await api.createProduct(product); setProducts(p => [...p, r]); return r; }, []);
   const editProduct = useCallback(async (product) => { const r = await api.updateProduct(product); setProducts(p => p.map(x => x.id === r.id ? r : x)); return r; }, []);
+  const editProductDensity = useCallback(async (productId, densityGml) => {
+    const density = await api.updateProductDensity(productId, densityGml);
+    setProducts(current => current.map(product => product.id === productId ? { ...product, ...density } : product));
+    return density;
+  }, []);
   const removeProduct = useCallback(async (id) => { await api.deleteProduct(id); setProducts(p => p.filter(x => x.id !== id)); }, []);
 
   // Customers
@@ -263,7 +268,7 @@ export function DataProvider({ children }) {
       products, customers, orders, users, purchaseOrders, pricingTiers, scenarioPackages, stockLog, configOptions,
       suppliers, salesTasks, salesTargets,
       loading, error,
-      addProduct, editProduct, removeProduct,
+      addProduct, editProduct, editProductDensity, removeProduct,
       addCustomer, editCustomer, removeCustomer, addCustomerNote,
       addOrder, updateOrderStatus, refreshShipment, removeOrder, editOrderItems, updateOrderDiscountResponsibility, recordPayment, processAfterSale,
       createAfterSale, processAfterSaleWarehouse, completeAfterSaleFinance,
