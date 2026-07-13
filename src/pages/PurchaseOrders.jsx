@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Plus, ArrowLeft, Search, X, CheckCircle, Truck, Edit2, Trash2 } from 'lucide-react';
+import { Plus, ArrowLeft, Search, X, CheckCircle, Truck, Edit2, Trash2, FlaskConical, Package } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
-import { Card, POBadge, fmtY, PO_STATUS_MAP } from '../components/ui';
+import { Card, POBadge, fmtY, PO_STATUS_MAP, today } from '../components/ui';
+import { defaultDensityForProduct } from '../lib/densityDefaults';
 
 // ═══ PO LIST ═══
 export function PurchaseOrderList({ nav }) {
@@ -71,18 +72,37 @@ export function PurchaseOrderList({ nav }) {
 export function PurchaseOrderCreate({ onBack, editPo = null }) {
   const { user } = useAuth();
   const { products, addPurchaseOrder, editPurchaseOrder } = useData();
+  const inferredKind = editPo?.items?.length && products.find(p => p.id === editPo.items[0].productId)?.channel !== 'RAW' ? 'FINISHED' : 'RAW';
   const [supplier, setSupplier] = useState(editPo?.supplier || '');
   const [notes, setNotes] = useState(editPo?.notes || '');
-  const [items, setItems] = useState(editPo?.items?.length ? editPo.items.map(it => ({ ...it })) : [{ productId: '', specId: '', productName: '', spec: '', quantity: 1, unitCost: 0 }]);
+  const [purchaseKind, setPurchaseKind] = useState(inferredKind);
+  const [items, setItems] = useState(editPo?.items?.length ? editPo.items.map(it => {
+    const product = products.find(p => p.id === it.productId);
+    return { ...it, spec: product?.channel === 'RAW' ? 'kg' : it.spec };
+  }) : [{ productId: '', specId: '', productName: '', spec: '', quantity: 1, unitCost: 0 }]);
   const [saving, setSaving] = useState(false);
 
   const addItem = () => setItems(p => [...p, { productId: '', specId: '', productName: '', spec: '', quantity: 1, unitCost: 0 }]);
   const removeItem = (i) => setItems(p => p.filter((_, idx) => idx !== i));
+  const changePurchaseKind = kind => {
+    if (kind === purchaseKind) return;
+    if (items.some(item => item.productId) && !confirm('切换采购类型会清空当前采购明细，确定继续？')) return;
+    setPurchaseKind(kind);
+    setItems([{ productId: '', specId: '', productName: '', spec: '', quantity: 1, unitCost: 0 }]);
+  };
   const updateItem = (i, f, v) => setItems(p => p.map((x, idx) => {
     if (idx !== i) return x;
     if (f === 'productId') {
       const prod = products.find(p => p.id === Number(v));
-      return { ...x, productId: Number(v), productName: prod?.name || '', specId: '', spec: '' };
+      const isRaw = prod?.channel === 'RAW';
+      const inventorySpec = isRaw ? prod?.specs?.[0] : null;
+      return {
+        ...x,
+        productId: Number(v),
+        productName: prod?.name || '',
+        specId: inventorySpec?.id || '',
+        spec: isRaw ? 'kg' : ''
+      };
     }
     if (f === 'specId') {
       const prod = products.find(p => p.id === x.productId);
@@ -98,7 +118,7 @@ export function PurchaseOrderCreate({ onBack, editPo = null }) {
     if (!supplier.trim()) { alert('请填写供应商'); return; }
     if (items.length === 0) { alert('请至少添加一条采购明细'); return; }
     if (!items.every(it => it.productId && it.specId && Number(it.quantity) > 0 && Number(it.unitCost) >= 0)) {
-      alert('请检查每一行的产品、规格、数量和单价'); return;
+      alert('请检查每一行的产品、采购数量和单价；成品还需要选择规格'); return;
     }
     setSaving(true);
     try {
@@ -120,6 +140,14 @@ export function PurchaseOrderCreate({ onBack, editPo = null }) {
       <button onClick={onBack} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"><ArrowLeft size={16} />返回</button>
       <Card className="p-5 space-y-4">
         <div className="text-lg font-semibold">{editPo ? `编辑采购单 ${editPo.poNo}` : '新建采购单'}</div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1.5">采购类型 *</label>
+          <div className="zidu-segment inline-flex" aria-label="采购类型">
+            <button type="button" onClick={() => changePurchaseKind('RAW')} className={purchaseKind === 'RAW' ? 'active' : ''}><FlaskConical size={14} className="inline mr-1" />原料采购（kg）</button>
+            <button type="button" onClick={() => changePurchaseKind('FINISHED')} className={purchaseKind === 'FINISHED' ? 'active' : ''}><Package size={14} className="inline mr-1" />成品 / 包材（瓶 / 个）</button>
+          </div>
+          <div className="text-[11px] text-gray-400 mt-1.5">{purchaseKind === 'RAW' ? '选择原料产品即可，采购数量和收货库存统一按 kg。' : '选择具体成品规格，采购和收货按瓶 / 个计数。'}</div>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <div><label className="block text-xs text-gray-500 mb-1">供应商 *</label><input value={supplier} onChange={e => setSupplier(e.target.value)} placeholder="供应商名称" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
           <div><label className="block text-xs text-gray-500 mb-1">备注</label><input value={notes} onChange={e => setNotes(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
@@ -133,21 +161,25 @@ export function PurchaseOrderCreate({ onBack, editPo = null }) {
           <div className="space-y-2">
             {items.map((it, i) => {
               const prod = products.find(p => p.id === it.productId);
-              const isRaw = prod?.channel === 'RAW';
+              const isRaw = prod ? prod.channel === 'RAW' : purchaseKind === 'RAW';
               return (
                 <div key={i} className="grid grid-cols-2 md:grid-cols-[1fr_110px_90px_100px_auto] gap-2 items-center border-b border-[#EEE6D9] pb-2 last:border-0">
                   <div className="flex gap-1 col-span-2 md:col-span-1">
                     <select value={it.productId} onChange={e => updateItem(i, 'productId', e.target.value)} className="border rounded px-2 py-1.5 text-sm flex-1 bg-white">
-                      <option value="">产品</option>
-                      {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      <option value="">选择{purchaseKind === 'RAW' ? '原料' : '成品 / 包材'}</option>
+                      {products.filter(p => purchaseKind === 'RAW' ? p.channel === 'RAW' : p.channel !== 'RAW').map(p => <option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}
                     </select>
-                    <select value={it.specId} onChange={e => updateItem(i, 'specId', e.target.value)} className="border rounded px-2 py-1.5 text-sm w-20 bg-white">
-                      <option value="">规格</option>
-                      {(prod?.specs || []).map(s => <option key={s.id} value={s.id}>{s.spec}</option>)}
-                    </select>
+                    {isRaw ? (
+                      <div className="w-24 shrink-0 rounded border border-green-200 bg-green-50 px-2 py-1.5 text-center text-xs text-green-700">重量 · kg</div>
+                    ) : (
+                      <select value={it.specId} onChange={e => updateItem(i, 'specId', e.target.value)} className="border rounded px-2 py-1.5 text-sm w-24 bg-white">
+                        <option value="">规格</option>
+                        {(prod?.specs || []).map(s => <option key={s.id} value={s.id}>{s.spec}</option>)}
+                      </select>
+                    )}
                   </div>
                   <div className="relative"><input type="number" min={isRaw ? '0.001' : '1'} step={isRaw ? '0.001' : '1'} value={it.quantity} onChange={e => updateItem(i, 'quantity', e.target.value)} placeholder={isRaw ? '重量' : '数量'} className="border rounded pl-2 pr-7 py-1.5 text-sm w-full" /><span className="absolute right-2 top-2 text-xs text-gray-400">{isRaw ? 'kg' : '件'}</span></div>
-                  <input type="number" min="0" step="0.01" value={it.unitCost} onChange={e => updateItem(i, 'unitCost', e.target.value)} placeholder={isRaw ? '元/kg' : '单价'} className="border rounded px-2 py-1.5 text-sm" />
+                  <input type="number" min="0" step="0.01" value={it.unitCost} onChange={e => updateItem(i, 'unitCost', e.target.value)} placeholder={isRaw ? '元/kg' : '元/件'} className="border rounded px-2 py-1.5 text-sm" />
                   <div className="text-sm text-right" style={{ color: '#5C4B73' }}>{fmtY(it.quantity * it.unitCost)}</div>
                   <button onClick={() => removeItem(i)} title="移除该行" className="zidu-icon-button !w-8 !h-8 justify-self-end"><X size={14} /></button>
                 </div>
@@ -177,34 +209,66 @@ export function PurchaseOrderDetail({ poId, onBack, onEdit }) {
   const { purchaseOrders, products, updatePOStatus, receivePOItems, removePurchaseOrder } = useData();
   const po = purchaseOrders.find(p => p.id === poId);
   const [receiving, setReceiving] = useState(false);
-  const [receiveQtys, setReceiveQtys] = useState({});
+  const [receiveData, setReceiveData] = useState({});
   const [processing, setProcessing] = useState(false);
 
   if (!po) return <div className="text-center py-12 text-gray-400">采购单不存在</div>;
 
   const startReceive = () => {
     const init = {};
-    po.items.forEach(it => { init[it.id] = 0; });
-    setReceiveQtys(init); setReceiving(true);
+    po.items.forEach(it => {
+      const remaining = Math.max(0, Number(it.quantity) - Number(it.receivedQty || 0));
+      init[it.id] = {
+        quantity: remaining > 0 ? String(remaining) : '',
+        batchNo: '',
+        gcmsNo: '',
+        receivedDate: today(),
+        expiryDate: '',
+        note: ''
+      };
+    });
+    setReceiveData(init);
+    setReceiving(true);
+  };
+
+  const updateReceiveData = (itemId, field, value) => {
+    setReceiveData(current => ({ ...current, [itemId]: { ...current[itemId], [field]: value } }));
   };
 
   const handleReceive = async () => {
     const receiveItems = po.items.map(it => {
-      const receiveQty = Number(receiveQtys[it.id] || 0);
+      const row = receiveData[it.id] || {};
+      const receiveQty = Number(row.quantity || 0);
+      const product = products.find(p => p.id === it.productId);
       return {
         itemId: it.id, specId: it.specId, productId: it.productId, poNo: po.poNo,
-        receiveQty
+        receiveQty,
+        batchNo: row.batchNo?.trim() || '',
+        gcmsNo: row.gcmsNo?.trim() || '',
+        receivedDate: row.receivedDate || today(),
+        expiryDate: row.expiryDate || null,
+        note: row.note?.trim() || '',
+        densityGml: product?.channel === 'RAW' ? defaultDensityForProduct(product) : null
       };
     }).filter(r => r.receiveQty > 0);
 
     if (receiveItems.length === 0) { alert('请输入收货数量'); return; }
+    const invalidQuantity = receiveItems.find(received => {
+      const line = po.items.find(item => item.id === received.itemId);
+      return received.receiveQty > Number(line.quantity) - Number(line.receivedQty || 0);
+    });
+    if (invalidQuantity) { alert('本次收货数量不能超过待收数量'); return; }
+    if (receiveItems.some(item => !item.batchNo)) { alert('请填写本次收货产品的批次号'); return; }
     setProcessing(true);
     try {
       await receivePOItems(po.id, receiveItems);
       setReceiving(false);
-      alert('收货成功，库存已更新');
+      alert('收货成功，采购进度、批次和库存已更新');
     } catch (e) { alert('收货失败: ' + e.message); } finally { setProcessing(false); }
   };
+
+  const rawItemCount = po.items.filter(it => products.find(p => p.id === it.productId)?.channel === 'RAW').length;
+  const finishedItemCount = po.items.length - rawItemCount;
 
   const canEditOrDelete = ['DRAFT', 'ORDERED'].includes(po.status) && po.items.every(it => Number(it.receivedQty || 0) === 0);
   const handleDelete = async () => {
@@ -238,6 +302,7 @@ export function PurchaseOrderDetail({ poId, onBack, onEdit }) {
 
         <div className="grid grid-cols-2 gap-3 mb-4">
           <div className="bg-gray-50 rounded p-3"><div className="text-xs text-gray-400">供应商</div><div className="text-sm font-medium">{po.supplier}</div></div>
+          <div className="bg-gray-50 rounded p-3"><div className="text-xs text-gray-400">入库方式</div><div className="text-sm font-medium">{rawItemCount ? `原料 ${rawItemCount} 项按 kg` : ''}{rawItemCount && finishedItemCount ? ' · ' : ''}{finishedItemCount ? `成品 / 包材 ${finishedItemCount} 项按瓶 / 个` : ''}</div></div>
           {po.notes && <div className="bg-gray-50 rounded p-3"><div className="text-xs text-gray-400">备注</div><div className="text-sm">{po.notes}</div></div>}
         </div>
 
@@ -245,7 +310,7 @@ export function PurchaseOrderDetail({ poId, onBack, onEdit }) {
           {canEditOrDelete && <button onClick={onEdit} className="px-4 py-2 border border-purple-200 text-purple-700 rounded-lg text-sm"><Edit2 size={14} className="inline mr-1" />编辑</button>}
           {canEditOrDelete && <button onClick={handleDelete} className="px-4 py-2 border border-red-200 text-red-600 rounded-lg text-sm"><Trash2 size={14} className="inline mr-1" />删除</button>}
           {po.status === 'DRAFT' && <button onClick={() => handleStatusChange('ORDERED')} className="px-4 py-2 text-white rounded-lg text-sm" style={{ background: '#5C4B73' }}>标记已下单</button>}
-          {(po.status === 'ORDERED' || po.status === 'PARTIAL_RECEIVED') && <button onClick={startReceive} className="px-4 py-2 text-white rounded-lg text-sm bg-green-600"><Truck size={14} className="inline mr-1" />收货入库</button>}
+          {(po.status === 'ORDERED' || po.status === 'PARTIAL_RECEIVED') && <button onClick={startReceive} className="px-4 py-2 text-white rounded-lg text-sm bg-green-600"><Truck size={14} className="inline mr-1" />{rawItemCount ? '原料按 kg 收货入库' : '收货入库'}</button>}
           {po.status !== 'CANCELLED' && po.status !== 'RECEIVED' && <button onClick={() => handleStatusChange('CANCELLED')} className="px-4 py-2 border border-red-200 text-red-600 rounded-lg text-sm">取消</button>}
         </div>
       </Card>
@@ -259,26 +324,19 @@ export function PurchaseOrderDetail({ poId, onBack, onEdit }) {
             <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">规格</th>
             <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">数量</th>
             <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">已收</th>
-            {receiving && <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">本次收货</th>}
             <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">单价</th>
             <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">小计</th>
           </tr></thead>
           <tbody>{po.items.map(it => {
-            const remaining = it.quantity - (it.receivedQty || 0);
             const product = products.find(p => p.id === it.productId);
             const isRaw = product?.channel === 'RAW';
             return (
               <tr key={it.id} className="border-b last:border-0">
                 <td className="py-2 px-3">{it.productName}</td>
-                <td className="py-2 px-3 text-gray-600">{it.spec}</td>
-                <td className="py-2 px-3 text-right">{it.quantity}{isRaw ? ' kg' : ''}</td>
-                <td className="py-2 px-3 text-right text-green-600">{it.receivedQty || 0}{isRaw ? ' kg' : ''}</td>
-                {receiving && (
-                  <td className="py-2 px-3 text-right">
-                    <div className="flex items-center justify-end gap-1"><input type="number" min="0" max={remaining} step={isRaw ? '0.001' : '1'} value={receiveQtys[it.id] || ''} onChange={e => setReceiveQtys(q => ({ ...q, [it.id]: e.target.value }))} className="w-20 border rounded px-2 py-1 text-sm text-right" placeholder="0" /><span className="text-xs text-gray-400">{isRaw ? 'kg' : '件'}</span></div>
-                  </td>
-                )}
-                <td className="py-2 px-3 text-right text-gray-600">{fmtY(it.unitCost)}</td>
+                <td className="py-2 px-3 text-gray-600">{isRaw ? '原料重量' : it.spec}</td>
+                <td className="py-2 px-3 text-right">{it.quantity} {isRaw ? 'kg' : '瓶 / 个'}</td>
+                <td className="py-2 px-3 text-right text-green-600">{it.receivedQty || 0} {isRaw ? 'kg' : '瓶 / 个'}</td>
+                <td className="py-2 px-3 text-right text-gray-600">{fmtY(it.unitCost)}<span className="text-[10px] text-gray-400 ml-1">/{isRaw ? 'kg' : '件'}</span></td>
                 <td className="py-2 px-3 text-right font-medium" style={{ color: '#5C4B73' }}>{fmtY(it.subtotal)}</td>
               </tr>
             );
@@ -286,11 +344,40 @@ export function PurchaseOrderDetail({ poId, onBack, onEdit }) {
         </table></div>
 
         {receiving && (
-          <div className="flex gap-2 mt-4 pt-3 border-t">
-            <button onClick={() => setReceiving(false)} className="px-3 py-2 text-sm border rounded-lg">取消</button>
-            <button onClick={handleReceive} disabled={processing} className="px-4 py-2 text-white rounded-lg text-sm bg-green-600 disabled:opacity-40 flex items-center gap-1">
-              <CheckCircle size={14} />{processing ? '处理中...' : '确认收货'}
-            </button>
+          <div className="mt-4 pt-3 border-t space-y-3">
+            <div>
+              <div className="text-sm font-medium text-gray-700">本次到货与批次信息</div>
+              <div className="text-[11px] text-gray-400 mt-0.5">确认后自动更新采购进度、批次档案、库存数量和出入库流水。</div>
+            </div>
+            {po.items.map(it => {
+              const remaining = Number(it.quantity) - Number(it.receivedQty || 0);
+              if (remaining <= 0) return null;
+              const product = products.find(p => p.id === it.productId);
+              const isRaw = product?.channel === 'RAW';
+              const row = receiveData[it.id] || {};
+              return (
+                <div key={it.id} className="rounded-lg border border-green-200 bg-green-50/30 p-3">
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <div><span className="text-sm font-medium text-gray-800">{it.productName}</span><span className={`ml-2 text-[10px] px-1.5 py-0.5 rounded ${isRaw ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{isRaw ? '原料 · kg' : `成品 · ${it.spec}`}</span></div>
+                    <div className="text-xs text-gray-500">待收 {remaining} {isRaw ? 'kg' : '瓶 / 个'}</div>
+                  </div>
+                  <div className="grid grid-cols-2 lg:grid-cols-6 gap-2.5">
+                    <div><label className="block text-[11px] text-gray-500 mb-1">本次到货 {isRaw ? 'kg' : '数量'} *</label><input type="number" min="0" max={remaining} step={isRaw ? '0.001' : '1'} value={row.quantity || ''} onChange={e => updateReceiveData(it.id, 'quantity', e.target.value)} className="w-full border rounded-lg px-2.5 py-2 text-sm bg-white" /></div>
+                    <div className="lg:col-span-2"><label className="block text-[11px] text-gray-500 mb-1">批次号 *</label><input value={row.batchNo || ''} onChange={e => updateReceiveData(it.id, 'batchNo', e.target.value)} placeholder="供应商批次 / 生产批号" className="w-full border rounded-lg px-2.5 py-2 text-sm bg-white" /></div>
+                    {isRaw && <div><label className="block text-[11px] text-gray-500 mb-1">GC-MS 编号</label><input value={row.gcmsNo || ''} onChange={e => updateReceiveData(it.id, 'gcmsNo', e.target.value)} placeholder="可选" className="w-full border rounded-lg px-2.5 py-2 text-sm bg-white" /></div>}
+                    <div><label className="block text-[11px] text-gray-500 mb-1">到货日期 *</label><input type="date" value={row.receivedDate || today()} onChange={e => updateReceiveData(it.id, 'receivedDate', e.target.value)} className="w-full border rounded-lg px-2.5 py-2 text-sm bg-white" /></div>
+                    <div><label className="block text-[11px] text-gray-500 mb-1">保质期至</label><input type="date" value={row.expiryDate || ''} onChange={e => updateReceiveData(it.id, 'expiryDate', e.target.value)} className="w-full border rounded-lg px-2.5 py-2 text-sm bg-white" /></div>
+                    <div className="col-span-2 lg:col-span-6"><label className="block text-[11px] text-gray-500 mb-1">备注</label><input value={row.note || ''} onChange={e => updateReceiveData(it.id, 'note', e.target.value)} placeholder="可选" className="w-full border rounded-lg px-2.5 py-2 text-sm bg-white" /></div>
+                  </div>
+                </div>
+              );
+            })}
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => setReceiving(false)} className="px-3 py-2 text-sm border rounded-lg">取消</button>
+              <button onClick={handleReceive} disabled={processing} className="px-4 py-2 text-white rounded-lg text-sm bg-green-600 disabled:opacity-40 flex items-center gap-1">
+                <CheckCircle size={14} />{processing ? '处理中...' : '确认收货并入库'}
+              </button>
+            </div>
           </div>
         )}
       </Card>

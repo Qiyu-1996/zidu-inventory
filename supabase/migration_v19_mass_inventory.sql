@@ -91,7 +91,7 @@ END;
 $$;
 
 -- 兼容现有网页和小程序：它们仍修改 product_specs.stock；触发器把变化
--- 转成 kg 后更新共享库存，再统一刷新该产品所有规格的可售数量。
+-- 转成 kg 后更新产品重量库存，再统一刷新该产品所有规格的可售数量。
 CREATE OR REPLACE FUNCTION public.zidu_mass_stock_from_spec_change()
 RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$

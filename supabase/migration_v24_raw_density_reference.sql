@@ -9,8 +9,10 @@
 -- 3. 本迁移不修改 products.base_stock_kg，不会重置已经录入的实际 kg。
 -- ============================================================
 
-DROP TABLE IF EXISTS zidu_density_defaults;
-CREATE TEMP TABLE zidu_density_defaults (
+-- 使用普通中转表而不是 TEMP TABLE：Supabase SQL Editor 可能在语句间提交，
+-- TEMP TABLE 会被提前清理。中转表在脚本末尾删除，失败后也可直接整份重跑。
+DROP TABLE IF EXISTS public.zidu_density_defaults_stage;
+CREATE TABLE public.zidu_density_defaults_stage (
   code TEXT PRIMARY KEY,
   density_g_ml NUMERIC(8,5) NOT NULL,
   source TEXT NOT NULL
@@ -19,7 +21,7 @@ CREATE TEMP TABLE zidu_density_defaults (
 -- 单方精油：取公开供应商 TDS/SDS 或 ISO 常见范围的代表值。
 -- 参考资料入口：Florihana Technical Data Sheets / Chromatography Sheets；
 -- Sigma-Aldrich natural essential oil product data。批次 COA 始终优先。
-INSERT INTO zidu_density_defaults (code, density_g_ml, source) VALUES
+INSERT INTO public.zidu_density_defaults_stage (code, density_g_ml, source) VALUES
   ('/',           0.85200, '天然精油公开TDS常见范围参考值；以本批次COA为准'),
   ('ZD -1014',    1.03500, '肉桂皮油公开TDS常见范围参考值；以本批次COA为准'),
   ('ZD -1016',    1.04000, '肉桂叶油公开TDS常见范围参考值；以本批次COA为准'),
@@ -140,7 +142,7 @@ INSERT INTO zidu_density_defaults (code, density_g_ml, source) VALUES
   ('ZD-129-1',    0.89200, '玫瑰天竺葵公开TDS常见范围参考值；以本批次COA为准');
 
 -- 基础油：典型相对密度参考值。以后新增 ml 规格也会直接使用该产品自己的值。
-INSERT INTO zidu_density_defaults (code, density_g_ml, source) VALUES
+INSERT INTO public.zidu_density_defaults_stage (code, density_g_ml, source) VALUES
   ('ZD-23001', 0.92000, 'Codex CXS 210杏仁油相对密度范围代表值；以本批次COA为准'),
   ('ZD-23002', 0.92500, '基础油公开规格典型值；以本批次COA为准'),
   ('ZD-23003', 0.86500, '荷荷巴油公开规格典型值；以本批次COA为准'),
@@ -160,7 +162,7 @@ INSERT INTO zidu_density_defaults (code, density_g_ml, source) VALUES
 
 -- 自有配方没有通用文献密度，先按配方形态给库存换算初始值；
 -- 管理员可在商品管理中用实测称重值直接覆盖。
-INSERT INTO zidu_density_defaults (code, density_g_ml, source) VALUES
+INSERT INTO public.zidu_density_defaults_stage (code, density_g_ml, source) VALUES
   ('ZD-3022', 0.91000, '油剂配方初始换算值；管理员可按实测值修正'),
   ('ZD-3023', 0.91000, '油剂配方初始换算值；管理员可按实测值修正'),
   ('ZD-3024', 0.91000, '油剂配方初始换算值；管理员可按实测值修正'),
@@ -179,7 +181,7 @@ SET density_g_ml = coalesce(p.density_g_ml, d.density_g_ml),
       WHEN p.density_g_ml IS NULL OR p.density_status = 'UNSET' THEN 'REFERENCE'
       ELSE p.density_status
     END
-FROM zidu_density_defaults d
+FROM public.zidu_density_defaults_stage d
 WHERE p.channel = 'RAW'
   AND trim(p.code) = trim(d.code);
 
@@ -221,7 +223,7 @@ END $$;
 
 NOTIFY pgrst, 'reload schema';
 
-DROP TABLE zidu_density_defaults;
+DROP TABLE public.zidu_density_defaults_stage;
 
 -- 正确结果：volume_products_without_density = 0，raw_not_mass = 0。
 SELECT

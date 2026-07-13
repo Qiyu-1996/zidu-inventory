@@ -409,21 +409,19 @@ function roundMoney(n) {
 
 async function writeStockAdjustment(specId, productId, type, reason, quantity, note, operatorName) {
   if (!specId || !quantity) return;
-  const { data: spec, error: specError } = await supabase.from('product_specs').select('stock').eq('id', specId).single();
-  if (specError) throw new Error(specError.message);
-  if (!spec) throw new Error('规格不存在');
-  const before = Number(spec.stock || 0);
-  const after = type === 'IN' ? before + quantity : Math.max(0, before - quantity);
-  const { error: updateError } = await supabase.from('product_specs').update({ stock: after }).eq('id', specId);
-  if (updateError) throw new Error(updateError.message);
+  const result = await adjustInventoryValue(specId, type, Number(quantity), 'SPEC');
+  if (result?.error) throw new Error(result.error);
   const { error: logError } = await supabase.from('stock_adjustments').insert({
     spec_id: specId,
     product_id: productId,
     type,
     reason,
-    quantity,
-    before_stock: before,
-    after_stock: after,
+    quantity: Number(quantity),
+    before_stock: result.before,
+    after_stock: result.after,
+    quantity_kg: result.quantityKg,
+    before_stock_kg: result.beforeKg,
+    after_stock_kg: result.afterKg,
     note,
     operator_name: operatorName || ''
   });
@@ -853,16 +851,15 @@ export async function createOrder(order) {
   // Deduct stock + record adjustments
   for (const it of (order.items || [])) {
     if (it.specId) {
-      const { data: spec } = await supabase.from('product_specs').select('stock').eq('id', it.specId).single();
-      if (spec) {
-        const newStock = Math.max(0, spec.stock - it.quantity);
-        await supabase.from('product_specs').update({ stock: newStock }).eq('id', it.specId);
-        await supabase.from('stock_adjustments').insert({
-          spec_id: it.specId, product_id: it.productId, type: 'OUT', reason: 'ORDER',
-          quantity: it.quantity, before_stock: spec.stock, after_stock: newStock,
-          note: `订单 ${order.orderNo}`, operator_name: order.logs?.[0]?.user || ''
-        });
-      }
+      await writeStockAdjustment(
+        it.specId,
+        it.productId,
+        'OUT',
+        'ORDER',
+        Number(it.quantity || 0),
+        `订单 ${order.orderNo}`,
+        order.logs?.[0]?.user || ''
+      );
     }
   }
   return o.id;
@@ -872,25 +869,15 @@ export async function updateOrderItems(orderId, changes, totals, logEntry) {
   for (const ch of (changes || [])) {
     const delta = Number(ch.newQty || 0) - Number(ch.oldQty || 0);
     if (ch.specId && delta !== 0) {
-      const { data: spec, error: specError } = await supabase.from('product_specs').select('stock').eq('id', ch.specId).single();
-      if (specError) throw new Error(specError.message);
-      if (spec) {
-        const nextStock = Math.max(0, Number(spec.stock || 0) - delta);
-        const { error: stockError } = await supabase.from('product_specs').update({ stock: nextStock }).eq('id', ch.specId);
-        if (stockError) throw new Error(stockError.message);
-        const { error: logStockError } = await supabase.from('stock_adjustments').insert({
-          spec_id: ch.specId,
-          product_id: ch.productId || null,
-          type: delta > 0 ? 'OUT' : 'IN',
-          reason: 'ORDER',
-          quantity: Math.abs(delta),
-          before_stock: spec.stock,
-          after_stock: nextStock,
-          note: '管理员修改订单明细',
-          operator_name: logEntry?.user || ''
-        });
-        if (logStockError) throw new Error(logStockError.message);
-      }
+      await writeStockAdjustment(
+        ch.specId,
+        ch.productId || null,
+        delta > 0 ? 'OUT' : 'IN',
+        'ORDER',
+        Math.abs(delta),
+        '管理员修改订单明细',
+        logEntry?.user || ''
+      );
     }
     if (Number(ch.newQty || 0) <= 0) {
       const { error } = await supabase.from('order_items').delete().eq('id', ch.itemId);
@@ -1106,21 +1093,15 @@ export async function restoreDeletedOrder(deletedOrderId, restoredBy = '') {
   if (deleted.stock_restored) {
     for (const it of oldItems) {
       if (!it.spec_id) continue;
-      const { data: spec } = await supabase.from('product_specs').select('stock').eq('id', it.spec_id).single();
-      if (!spec) continue;
-      const newStock = Math.max(0, Number(spec.stock || 0) - Number(it.quantity || 0));
-      await supabase.from('product_specs').update({ stock: newStock }).eq('id', it.spec_id);
-      await supabase.from('stock_adjustments').insert({
-        spec_id: it.spec_id,
-        product_id: it.product_id,
-        type: 'OUT',
-        reason: 'ORDER',
-        quantity: it.quantity,
-        before_stock: spec.stock,
-        after_stock: newStock,
-        note: `恢复删除订单 ${deleted.order_no}`,
-        operator_name: restoredBy
-      });
+      await writeStockAdjustment(
+        it.spec_id,
+        it.product_id,
+        'OUT',
+        'ORDER',
+        Number(it.quantity || 0),
+        `恢复删除订单 ${deleted.order_no}`,
+        restoredBy
+      );
     }
   }
 
@@ -1161,16 +1142,15 @@ export async function deleteOrder(orderId, restoreStock = true, deletedBy = '') 
     const { data: items } = await supabase.from('order_items').select('*').eq('order_id', orderId);
     for (const it of (items || [])) {
       if (it.spec_id) {
-        const { data: spec } = await supabase.from('product_specs').select('stock').eq('id', it.spec_id).single();
-        if (spec) {
-          const newStock = spec.stock + it.quantity;
-          await supabase.from('product_specs').update({ stock: newStock }).eq('id', it.spec_id);
-          await supabase.from('stock_adjustments').insert({
-            spec_id: it.spec_id, product_id: it.product_id, type: 'IN', reason: 'CANCEL_RESTORE',
-            quantity: it.quantity, before_stock: spec.stock, after_stock: newStock,
-            note: `删除订单恢复库存`, operator_name: deletedBy || ''
-          });
-        }
+        await writeStockAdjustment(
+          it.spec_id,
+          it.product_id,
+          'IN',
+          'CANCEL_RESTORE',
+          Number(it.quantity || 0),
+          '删除订单恢复库存',
+          deletedBy || ''
+        );
       }
     }
   }
@@ -1199,16 +1179,15 @@ export async function updateOrderStatus(orderId, newStatus, logEntry, shipmentDa
     const { data: orderData } = await supabase.from('orders').select('order_no').eq('id', orderId).single();
     for (const it of (items || [])) {
       if (it.spec_id) {
-        const { data: spec } = await supabase.from('product_specs').select('stock').eq('id', it.spec_id).single();
-        if (spec) {
-          const newStock = spec.stock + it.quantity;
-          await supabase.from('product_specs').update({ stock: newStock }).eq('id', it.spec_id);
-          await supabase.from('stock_adjustments').insert({
-            spec_id: it.spec_id, product_id: it.product_id, type: 'IN', reason: 'CANCEL_RESTORE',
-            quantity: it.quantity, before_stock: spec.stock, after_stock: newStock,
-            note: `取消订单 ${orderData?.order_no || ''}`, operator_name: logEntry?.user || ''
-          });
-        }
+        await writeStockAdjustment(
+          it.spec_id,
+          it.product_id,
+          'IN',
+          'CANCEL_RESTORE',
+          Number(it.quantity || 0),
+          `取消订单 ${orderData?.order_no || ''}`,
+          logEntry?.user || ''
+        );
       }
     }
   }
@@ -1358,10 +1337,18 @@ export async function updatePurchaseOrderStatus(poId, status) {
 }
 
 export async function receivePurchaseItems(poId, receivedItems, operatorName) {
+  const { error: schemaError } = await supabase.from('product_batches')
+    .select('purchase_order_item_id').limit(1);
+  if (schemaError) {
+    if (/purchase_order_item_id|column|schema cache|PGRST204/i.test(schemaError.message || '')) {
+      throw new Error('请先运行 migration_v25_purchase_receiving_batches.sql，再执行采购收货');
+    }
+    throw new Error(schemaError.message);
+  }
   const { data, error } = await supabase.rpc('zidu_receive_purchase_order', {
     p_po_id: poId, p_items: receivedItems, p_operator_name: operatorName || ''
   });
-  if (error) throw new Error(/zidu_receive_purchase_order|schema cache|could not find/i.test(error.message || '') ? '请先运行 migration_v22_purchase_order_crud.sql' : error.message);
+  if (error) throw new Error(/zidu_receive_purchase_order|schema cache|could not find/i.test(error.message || '') ? '请先运行 migration_v25_purchase_receiving_batches.sql' : error.message);
   if (data?.error) throw new Error(data.error);
 }
 
@@ -1421,7 +1408,8 @@ function mapBatch(b) {
     id: b.id, batchNo: b.batch_no, productId: b.product_id, specId: b.spec_id,
     gcmsNo: b.gcms_no || '', receivedDate: b.received_date, expiryDate: b.expiry_date,
     initialQty: b.initial_qty, remainingQty: b.remaining_qty,
-    unitCost: Number(b.unit_cost || 0), supplier: b.supplier || '', note: b.note || ''
+    unitCost: Number(b.unit_cost || 0), supplier: b.supplier || '', note: b.note || '',
+    purchaseOrderId: b.purchase_order_id || null, purchaseOrderItemId: b.purchase_order_item_id || null
   };
 }
 
@@ -1734,7 +1722,7 @@ export function calculateRestockSuggestions(products, orders) {
       if (suggestedQty > 0) {
         const trend = priorKg > 0 ? Math.round((recentKg / priorKg - 1) * 100) : 100;
         const urgency = stock <= safe ? 'HIGH' : stock < safe * 2 ? 'MEDIUM' : 'LOW';
-        suggestions.push({ productId: p.id, productName: p.name, productCode: p.code, specId: p.specs[0]?.id, spec: '共享重量库存', currentStock: Number(stock.toFixed(3)), safeStock: Number(safe.toFixed(3)), recent30: Number(recentKg.toFixed(3)), prior30: Number(priorKg.toFixed(3)), trend, forecast, suggestedQty: Number(suggestedQty.toFixed(3)), urgency, unit: 'kg' });
+        suggestions.push({ productId: p.id, productName: p.name, productCode: p.code, specId: p.specs[0]?.id, spec: '重量库存', currentStock: Number(stock.toFixed(3)), safeStock: Number(safe.toFixed(3)), recent30: Number(recentKg.toFixed(3)), prior30: Number(priorKg.toFixed(3)), trend, forecast, suggestedQty: Number(suggestedQty.toFixed(3)), urgency, unit: 'kg' });
       }
       return;
     }

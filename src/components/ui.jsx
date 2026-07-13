@@ -1,14 +1,38 @@
 import { Package, ShoppingCart, Users, TrendingUp, Percent } from 'lucide-react';
 
 export const SERIES_LIST = ["德国进口系列","中药精油系列","单方精油系列","基础油系列","纯露系列","专业护肤系列","专业水疗系列","养生疗愈系列","芳疗复配","瓶器包材","茶饮养生","身体护理","家居香氛"];
+export const PRODUCT_CATEGORY_OPTIONS = [
+  { value: 'ALL', label: '全部分类' },
+  { value: 'ESSENTIAL', label: '精油' },
+  { value: 'HYDROSOL', label: '纯露' },
+  { value: 'CARRIER', label: '基础油' },
+  { value: 'MASSAGE', label: '按摩' },
+  { value: 'SKINCARE', label: '护肤' },
+  { value: 'OTHER', label: '其他' }
+];
+const PRODUCT_CATEGORY_SERIES = {
+  ESSENTIAL: ['德国进口系列', '中药精油系列', '单方精油系列', '芳疗复配'],
+  HYDROSOL: ['纯露系列'],
+  CARRIER: ['基础油系列'],
+  MASSAGE: ['专业水疗系列', '养生疗愈系列'],
+  SKINCARE: ['专业护肤系列', '身体护理']
+};
+export function productCategoryOf(series) {
+  return Object.keys(PRODUCT_CATEGORY_SERIES).find(key => PRODUCT_CATEGORY_SERIES[key].includes(series)) || 'OTHER';
+}
+export function matchesProductCategory(series, category) {
+  return category === 'ALL' || productCategoryOf(series) === category;
+}
 export const CUSTOMER_TYPES = ["工厂","品牌","美容院","养生馆","医疗机构","SPA馆","头疗馆","足浴店","瑜伽馆","个人","零售店","其他"];
 export const PROVINCES = ["北京","天津","河北","山西","内蒙古","辽宁","吉林","黑龙江","上海","江苏","浙江","安徽","福建","江西","山东","河南","湖北","湖南","广东","广西","海南","重庆","四川","贵州","云南","西藏","陕西","甘肃","青海","宁夏","新疆","香港","澳门","台湾"];
-// 分销商等级：1=一级(自动5折) 2=二级(自动6.5折)
-export const DISTRIBUTOR_LEVELS = [{ value: 0, label: "非分销商" }, { value: 1, label: "一级分销商(5折)" }, { value: 2, label: "二级分销商(6.5折)" }];
-export function distributorLabel(level) { return level === 1 ? "一级分销商" : level === 2 ? "二级分销商" : ""; }
-// 客户分级：分销商优先，否则按累计金额 >5万大 / 1万~5万中 / <1万小
+// 经销商等级沿用数据库 distributor_level：1=一级(5折)，2=二级(6.5折)。
+export const DISTRIBUTOR_LEVELS = [{ value: 0, label: "非经销商" }, { value: 1, label: "一级经销商（5折）" }, { value: 2, label: "二级经销商（6.5折）" }];
+export function distributorLabel(level) { return level === 1 ? "一级经销商" : level === 2 ? "二级经销商" : ""; }
+export function distributorDiscount(level) { return level === 1 ? 50 : level === 2 ? 35 : 0; }
+export function distributorPriceLabel(level) { return level === 1 ? "5折" : level === 2 ? "6.5折" : ""; }
+// 客户分级：经销商优先，否则按累计金额 >5万大 / 1万~5万中 / <1万小
 export function customerTier(totalAmount, distributorLevel) {
-  if (distributorLevel === 1 || distributorLevel === 2) return "分销商";
+  if (distributorLevel === 1 || distributorLevel === 2) return "经销商";
   if (totalAmount >= 50000) return "大客户";
   if (totalAmount >= 10000) return "中客户";
   return "小客户";

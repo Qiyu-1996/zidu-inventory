@@ -65,7 +65,7 @@ export default function Dashboard({ nav }) {
     const items = [];
     products.forEach(p => {
       if (p.channel === 'RAW') {
-        if (Number(p.baseStockKg || 0) <= Number(p.safeStockKg || 0)) items.push({ product: p.name, spec: '共享重量库存', stock: Number(p.baseStockKg || 0).toFixed(3), safeStock: Number(p.safeStockKg || 0).toFixed(3), unit: 'kg' });
+        if (Number(p.baseStockKg || 0) <= Number(p.safeStockKg || 0)) items.push({ product: p.name, spec: '重量库存', stock: Number(p.baseStockKg || 0).toFixed(3), safeStock: Number(p.safeStockKg || 0).toFixed(3), unit: 'kg' });
         return;
       }
       p.specs.forEach(s => {

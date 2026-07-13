@@ -193,8 +193,8 @@ export default function App() {
           {page === "shop" && subView === "newcust" && <CustomerCreate onSave={handleNewCustomerFromShop} onCancel={() => setSubView("checkout")} />}
           {page === "orders" && !subView && <OrderList nav={nav} />}
           {page === "orderDetail" && <OrderDetail orderId={subView} onBack={() => nav("orders")} />}
-          {page === "customers" && !subView && <CustomerList nav={nav} onNew={() => setSubView("newcust")} />}
-          {page === "customers" && subView === "newcust" && <CustomerCreate onSave={handleNewCustomerFromList} onCancel={() => setSubView(null)} />}
+          {page === "customers" && !subView && <CustomerList nav={nav} onNew={(dealerMode) => setSubView(dealerMode ? "newdealer" : "newcust")} />}
+          {page === "customers" && (subView === "newcust" || subView === "newdealer") && <CustomerCreate dealerMode={subView === "newdealer"} onSave={handleNewCustomerFromList} onCancel={() => setSubView(null)} />}
           {page === "customerDetail" && <CustomerDetail customerId={subView} onBack={() => nav("customers")} />}
           {page === "tasks" && <Tasks />}
           {page === "inventory" && <Inventory nav={nav} />}

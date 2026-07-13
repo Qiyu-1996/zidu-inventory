@@ -1,33 +1,20 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Search, Plus, Minus, X, ShoppingCart, ArrowLeft, Layers, Tag } from 'lucide-react';
+import { Search, Plus, Minus, X, ShoppingCart, ArrowLeft } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
-import { Card, fmtY, SERIES_LIST, CUSTOMER_TYPES, PROVINCES, DISTRIBUTOR_LEVELS, unitPriceHint } from '../components/ui';
+import { Card, fmtY, PRODUCT_CATEGORY_OPTIONS, matchesProductCategory, CUSTOMER_TYPES, PROVINCES, DISTRIBUTOR_LEVELS, distributorDiscount, distributorLabel, distributorPriceLabel, unitPriceHint } from '../components/ui';
 import { createOrderNo, detectSourceFromCart, localDateKey, localMinuteKey } from '../lib/orderNo';
 import * as api from '../lib/api';
 
 // ═══ SHOP CATALOG ═══
 export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, onCheckout }) {
-  const { products, scenarioPackages } = useData();
+  const { products } = useData();
   const [search, setSearch] = useState('');
   const [sf, setSf] = useState('ALL');
   const [showCart, setShowCart] = useState(false);
-  const [showScenarios, setShowScenarios] = useState(false);
-
-  const applyScenario = (pkg) => {
-    let added = 0;
-    pkg.items.forEach(it => {
-      const p = products.find(pr => pr.id === it.productId);
-      const s = p?.specs.find(sp => sp.id === it.specId);
-      if (p && s) { addToCart(p, s, it.quantity); added++; }
-    });
-    if (added > 0) alert(`已添加【${pkg.name}】${added}件商品到购物车`);
-    else alert('该方案暂未配置产品，请联系管理员');
-    setShowScenarios(false);
-  };
 
   const filtered = products.filter(p => {
-    if (sf !== 'ALL' && p.series !== sf) return false;
+    if (!matchesProductCategory(p.series, sf)) return false;
     if (search && !`${p.code} ${p.name}`.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
@@ -43,14 +30,8 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
             <input placeholder="搜索产品" value={search} onChange={e => setSearch(e.target.value)} className="pl-9 pr-3 py-2 text-sm border rounded-lg w-48 focus:outline-none focus:ring-2 focus:ring-purple-300" />
           </div>
           <select value={sf} onChange={e => setSf(e.target.value)} className="border rounded-lg px-3 py-2 text-sm bg-white">
-            <option value="ALL">全部系列</option>
-            {SERIES_LIST.map(s => <option key={s} value={s}>{s}</option>)}
+            {PRODUCT_CATEGORY_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
-          {scenarioPackages?.length > 0 && (
-            <button onClick={() => setShowScenarios(!showScenarios)} className="flex items-center gap-1 px-3 py-2 text-sm border rounded-lg text-purple-700 border-purple-200 hover:bg-purple-50">
-              <Layers size={14} />场景方案
-            </button>
-          )}
         </div>
         {cart.length > 0 && (
           <button onClick={() => setShowCart(!showCart)} className="flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium shadow" style={{ background: "#5C4B73" }}>
@@ -59,28 +40,6 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
           </button>
         )}
       </div>
-
-      {/* Scenario packages */}
-      {showScenarios && scenarioPackages?.length > 0 && (
-        <Card className="p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-sm font-semibold text-gray-700 flex items-center gap-2"><Layers size={16} />场景方案套餐 — 一键加购</div>
-            <button onClick={() => setShowScenarios(false)} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
-          </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {scenarioPackages.filter(p => p.isActive !== false).map(pkg => (
-              <div key={pkg.id} className="border rounded-lg p-3 hover:border-purple-300 cursor-pointer" onClick={() => applyScenario(pkg)}>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="font-mono text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">{pkg.code}</span>
-                  <span className="text-xs text-gray-400">{pkg.items.length}件</span>
-                </div>
-                <div className="font-medium text-gray-800">{pkg.name}</div>
-                <div className="text-xs text-gray-500 mt-1 line-clamp-2">{pkg.description}</div>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
 
       {/* Cart panel */}
       {showCart && cart.length > 0 && (
@@ -185,6 +144,7 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
   const [submitting, setSubmitting] = useState(false);
   const [custSearch, setCustSearch] = useState('');
   const [showCustList, setShowCustList] = useState(false);
+  const [customerMode, setCustomerMode] = useState('ALL');
   const [maxDiscount, setMaxDiscount] = useState(20);
 
   // 销售折扣上限（管理员在 基础设置 配置；管理员本人不限）
@@ -208,15 +168,30 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
   }, [orders, user]);
 
   const selectedCustomer = myCustomers.find(c => c.id === Number(customerId));
+  const dealerCustomers = myCustomers.filter(c => Number(c.distributorLevel) > 0);
+  const customerPool = customerMode === 'DEALER' ? dealerCustomers : myCustomers;
   const filteredCustomers = custSearch
-    ? myCustomers.filter(c => `${c.name} ${c.contact || ''} ${c.phone || ''} ${c.type}`.toLowerCase().includes(custSearch.toLowerCase()))
-    : myCustomers;
-  const recentCustomers = recentCustomerIds.map(id => myCustomers.find(c => c.id === id)).filter(Boolean);
+    ? customerPool.filter(c => `${c.name} ${c.contact || ''} ${c.phone || ''} ${c.type}`.toLowerCase().includes(custSearch.toLowerCase()))
+    : customerPool;
+  const recentCustomers = recentCustomerIds.map(id => customerPool.find(c => c.id === id)).filter(Boolean);
+  const dealerDiscount = distributorDiscount(selectedCustomer?.distributorLevel);
+  const effectiveDiscount = dealerDiscount || discount;
 
   const onSelectCustomer = (id) => {
+    const customer = myCustomers.find(c => c.id === Number(id));
     setCustomerId(id);
+    setDiscount(distributorDiscount(customer?.distributorLevel));
     setShowCustList(false);
     setCustSearch('');
+  };
+
+  const changeCustomerMode = (mode) => {
+    if (mode === customerMode) return;
+    setCustomerMode(mode);
+    setCustomerId('');
+    setCustSearch('');
+    setShowCustList(true);
+    setDiscount(0);
   };
 
   const handleShippingFeeChange = (value) => {
@@ -230,7 +205,7 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
   };
 
   const subtotal = cart.reduce((s, c) => s + c.unitPrice * c.quantity, 0);
-  const discountAmount = Math.round(subtotal * discount / 100);
+  const discountAmount = Math.round(subtotal * effectiveDiscount / 100);
   const shippingValue = Number(shippingFee);
   const shippingAmount = Number.isFinite(shippingValue)
     ? Math.max(0, Math.round((shippingValue + Number.EPSILON) * 100) / 100)
@@ -257,7 +232,7 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
         businessType,
         status: "SUBMITTED",
         subtotal,
-        discountPercent: discount,
+        discountPercent: effectiveDiscount,
         discountAmount,
         total,
         notes,
@@ -306,20 +281,27 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
 
       <Card className="p-4 space-y-4">
         <div>
-          <label className="block text-xs text-gray-500 mb-1.5">选择客户 * <span className="text-gray-400">(共 {myCustomers.length} 位)</span></label>
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <label className="block text-xs text-gray-500">选择客户 * <span className="text-gray-400">(共 {customerPool.length} 位)</span></label>
+            <div className="inline-flex border rounded-lg bg-gray-50 p-0.5">
+              <button type="button" onClick={() => changeCustomerMode('ALL')} className={`px-3 py-1.5 text-xs rounded-md ${customerMode === 'ALL' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500'}`}>全部客户</button>
+              <button type="button" onClick={() => changeCustomerMode('DEALER')} className={`px-3 py-1.5 text-xs rounded-md ${customerMode === 'DEALER' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500'}`}>经销商 {dealerCustomers.length}</button>
+            </div>
+          </div>
           {!showCustList && selectedCustomer ? (
             <div className="flex items-center gap-2">
               <div className="flex-1 border rounded-lg px-3 py-2.5 text-sm bg-purple-50 border-purple-200 flex items-center justify-between">
                 <div>
                   <span className="font-medium">{selectedCustomer.name}</span>
                   <span className="text-xs text-gray-500 ml-2">{selectedCustomer.type}</span>
+                  {dealerDiscount > 0 && <span className="text-xs text-purple-700 ml-2">{distributorLabel(selectedCustomer.distributorLevel)} · {distributorPriceLabel(selectedCustomer.distributorLevel)}</span>}
                   {selectedCustomer.phone && <span className="text-xs text-gray-400 ml-2">{selectedCustomer.phone}</span>}
                 </div>
                 <button onClick={() => { setShowCustList(true); setCustomerId(''); }} className="text-xs text-purple-600 hover:underline">更换</button>
               </div>
-              <button onClick={onNewCustomer} className="px-3 py-2 text-sm border rounded-lg text-purple-700 hover:bg-purple-50 shrink-0">
+              {customerMode === 'ALL' && <button onClick={onNewCustomer} className="px-3 py-2 text-sm border rounded-lg text-purple-700 hover:bg-purple-50 shrink-0">
                 <Plus size={14} className="inline -mt-0.5" />新建
-              </button>
+              </button>}
             </div>
           ) : (
             <div className="space-y-2">
@@ -336,9 +318,9 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
                     autoFocus
                   />
                 </div>
-                <button onClick={onNewCustomer} className="px-3 py-2 text-sm border rounded-lg text-purple-700 hover:bg-purple-50 shrink-0">
+                {customerMode === 'ALL' && <button onClick={onNewCustomer} className="px-3 py-2 text-sm border rounded-lg text-purple-700 hover:bg-purple-50 shrink-0">
                   <Plus size={14} className="inline -mt-0.5" />新建
-                </button>
+                </button>}
               </div>
 
               {/* Recent customers */}
@@ -373,6 +355,7 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
                       <div>
                         <div className="font-medium text-gray-800">{c.name}</div>
                         <div className="text-xs text-gray-400">{c.type} · {c.contact || '无联系人'} {c.phone && `· ${c.phone}`}</div>
+                        {Number(c.distributorLevel) > 0 && <div className="text-xs text-purple-600 mt-0.5">{distributorLabel(c.distributorLevel)} · {distributorPriceLabel(c.distributorLevel)}</div>}
                       </div>
                       <span className="text-xs text-purple-600">选择 →</span>
                     </div>
@@ -395,15 +378,15 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
 
         <div>
           <label className="block text-xs text-gray-500 mb-1.5">
-            折扣 (%) {user.role !== 'ADMIN' && <span className="text-gray-300">上限 {maxDiscount}%</span>}
+            {dealerDiscount > 0 ? `经销商折扣（固定 ${distributorPriceLabel(selectedCustomer.distributorLevel)}）` : <>折扣 (%) {user.role !== 'ADMIN' && <span className="text-gray-300">上限 {maxDiscount}%</span>}</>}
           </label>
-          <input type="number" min="0" max={user.role === 'ADMIN' ? 100 : maxDiscount} value={discount}
+          <input type="number" min="0" max={user.role === 'ADMIN' ? 100 : maxDiscount} value={effectiveDiscount} disabled={dealerDiscount > 0}
             onChange={e => {
               let v = Number(e.target.value) || 0;
               if (user.role !== 'ADMIN' && v > maxDiscount) v = maxDiscount;
               setDiscount(v);
             }}
-            className="w-32 border rounded-lg px-3 py-2 text-sm" />
+            className="w-32 border rounded-lg px-3 py-2 text-sm disabled:bg-purple-50 disabled:text-purple-700 disabled:border-purple-200" />
         </div>
 
         <div>
@@ -431,7 +414,7 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
       <Card className="p-4">
         <div className="space-y-2 text-sm">
           <div className="flex justify-between"><span className="text-gray-500">小计</span><span>{fmtY(subtotal)}</span></div>
-          {discountAmount > 0 && <div className="flex justify-between text-orange-600"><span>折扣 ({discount}%)</span><span>-{fmtY(discountAmount)}</span></div>}
+          {discountAmount > 0 && <div className="flex justify-between text-orange-600"><span>折扣 ({effectiveDiscount}%)</span><span>-{fmtY(discountAmount)}</span></div>}
           {shippingAmount > 0 && <div className="flex justify-between text-green-700"><span>运费</span><span>+{fmtY(shippingAmount)}</span></div>}
           <div className="flex justify-between pt-2 border-t text-base font-bold">
             <span className="text-gray-800">应付</span>
@@ -452,7 +435,7 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
 }
 
 // ═══ CUSTOMER CREATE (inline) ═══
-export function CustomerCreate({ onSave, onCancel }) {
+export function CustomerCreate({ onSave, onCancel, dealerMode = false }) {
   const { user } = useAuth();
   const { users } = useData();
   const [name, setName] = useState('');
@@ -461,7 +444,7 @@ export function CustomerCreate({ onSave, onCancel }) {
   const [address, setAddress] = useState('');
   const [type, setType] = useState(CUSTOMER_TYPES[0]);
   const [province, setProvince] = useState('');
-  const [distributorLevel, setDistributorLevel] = useState(0);
+  const [distributorLevel, setDistributorLevel] = useState(dealerMode ? 1 : 0);
   const [salesId, setSalesId] = useState(user.role === "SALES" ? user.id : 0);
   const [saving, setSaving] = useState(false);
 
@@ -469,6 +452,10 @@ export function CustomerCreate({ onSave, onCancel }) {
 
   const handleSave = async () => {
     if (!name.trim() || saving) return;
+    if (dealerMode && !salesId) {
+      alert('请选择所属销售');
+      return;
+    }
     setSaving(true);
     try {
       await onSave({ name: name.trim(), contact: contact.trim(), phone: phone.trim(), address: address.trim(), type, province, distributorLevel: distributorLevel || null, salesId: salesId || null });
@@ -485,7 +472,7 @@ export function CustomerCreate({ onSave, onCancel }) {
         <ArrowLeft size={16} />返回
       </button>
       <Card className="p-5 space-y-4">
-        <div className="text-sm font-semibold text-gray-700">新建客户</div>
+        <div className="text-sm font-semibold text-gray-700">{dealerMode ? '录入经销商' : '新建客户'}</div>
         <div className="grid grid-cols-2 gap-3">
           <div><label className="block text-xs text-gray-500 mb-1">客户名称 *</label><input value={name} onChange={e => setName(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
           <div><label className="block text-xs text-gray-500 mb-1">联系人</label><input value={contact} onChange={e => setContact(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
@@ -510,23 +497,23 @@ export function CustomerCreate({ onSave, onCancel }) {
         {user.role === "ADMIN" && (
           <div className="grid grid-cols-2 gap-3">
             {salesList.length > 0 && (
-              <div><label className="block text-xs text-gray-500 mb-1">所属销售</label>
+              <div><label className="block text-xs text-gray-500 mb-1">所属销售{dealerMode ? ' *' : ''}</label>
                 <select value={salesId} onChange={e => setSalesId(Number(e.target.value))} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
                   <option value={0}>未分配</option>
                   {salesList.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                 </select>
               </div>
             )}
-            <div><label className="block text-xs text-gray-500 mb-1">分销商等级</label>
+            <div><label className="block text-xs text-gray-500 mb-1">经销商等级</label>
               <select value={distributorLevel} onChange={e => setDistributorLevel(Number(e.target.value))} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
-                {DISTRIBUTOR_LEVELS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+                {DISTRIBUTOR_LEVELS.filter(d => !dealerMode || d.value > 0).map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
               </select>
             </div>
           </div>
         )}
         <div className="flex gap-2 pt-2">
           <button onClick={onCancel} className="px-4 py-2 text-sm border rounded-lg">取消</button>
-          <button onClick={handleSave} disabled={!name.trim() || saving} className="px-6 py-2 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>
+          <button onClick={handleSave} disabled={!name.trim() || saving || (dealerMode && !salesId)} className="px-6 py-2 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>
             {saving ? '保存中...' : '保存'}
           </button>
         </div>

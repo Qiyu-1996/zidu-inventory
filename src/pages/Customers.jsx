@@ -3,7 +3,7 @@ import { Search, Plus, ArrowLeft, Edit2, Tag, Trash2 } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
-import { Card, Badge, fmtY, CUSTOMER_TYPES, PROVINCES, DISTRIBUTOR_LEVELS, customerTier, distributorLabel } from '../components/ui';
+import { Card, Badge, fmtY, CUSTOMER_TYPES, PROVINCES, DISTRIBUTOR_LEVELS, customerTier, distributorLabel, distributorPriceLabel } from '../components/ui';
 
 const CL = ["#5C4B73","#a29bfe","#5F7689","#74b9ff","#7B8F67","#fdcb6e","#8D5F5B"];
 
@@ -14,9 +14,15 @@ export function CustomerList({ nav, onNew }) {
   const myCustomers = user.role === "ADMIN" ? customers : customers.filter(c => c.salesId === user.id);
 
   const [search, setSearch] = useState('');
+  const [customerView, setCustomerView] = useState('ALL');
   const [tf, setTf] = useState('ALL');
   const [tierF, setTierF] = useState('ALL');
   const [regionF, setRegionF] = useState('ALL');
+
+  const changeCustomerView = (view) => {
+    setCustomerView(view);
+    setTierF('ALL');
+  };
 
   // 预算每个客户的累计金额与分级
   const withTier = myCustomers.map(c => {
@@ -25,6 +31,7 @@ export function CustomerList({ nav, onNew }) {
     return { ...c, _total: tot, _tier: customerTier(tot, c.distributorLevel) };
   });
   const filtered = withTier.filter(c => {
+    if (customerView === 'DEALER' && !Number(c.distributorLevel)) return false;
     if (tierF !== 'ALL' && c._tier !== tierF) return false;
     if (tf !== 'ALL' && c.type !== tf) return false;
     if (regionF !== 'ALL' && c.province !== regionF) return false;
@@ -34,6 +41,10 @@ export function CustomerList({ nav, onNew }) {
 
   return (
     <div className="space-y-4">
+      <div className="inline-flex border rounded-lg bg-gray-50 p-1">
+        <button onClick={() => changeCustomerView('ALL')} className={`px-4 py-2 text-sm rounded-md ${customerView === 'ALL' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500'}`}>全部客户</button>
+        <button onClick={() => changeCustomerView('DEALER')} className={`px-4 py-2 text-sm rounded-md ${customerView === 'DEALER' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500'}`}>经销商 {withTier.filter(c => Number(c.distributorLevel) > 0).length}</button>
+      </div>
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <div className="flex gap-2 items-center flex-wrap">
           <div className="relative">
@@ -45,7 +56,7 @@ export function CustomerList({ nav, onNew }) {
             <option value="大客户">大客户</option>
             <option value="中客户">中客户</option>
             <option value="小客户">小客户</option>
-            <option value="分销商">分销商</option>
+            <option value="经销商">经销商</option>
           </select>
           <select value={tf} onChange={e => setTf(e.target.value)} className="border rounded-lg px-3 py-2 text-sm bg-white">
             <option value="ALL">全部类型</option>
@@ -56,9 +67,11 @@ export function CustomerList({ nav, onNew }) {
             {PROVINCES.map(p => <option key={p} value={p}>{p}</option>)}
           </select>
         </div>
-        <button onClick={onNew} className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-white text-sm font-medium shadow" style={{ background: "#5C4B73" }}>
-          <Plus size={16} />新建客户
-        </button>
+        {(customerView === 'ALL' || user.role === 'ADMIN') && (
+          <button onClick={() => onNew(customerView === 'DEALER')} className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-white text-sm font-medium shadow" style={{ background: "#5C4B73" }}>
+            <Plus size={16} />{customerView === 'DEALER' ? '录入经销商' : '新建客户'}
+          </button>
+        )}
       </div>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -95,7 +108,7 @@ export function CustomerList({ nav, onNew }) {
 // ═══ CUSTOMER DETAIL ═══
 export function CustomerDetail({ customerId, onBack }) {
   const { user } = useAuth();
-  const { customers, orders, products, users, addCustomerNote, editCustomer, removeCustomer, getCustomerTier } = useData();
+  const { customers, orders, products, users, addCustomerNote, editCustomer, removeCustomer } = useData();
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -103,7 +116,6 @@ export function CustomerDetail({ customerId, onBack }) {
   const [savingEdit, setSavingEdit] = useState(false);
 
   const customer = customers.find(c => c.id === customerId);
-  const tier = customer && getCustomerTier ? getCustomerTier(customer.id) : null;
 
   const startEdit = () => {
     if (!customer) return;
@@ -220,7 +232,7 @@ export function CustomerDetail({ customerId, onBack }) {
                     {users.filter(u => u.role === 'SALES' && u.status === 'active').map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                   </select>
                 </div>
-                <div><label className="block text-xs text-gray-500 mb-1">分销商等级</label>
+                <div><label className="block text-xs text-gray-500 mb-1">经销商等级</label>
                   <select value={editData.distributorLevel || 0} onChange={e => setEditData({ ...editData, distributorLevel: Number(e.target.value) || 0 })} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
                     {DISTRIBUTOR_LEVELS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
                   </select>
@@ -244,9 +256,9 @@ export function CustomerDetail({ customerId, onBack }) {
                   {canDelete && <button onClick={handleDeleteCustomer} title="删除客户" className="text-gray-400 hover:text-red-500 ml-2"><Trash2 size={14} /></button>}
                 </div>
                 <div className="text-sm text-gray-500">{customer.type}</div>
-                {tier && tier.discount > 0 && (
+                {Number(customer.distributorLevel) > 0 && (
                   <div className="mt-1 inline-flex items-center gap-1 text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
-                    <Tag size={12} />{tier.label} · 年消费{fmtY(tier.annualSpend)} · 享{tier.discount}%折扣
+                    <Tag size={12} />{distributorLabel(customer.distributorLevel)} · 下单自动{distributorPriceLabel(customer.distributorLevel)}
                   </div>
                 )}
               </div>
