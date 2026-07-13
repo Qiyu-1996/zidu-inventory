@@ -344,8 +344,10 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
   const canEditItems = user.role === 'ADMIN' && order.status !== 'CANCELLED';
   const unpaidShippingStatus = order.unpaidShippingStatus || 'NONE';
   const unpaidShippingApproved = order.paymentStatus !== 'PAID' && unpaidShippingStatus === 'APPROVED';
-  const canRequestUnpaidShipping = user.role === 'SALES'
-    && String(order.salesId) === String(user.id)
+  const canRequestUnpaidShipping = (
+    user.role === 'ADMIN'
+    || (user.role === 'SALES' && String(order.salesId) === String(user.id))
+  )
     && order.paymentStatus !== 'PAID'
     && ['DRAFT', 'SUBMITTED', 'CONFIRMED', 'PREPARING'].includes(order.status)
     && !['PENDING', 'APPROVED'].includes(unpaidShippingStatus)
@@ -475,14 +477,15 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
   };
   const handleRequestUnpaidShipping = async () => {
     if (!canRequestUnpaidShipping || savingUnpaidShipping) return;
-    const input = prompt('请填写未收款仍需发货的原因（如客户账期、公司特殊安排）');
+    const isAdminOverride = user.role === 'ADMIN';
+    const input = prompt(`${isAdminOverride ? '管理员将直接批准。' : ''}请填写未收款仍需发货的原因（如客户账期、公司特殊安排）`);
     if (input == null) return;
     const reason = input.trim();
     if (reason.length < 2) { alert('请填写申请原因'); return; }
     setSavingUnpaidShipping(true);
     try {
       await requestUnpaidShipping(order.id, reason);
-      alert('申请已提交，等待管理员审核');
+      alert(isAdminOverride ? '已直接批准，可安排发货' : '申请已提交，等待管理员审核');
     } catch (e) {
       alert(e.message || '申请失败');
     } finally {
@@ -893,7 +896,7 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
               type="button"
               onClick={handleRequestUnpaidShipping}
               disabled={savingUnpaidShipping}
-              title="特殊情况申请管理员审批"
+              title={user.role === 'ADMIN' ? '管理员直接批准未收款发货' : '特殊情况申请管理员审批'}
               className="text-[11px] text-gray-400 hover:text-gray-600 disabled:opacity-40"
             >
               {savingUnpaidShipping ? '提交中...' : '未收款，请发货'}

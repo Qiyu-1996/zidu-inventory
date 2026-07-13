@@ -106,10 +106,6 @@ function productRow(product, includeChannel = true, includeMassInventory = true)
   return row;
 }
 
-function isMissingOrderSourceError(error) {
-  return error?.code === 'PGRST204' || /source.*orders|channel_meta.*orders|schema cache/i.test(error?.message || '');
-}
-
 function isMissingMassInventoryError(error) {
   return error?.code === 'PGRST204' && /inventory_mode|base_stock_kg|density_/i.test(error?.message || '');
 }
@@ -157,33 +153,6 @@ function customerRow(customer, includeMeta = true) {
   if (includeMeta) {
     row.province = customer.province || null;
     row.distributor_level = customer.distributorLevel || null;
-  }
-  return row;
-}
-
-function orderRow(order, includeSource = true, includeDiscountMeta = true) {
-  const row = {
-    order_no: order.orderNo,
-    customer_id: order.customerId,
-    sales_id: order.salesId,
-    status: order.status || 'DRAFT',
-    subtotal: order.subtotal,
-    discount_percent: order.discountPercent || 0,
-    discount_amount: order.discountAmount || 0,
-    total: order.total,
-    notes: order.notes || '',
-    business_type: order.businessType || '院线',
-    created_at: order.createdAt
-  };
-  if (includeDiscountMeta) {
-    row.discount_responsibility = order.discountResponsibility || 'COMPANY';
-    row.discount_reason = order.discountReason || '';
-    row.discount_responsibility_updated_by = order.discountResponsibilityUpdatedBy || '';
-    row.discount_responsibility_updated_at = order.discountResponsibilityUpdatedAt || null;
-  }
-  if (includeSource) {
-    row.source = order.source || 'web_admin';
-    row.channel_meta = order.channelMeta || {};
   }
   return row;
 }
@@ -876,72 +845,15 @@ export async function processOrderAfterSale(orderId, payload) {
 }
 
 export async function createOrder(order) {
-  const stockItems = (order.items || []).filter(it => it.specId);
-  if (stockItems.length) {
-    const ids = [...new Set(stockItems.map(it => it.specId))];
-    const { data: available, error: stockError } = await supabase.from('product_specs').select('id,stock,spec').in('id', ids);
-    if (stockError) throw new Error(stockError.message);
-    for (const specId of ids) {
-      const lines = stockItems.filter(it => it.specId === specId);
-      const required = lines.reduce((sum, it) => sum + Number(it.quantity || 0), 0);
-      const spec = (available || []).find(s => s.id === specId);
-      if (!spec || Number(spec.stock || 0) < required) {
-        throw new Error(`${lines[0]?.productName || '商品'} ${lines[0]?.spec || spec?.spec || ''} 库存不足`);
-      }
+  const { data, error } = await supabase.rpc('zidu_create_order_atomic', { p_order: order });
+  if (error) {
+    if (/zidu_create_order_atomic|schema cache|could not find the function/i.test(error.message || '')) {
+      throw new Error('请先在 Supabase 运行 migration_v32_no_backorder_atomic_orders.sql');
     }
+    throw new Error(error.message);
   }
-  let o;
-  let oe;
-  let includeSource = true;
-  let includeDiscountMeta = true;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const result = await supabase.from('orders')
-      .insert(orderRow(order, includeSource, includeDiscountMeta))
-      .select().single();
-    o = result.data;
-    oe = result.error;
-    if (!oe) break;
-    if (includeDiscountMeta && isMissingDiscountResponsibilityError(oe)) {
-      includeDiscountMeta = false;
-      continue;
-    }
-    if (includeSource && isMissingOrderSourceError(oe)) {
-      includeSource = false;
-      continue;
-    }
-    break;
-  }
-  if (oe) throw new Error(oe.message);
-
-  if (order.items?.length) {
-    await supabase.from('order_items').insert(order.items.map(it => ({
-      order_id: o.id, product_id: it.productId, spec_id: it.specId,
-      product_name: it.productName, product_code: it.productCode, spec: it.spec,
-      quantity: it.quantity, unit_price: it.unitPrice, unit_cost: it.unitCost || 0, subtotal: it.subtotal
-    })));
-  }
-
-  if (order.logs?.length) {
-    await supabase.from('order_logs').insert(order.logs.map(l => ({
-      order_id: o.id, time: l.time, user_name: l.user, action: l.action
-    })));
-  }
-
-  // Deduct stock + record adjustments
-  for (const it of (order.items || [])) {
-    if (it.specId) {
-      await writeStockAdjustment(
-        it.specId,
-        it.productId,
-        'OUT',
-        'ORDER',
-        Number(it.quantity || 0),
-        `订单 ${order.orderNo}`,
-        order.logs?.[0]?.user || ''
-      );
-    }
-  }
-  return o.id;
+  if (data?.error) throw new Error(data.error);
+  return Number(data?.id || 0);
 }
 
 export async function updateOrderDiscountResponsibility(orderId, responsibility, reason, updatedBy = '') {
@@ -1315,7 +1227,7 @@ export async function updateOrderStatus(orderId, newStatus, logEntry, shipmentDa
 function unpaidShippingError(error, data) {
   const message = data?.error || error?.message || '';
   if (/request_unpaid_shipping|review_unpaid_shipping|unpaid_shipping_|schema cache|could not find the function/i.test(message)) {
-    return new Error('请先在 Supabase 运行 migration_v31_unpaid_shipping_approval.sql');
+    return new Error('请先在 Supabase 依次运行 migration_v31_unpaid_shipping_approval.sql 和 migration_v33_admin_unpaid_shipping_override.sql');
   }
   return new Error(message || '未收款发货申请处理失败');
 }

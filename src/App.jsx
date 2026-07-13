@@ -71,17 +71,19 @@ export default function App() {
   // Cart operations
   const addToCart = useCallback((product, specObj, qty = 1, catalogMode = null) => {
     const key = `${product.id}-${specObj.id}`;
+    const availableStock = Math.max(0, Math.floor(Number(specObj.stock || 0)));
+    if (availableStock <= 0) return;
     setCart(prev => {
       const e = prev.find(c => c.key === key);
-      if (e) return prev.map(c => c.key === key ? { ...c, quantity: Math.min(c.quantity + qty, Number(c.availableStock || c.quantity + qty)) } : c);
+      if (e) return prev.map(c => c.key === key ? { ...c, quantity: Math.min(c.quantity + qty, availableStock), availableStock } : c);
       const channel = product.channel === 'BOTH' && catalogMode ? catalogMode : (product.channel || catalogMode || 'FINISHED');
-      return [...prev, { key, productId: product.id, specId: specObj.id, spec: specObj.spec, quantity: qty, unitPrice: specObj.price, unitPriceHint: unitPriceHint(specObj.spec, specObj.price), unitCost: specObj.cost || 0, productName: product.name, productCode: product.code, channel, availableStock: Number(specObj.stock || 0) }];
+      return [...prev, { key, productId: product.id, specId: specObj.id, spec: specObj.spec, quantity: Math.min(Math.max(1, Math.floor(Number(qty) || 1)), availableStock), unitPrice: specObj.price, unitPriceHint: unitPriceHint(specObj.spec, specObj.price), unitCost: specObj.cost || 0, productName: product.name, productCode: product.code, channel, availableStock }];
     });
   }, []);
   const updateCartQty = useCallback((key, qty) => {
     const next = Math.max(0, Math.floor(Number(qty) || 0));
     if (next <= 0) setCart(p => p.filter(c => c.key !== key));
-    else setCart(p => p.map(c => c.key === key ? { ...c, quantity: Math.min(next, Number(c.availableStock || next)) } : c));
+    else setCart(p => p.map(c => c.key === key ? { ...c, quantity: Math.min(next, Math.max(0, Number(c.availableStock || 0))) } : c).filter(c => c.quantity > 0));
   }, []);
   const removeFromCart = useCallback(key => setCart(p => p.filter(c => c.key !== key)), []);
 
