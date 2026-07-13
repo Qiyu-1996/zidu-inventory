@@ -279,6 +279,7 @@ function mapCustomer(c) {
     id: c.id, name: c.name, contact: c.contact, phone: c.phone, address: c.address,
     type: c.type, salesId: c.sales_id,
     province: c.province || '', distributorLevel: c.distributor_level || null,
+    createdAt: c.created_at,
     notes: (c.notes || []).map(n => ({ id: n.id, text: n.text, by: n.by_user, time: n.created_at }))
   };
 }
@@ -1687,7 +1688,36 @@ export function calculateRestockSuggestions(products, orders) {
   const prior = orders.filter(o => { const age = now - new Date(o.createdAt).getTime(); return o.status !== 'CANCELLED' && age >= d30 && age < d60; });
 
   const suggestions = [];
-  products.forEach(p => p.specs.forEach(s => {
+  products.forEach(p => {
+    if (p.inventoryMode === 'MASS') {
+      const toKg = item => {
+        const spec = String(item.spec || '').trim().toLowerCase().replace(/\s+/g, '');
+        const match = spec.match(/^(\d+(?:\.\d+)?)(kg|公斤|千克|g|克|ml|毫升|l|升)/);
+        if (!match) return 0;
+        let value = Number(match[1]);
+        const unit = match[2];
+        if (['kg', '公斤', '千克'].includes(unit)) return value * Number(item.quantity || 0);
+        if (['g', '克'].includes(unit)) return value / 1000 * Number(item.quantity || 0);
+        if (!p.densityGml) return 0;
+        if (['l', '升'].includes(unit)) value *= 1000;
+        return value * p.densityGml / 1000 * Number(item.quantity || 0);
+      };
+      const sumKg = list => list.reduce((sum, o) => sum + (o.items || []).filter(it => it.productId === p.id).reduce((s, it) => s + toKg(it), 0), 0);
+      const recentKg = sumKg(recent);
+      const priorKg = sumKg(prior);
+      if (recentKg === 0 && priorKg === 0) return;
+      const forecast = (recentKg + priorKg) / 2;
+      const stock = Number(p.baseStockKg || 0);
+      const safe = Number(p.safeStockKg || 0);
+      const suggestedQty = Math.max(0, forecast + safe - stock);
+      if (suggestedQty > 0) {
+        const trend = priorKg > 0 ? Math.round((recentKg / priorKg - 1) * 100) : 100;
+        const urgency = stock <= safe ? 'HIGH' : stock < safe * 2 ? 'MEDIUM' : 'LOW';
+        suggestions.push({ productId: p.id, productName: p.name, productCode: p.code, specId: p.specs[0]?.id, spec: '共享重量库存', currentStock: Number(stock.toFixed(3)), safeStock: Number(safe.toFixed(3)), recent30: Number(recentKg.toFixed(3)), prior30: Number(priorKg.toFixed(3)), trend, forecast, suggestedQty: Number(suggestedQty.toFixed(3)), urgency, unit: 'kg' });
+      }
+      return;
+    }
+    p.specs.forEach(s => {
     let recentQty = 0, priorQty = 0;
     recent.forEach(o => o.items.forEach(it => { if (it.productId === p.id && it.spec === s.spec) recentQty += it.quantity; }));
     prior.forEach(o => o.items.forEach(it => { if (it.productId === p.id && it.spec === s.spec) priorQty += it.quantity; }));
@@ -1703,7 +1733,8 @@ export function calculateRestockSuggestions(products, orders) {
         recent30: recentQty, prior30: priorQty, trend, forecast, suggestedQty, urgency
       });
     }
-  }));
+    });
+  });
   const order = { HIGH: 0, MEDIUM: 1, LOW: 2 };
   return suggestions.sort((a, b) => order[a.urgency] - order[b.urgency] || b.suggestedQty - a.suggestedQty);
 }

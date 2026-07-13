@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { Home, ShoppingBag, ShoppingCart, Users, Package, Truck, TrendingUp, Settings, LogOut, X, Menu, ClipboardList, ClipboardCheck, Wallet } from 'lucide-react';
+import { Home, ShoppingBag, ShoppingCart, Users, Package, Truck, TrendingUp, Settings, LogOut, X, Menu, ClipboardList, ClipboardCheck, Wallet, RefreshCw } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import { useData } from './contexts/DataContext';
 import { LoadingScreen, unitPriceHint } from './components/ui';
@@ -18,6 +18,12 @@ import Finance from './pages/Finance';
 import ziduLogo from './assets/zidu-logo.png';
 
 const ROLE_LABEL = { ADMIN: "管理员", SALES: "销售", WAREHOUSE: "仓库", FINANCE: "财务" };
+const PAGE_TITLE = {
+  dashboard: '工作台', shop: '产品下单', orders: '订单管理', orderDetail: '订单详情',
+  customers: '客户管理', customerDetail: '客户详情', tasks: '跟进任务', inventory: '库存管理',
+  purchase: '采购管理', purchaseCreate: '新建采购单', purchaseEdit: '编辑采购单', purchaseDetail: '采购单详情',
+  shipping: '发货管理', analytics: '数据分析', finance: '财务报表', settings: '系统管理'
+};
 
 export default function App() {
   const { user, logout } = useAuth();
@@ -27,6 +33,7 @@ export default function App() {
   const [subView, setSubView] = useState(null);
   const [sideOpen, setSideOpen] = useState(false);
   const [cart, setCart] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
 
   // 每 30 秒自动刷新订单检查新订单
   useEffect(() => {
@@ -55,6 +62,10 @@ export default function App() {
   }, [orders, user]);
 
   const nav = useCallback((p, sub) => { setPage(p); setSubView(sub ?? null); setSideOpen(false); }, []);
+  const refreshNow = async () => {
+    setRefreshing(true);
+    try { await reload(); } finally { setRefreshing(false); }
+  };
 
   // Cart operations
   const addToCart = useCallback((product, specObj, qty = 1) => {
@@ -108,16 +119,16 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen" style={{ fontFamily: "'Noto Sans SC',-apple-system,sans-serif", background: "#EFEAE2" }}>
+    <div className="zidu-shell flex h-screen">
       {/* Desktop sidebar */}
-      <aside className="hidden md:flex flex-col w-56 shrink-0" style={{ background: "#2E2740" }}>
-        <div className="p-4 border-b border-white/10">
-          <img src={ziduLogo} alt="紫都 ZIDU" style={{ height: 26, filter: 'brightness(0) invert(1)', opacity: 0.95 }} />
-          <div className="text-xs text-purple-300/60 mt-1.5">业务管理平台</div>
+      <aside className="zidu-sidebar hidden md:flex flex-col w-60 shrink-0">
+        <div className="px-5 py-5 border-b border-white/10">
+          <img src={ziduLogo} alt="紫都 ZIDU" style={{ height: 25, filter: 'brightness(0) invert(1)', opacity: 0.96 }} />
+          <div className="text-[11px] text-purple-300/55 mt-2">销售 · 客户 · 库存管理</div>
         </div>
-        <nav className="flex-1 py-2 overflow-y-auto">
+        <nav className="flex-1 py-3 overflow-y-auto">
           {menuItems.map(m => (
-            <button key={m.key} onClick={() => nav(m.key)} className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-all ${page === m.key ? "bg-purple-500/20 text-white border-r-2 border-purple-400" : "text-purple-200/70 hover:bg-white/5 hover:text-white"}`}>
+            <button key={m.key} onClick={() => nav(m.key)} className={`zidu-nav-item ${page === m.key ? 'active' : ''} flex items-center gap-3 text-sm`}>
               <m.icon size={18} />{m.label}
               {m.badge && <span className="ml-auto bg-purple-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">{m.badge}</span>}
             </button>
@@ -138,7 +149,7 @@ export default function App() {
       {/* Mobile sidebar overlay */}
       {sideOpen && <div className="md:hidden fixed inset-0 z-40 bg-black/50" onClick={() => setSideOpen(false)} />}
       {sideOpen && (
-        <aside className="md:hidden fixed left-0 top-0 bottom-0 z-50 w-64 flex flex-col" style={{ background: "#2E2740" }}>
+        <aside className="zidu-sidebar md:hidden fixed left-0 top-0 bottom-0 z-50 w-64 flex flex-col">
           <div className="p-4 border-b border-white/10 flex justify-between items-center">
             <img src={ziduLogo} alt="紫都 ZIDU" style={{ height: 24, filter: 'brightness(0) invert(1)', opacity: 0.95 }} />
             <button onClick={() => setSideOpen(false)} className="text-white"><X size={20} /></button>
@@ -156,13 +167,17 @@ export default function App() {
 
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center gap-3 shrink-0 shadow-sm min-h-[64px]">
+        <header className="zidu-topbar px-6 flex items-center gap-3 shrink-0">
           <button className="md:hidden" onClick={() => setSideOpen(true)}><Menu size={22} className="text-gray-600" /></button>
-          <h1 className="text-lg font-semibold text-gray-800 flex-1">{menuItems.find(m => m.key === page)?.label || "详情"}</h1>
-          <div className="text-sm text-gray-500 hidden sm:flex items-center gap-2">
-            <span>你好，{user.name}</span>
-            <span className="text-gray-300">|</span>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">{ROLE_LABEL[user.role] || user.role}</span>
+          <div className="flex-1 min-w-0">
+            <div className="zidu-eyebrow hidden sm:block">ZIDU BUSINESS</div>
+            <h1 className="zidu-page-title truncate">{PAGE_TITLE[page] || menuItems.find(m => m.key === page)?.label || '详情'}</h1>
+          </div>
+          <div className="hidden lg:block text-xs text-gray-400">{new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}</div>
+          <button onClick={refreshNow} disabled={refreshing} className="zidu-icon-button" title="刷新云端数据"><RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /></button>
+          <div className="text-sm text-gray-500 hidden sm:flex items-center gap-2 pl-2 border-l border-gray-200">
+            <span>{user.name}</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">{ROLE_LABEL[user.role] || user.role}</span>
           </div>
           {user.role === "SALES" && (
             <button onClick={() => nav("shop")} className="relative p-2 rounded-lg hover:bg-gray-100">
@@ -171,7 +186,7 @@ export default function App() {
             </button>
           )}
         </header>
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
+        <main className="flex-1 overflow-y-auto p-4 md:p-6"><div className="zidu-page">
           {page === "dashboard" && <Dashboard nav={nav} />}
           {page === "shop" && !subView && <ShopCatalog cart={cart} addToCart={addToCart} updateCartQty={updateCartQty} removeFromCart={removeFromCart} onCheckout={() => setSubView("checkout")} />}
           {page === "shop" && subView === "checkout" && <Checkout cart={cart} onBack={() => setSubView(null)} onPlaceOrder={handlePlaceOrder} onNewCustomer={() => setSubView("newcust")} />}
@@ -182,7 +197,7 @@ export default function App() {
           {page === "customers" && subView === "newcust" && <CustomerCreate onSave={handleNewCustomerFromList} onCancel={() => setSubView(null)} />}
           {page === "customerDetail" && <CustomerDetail customerId={subView} onBack={() => nav("customers")} />}
           {page === "tasks" && <Tasks />}
-          {page === "inventory" && <Inventory />}
+          {page === "inventory" && <Inventory nav={nav} />}
           {page === "purchase" && !subView && <PurchaseOrderList nav={nav} />}
           {page === "purchaseCreate" && <PurchaseOrderCreate onBack={() => nav('purchase')} />}
           {page === "purchaseEdit" && <PurchaseOrderCreate editPo={purchaseOrders.find(po => po.id === subView)} onBack={() => nav('purchaseDetail', subView)} />}
@@ -191,7 +206,7 @@ export default function App() {
           {page === "analytics" && <Analytics />}
           {page === "finance" && <Finance />}
           {page === "settings" && <SettingsPage />}
-        </main>
+        </div></main>
       </div>
     </div>
   );

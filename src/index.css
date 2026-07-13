@@ -34,6 +34,103 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+html, body, #root { min-height: 100%; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", sans-serif;
+}
+
+button, input, select, textarea { letter-spacing: 0; }
+button { transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, opacity 150ms ease; }
+input, select, textarea {
+  border-color: #E0D7C8;
+  color: #3F3650;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: #8D7AA6;
+  box-shadow: 0 0 0 3px rgba(141, 122, 166, 0.12);
+}
+
+.zidu-shell { background: #EFEAE2; }
+.zidu-sidebar {
+  background: #30283F;
+  border-right: 1px solid rgba(255,255,255,0.06);
+}
+.zidu-nav-item {
+  width: calc(100% - 20px);
+  min-height: 42px;
+  margin: 2px 10px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: rgba(232, 220, 240, 0.68);
+}
+.zidu-nav-item:hover { background: rgba(255,255,255,0.06); color: #fff; }
+.zidu-nav-item.active {
+  background: rgba(161, 132, 216, 0.18);
+  color: #fff;
+  box-shadow: inset 3px 0 0 #F3BD5B;
+}
+.zidu-topbar {
+  min-height: 64px;
+  background: rgba(255,255,255,0.94);
+  border-bottom: 1px solid #E8E0D3;
+}
+.zidu-page { width: 100%; max-width: 1600px; margin: 0 auto; }
+.zidu-eyebrow { color: #A89D8E; font-size: 11px; line-height: 1.2; }
+.zidu-page-title { color: #3F3650; font-size: 18px; line-height: 1.3; font-weight: 500; }
+.zidu-icon-button {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #E6DECF;
+  border-radius: 8px;
+  color: #746B62;
+  background: #FBF8F2;
+}
+.zidu-icon-button:hover { border-color: #B7A6D6; color: #5C4B73; background: #F1EEF6; }
+.zidu-icon-button:disabled { opacity: 0.45; }
+
+.zidu-section-title { color: #3F3650; font-size: 14px; font-weight: 500; }
+.zidu-section-sub { color: #A89D8E; font-size: 11px; }
+.zidu-segment {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 3px;
+  border: 1px solid #E4DBCD;
+  border-radius: 9px;
+  background: #F4EFE6;
+}
+.zidu-segment button {
+  min-height: 32px;
+  padding: 0 13px;
+  border-radius: 6px;
+  color: #746B62;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.zidu-segment button.active {
+  background: #fff;
+  color: #5C4B73;
+  box-shadow: 0 1px 4px rgba(63,54,80,0.10);
+}
+
+.zidu-table thead { background: #F8F4ED; }
+.zidu-table th { color: #8A8178; font-weight: 500; white-space: nowrap; }
+.zidu-table tbody tr:hover { background: #FBF8F2; }
+.zidu-table td, .zidu-table th { border-color: #EEE6D9; }
+.zidu-table tr { border-color: #EEE6D9; }
+
+@media (max-width: 767px) {
+  .zidu-topbar { min-height: 58px; padding-left: 16px; padding-right: 16px; }
+  .zidu-page { padding-bottom: 24px; }
+  .zidu-segment button { padding-left: 11px; padding-right: 11px; font-size: 12px; }
+}
+
 /* Soft Wellness 字重收敛：禁 700，重字统一落到 500，保持温暖疗愈感 */
 .font-bold,
 .font-extrabold,
@@ -47,12 +144,12 @@ body {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border-radius: 12px;
+  border-radius: 8px;
   background: #5C4B73;
   color: #fff;
   font-weight: 500;
   padding: 9px 16px;
-  box-shadow: 0 6px 22px rgba(92, 75, 115, 0.06);
+  box-shadow: 0 5px 16px rgba(92, 75, 115, 0.14);
   transition: background 0.15s ease, opacity 0.15s ease;
 }
 .btn-primary:hover { background: #4E4063; }

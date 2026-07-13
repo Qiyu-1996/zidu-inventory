@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Search, Edit2, Download, Package, X, AlertTriangle, ClipboardCopy } from 'lucide-react';
+import { Search, Edit2, Download, Package, X, AlertTriangle, ClipboardCopy, Boxes, Scale, TestTube2, CalendarClock, SlidersHorizontal, ClipboardList } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, fmtY, SERIES_LIST, exportCSV, today } from '../components/ui';
@@ -25,7 +25,7 @@ const STOCK_PILL = {
   out: 'bg-red-600 text-white'
 };
 
-export default function Inventory() {
+export default function Inventory({ nav }) {
   const { user } = useAuth();
   const { products, stockLog, loadStockLog, adjustStock, addBatch, removeBatch } = useData();
   const isAdmin = user.role === 'ADMIN';
@@ -34,6 +34,7 @@ export default function Inventory() {
   const [tab, setTab] = useState('list');
   const [search, setSearch] = useState('');
   const [sf, setSf] = useState('ALL');
+  const [cf, setCf] = useState('ALL');
   const [lowOnly, setLowOnly] = useState(false);
 
   const [adjustFor, setAdjustFor] = useState(null);
@@ -50,35 +51,67 @@ export default function Inventory() {
   const [loadingBatches, setLoadingBatches] = useState(false);
 
   useEffect(() => { if (tab === 'log') loadStockLog(); }, [tab, loadStockLog]);
-  useEffect(() => { if (tab === 'batches') { setLoadingBatches(true); api.fetchBatches().then(setBatchList).finally(() => setLoadingBatches(false)); } }, [tab]);
+  useEffect(() => {
+    setLoadingBatches(true);
+    api.fetchBatches().then(setBatchList).finally(() => setLoadingBatches(false));
+  }, []);
 
   const stats = useMemo(() => {
-    let sku = 0, low = 0, out = 0, costVal = 0, retailVal = 0, noCost = 0;
-    products.forEach(p => p.specs.forEach(s => {
-      sku++;
-      if (s.stock <= 0) { out++; low++; }
-      else if (s.stock <= s.safeStock) low++;
-      costVal += s.stock * (s.cost || 0);
-      retailVal += s.stock * (s.price || 0);
-      if (!s.cost) noCost++;
-    }));
-    return { sku, low, out, costVal, retailVal, margin: retailVal - costVal, noCost };
-  }, [products]);
+    let sku = 0, low = 0, out = 0, costVal = 0, retailVal = 0, noCost = 0, rawKg = 0, massProducts = 0, densityMissing = 0;
+    products.forEach(p => {
+      const productLow = p.inventoryMode === 'MASS'
+        ? Number(p.baseStockKg || 0) <= Number(p.safeStockKg || 0)
+        : p.specs.some(s => s.stock <= s.safeStock);
+      const productOut = p.inventoryMode === 'MASS'
+        ? Number(p.baseStockKg || 0) <= 0
+        : p.specs.length > 0 && p.specs.every(s => s.stock <= 0);
+      if (productLow) low++;
+      if (productOut) out++;
+      if (p.inventoryMode === 'MASS') {
+        rawKg += Number(p.baseStockKg || 0);
+        massProducts++;
+      } else {
+        p.specs.forEach(s => {
+          costVal += s.stock * (s.cost || 0);
+          retailVal += s.stock * (s.price || 0);
+          if (!s.cost) noCost++;
+        });
+      }
+      if (p.channel === 'RAW' && p.specs.some(s => /(?:ml|毫升|l|升)/i.test(s.spec)) && !p.densityGml) densityMissing++;
+      sku += p.specs.length;
+    });
+    const now = Date.now();
+    const expiring = batchList.filter(b => b.expiryDate && new Date(b.expiryDate).getTime() >= now && new Date(b.expiryDate).getTime() - now < 90 * 86400000).length;
+    const expired = batchList.filter(b => b.expiryDate && new Date(b.expiryDate).getTime() < now && Number(b.remainingQty || 0) > 0).length;
+    return { sku, low, out, costVal, retailVal, margin: retailVal - costVal, noCost, rawKg, massProducts, densityMissing, expiring, expired };
+  }, [products, batchList]);
 
   const filtered = products
     .filter(p => {
       if (sf !== 'ALL' && p.series !== sf) return false;
+      if (cf === 'RAW' && p.channel !== 'RAW') return false;
+      if (cf === 'FINISHED' && p.channel !== 'FINISHED') return false;
+      if (cf === 'MASS' && p.inventoryMode !== 'MASS') return false;
+      if (cf === 'DENSITY' && !(p.channel === 'RAW' && p.specs.some(s => /(?:ml|毫升|l|升)/i.test(s.spec)) && !p.densityGml)) return false;
       if (search && !`${p.code} ${p.name}`.toLowerCase().includes(search.toLowerCase())) return false;
-      if (lowOnly && !p.specs.some(s => s.stock <= s.safeStock)) return false;
+      if (lowOnly && !(p.inventoryMode === 'MASS' ? Number(p.baseStockKg || 0) <= Number(p.safeStockKg || 0) : p.specs.some(s => s.stock <= s.safeStock))) return false;
       return true;
     })
     .sort((a, b) => (b.specs.some(s => s.stock <= s.safeStock) ? 1 : 0) - (a.specs.some(s => s.stock <= s.safeStock) ? 1 : 0));
 
   const copyRestockList = () => {
     const lines = [];
-    products.forEach(p => p.specs.forEach(s => {
-      if (s.stock <= s.safeStock) lines.push(`${p.name} ${s.spec} 剩${s.stock}/安全${s.safeStock}${s.stock <= 0 ? '（售罄）' : ''}`);
-    }));
+    products.forEach(p => {
+      if (p.inventoryMode === 'MASS') {
+        const stock = Number(p.baseStockKg || 0);
+        const safe = Number(p.safeStockKg || 0);
+        if (stock <= safe) lines.push(`${p.name} 实际${stock.toFixed(3)}kg/安全${safe.toFixed(3)}kg${stock <= 0 ? '（售罄）' : ''}`);
+        return;
+      }
+      p.specs.forEach(s => {
+        if (s.stock <= s.safeStock) lines.push(`${p.name} ${s.spec} 剩${s.stock}/安全${s.safeStock}${s.stock <= 0 ? '（售罄）' : ''}`);
+      });
+    });
     if (!lines.length) { alert('当前无缺货品'); return; }
     navigator.clipboard.writeText(`【紫都补货清单】${today()}\n${lines.join('\n')}`).then(
       () => alert(`已复制 ${lines.length} 项补货清单`), () => alert('复制失败，请手动复制'));
@@ -126,59 +159,73 @@ export default function Inventory() {
   };
 
   const exportLog = () => exportCSV(
-    ['时间', '产品ID', '规格ID', '类型', '原因', '数量', '前库存', '后库存', '操作人', '备注'],
-    stockLog.map(l => [l.created_at, l.product_id, l.spec_id, TYPE_LABEL[l.type], REASONS[l.reason] || l.reason, l.quantity, l.before_stock, l.after_stock, l.operator_name, l.note]),
+    ['时间', '产品ID', '规格ID', '类型', '原因', '规格数量', '前库存', '后库存', '变动kg', '前kg', '后kg', '操作人', '备注'],
+    stockLog.map(l => [l.created_at, l.product_id, l.spec_id, TYPE_LABEL[l.type], REASONS[l.reason] || l.reason, l.quantity, l.before_stock, l.after_stock, l.quantity_kg, l.before_stock_kg, l.after_stock_kg, l.operator_name, l.note]),
     `库存变动_${today()}.csv`);
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <div className="zidu-section-title">库存运营工作台</div>
+          <div className="zidu-section-sub mt-1">原料共享 kg 库存 · 成品独立 SKU · 批次与出入库全程追溯</div>
+        </div>
+        <div className="flex items-center gap-2 overflow-x-auto max-w-full pb-1"><div className="zidu-segment">
         {[['list', '库存概览'], ['batches', '批次 / GC-MS 追溯'], ['log', '出入库记录']].map(([k, l]) => (
-          <button key={k} onClick={() => setTab(k)} className={`px-4 py-2 text-sm rounded-lg border ${tab === k ? 'bg-purple-100 border-purple-300 text-purple-700' : 'bg-white text-gray-600'}`}>{l}</button>
+          <button key={k} onClick={() => setTab(k)} className={tab === k ? 'active' : ''}>{l}</button>
         ))}
+        </div>{canAdjust && <button onClick={() => nav?.('purchase')} className="h-10 px-3 rounded-lg border border-purple-200 text-purple-700 bg-white text-xs flex items-center gap-1.5 hover:bg-purple-50 shrink-0 whitespace-nowrap"><ClipboardList size={14} />采购管理</button>}</div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+        <Card className="p-4"><div className="flex items-center justify-between"><div><div className="text-xs text-gray-500">在库产品</div><div className="text-2xl font-medium mt-1 tabular-nums">{products.length}</div><div className="text-[11px] text-gray-400 mt-1">{stats.sku} 个销售规格</div></div><div className="w-9 h-9 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center"><Boxes size={18} /></div></div></Card>
+        <Card className="p-4"><div className="flex items-center justify-between"><div><div className="text-xs text-gray-500">原料实际库存</div><div className="text-2xl font-medium mt-1 tabular-nums">{stats.rawKg.toFixed(3)}<span className="text-xs text-gray-400 ml-1">kg</span></div><div className="text-[11px] text-gray-400 mt-1">{stats.massProducts} 项共享重量库存</div></div><div className="w-9 h-9 rounded-lg bg-green-50 text-green-700 flex items-center justify-center"><Scale size={18} /></div></div></Card>
+        <Card className={stats.low ? 'p-4 border-amber-200' : 'p-4'}><div className="flex items-center justify-between"><div><div className="text-xs text-gray-500">需要补货</div><div className={`text-2xl font-medium mt-1 tabular-nums ${stats.low ? 'text-amber-700' : ''}`}>{stats.low}</div><div className="text-[11px] text-gray-400 mt-1">{stats.out} 项全部售罄</div></div><div className="w-9 h-9 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center"><AlertTriangle size={18} /></div></div></Card>
+        <Card className={stats.densityMissing ? 'p-4 border-red-200' : 'p-4'}><div className="flex items-center justify-between"><div><div className="text-xs text-gray-500">待补密度</div><div className={`text-2xl font-medium mt-1 tabular-nums ${stats.densityMissing ? 'text-red-600' : ''}`}>{stats.densityMissing}</div><div className="text-[11px] text-gray-400 mt-1">影响 ml 自动换算</div></div><div className="w-9 h-9 rounded-lg bg-red-50 text-red-600 flex items-center justify-center"><TestTube2 size={18} /></div></div></Card>
+        <Card className={(stats.expiring || stats.expired) ? 'p-4 border-orange-200 col-span-2 md:col-span-1' : 'p-4 col-span-2 md:col-span-1'}><div className="flex items-center justify-between"><div><div className="text-xs text-gray-500">批次效期</div><div className="text-2xl font-medium mt-1 tabular-nums">{stats.expiring + stats.expired}</div><div className="text-[11px] text-gray-400 mt-1">临期 {stats.expiring} · 过期 {stats.expired}</div></div><div className="w-9 h-9 rounded-lg bg-orange-50 text-orange-700 flex items-center justify-center"><CalendarClock size={18} /></div></div></Card>
       </div>
 
       {tab === 'list' && (
         <>
-          <div className="grid grid-cols-3 gap-3">
-            <Card className="p-3 text-center"><div className="text-2xl font-medium text-gray-800">{stats.sku}</div><div className="text-xs text-gray-400 mt-0.5">SKU 总数</div></Card>
-            <Card className={`p-3 text-center ${stats.low > 0 ? 'border-red-200' : ''}`}><div className={`text-2xl font-medium ${stats.low > 0 ? 'text-red-600' : 'text-gray-800'}`}>{stats.low}</div><div className="text-xs text-gray-400 mt-0.5">需补货</div></Card>
-            <Card className={`p-3 text-center ${stats.out > 0 ? 'border-red-200' : ''}`}><div className={`text-2xl font-medium ${stats.out > 0 ? 'text-red-600' : 'text-gray-800'}`}>{stats.out}</div><div className="text-xs text-gray-400 mt-0.5">已售罄</div></Card>
-          </div>
-
           {isAdmin && (
-            <Card className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-sm font-medium text-gray-700">库存估值</div>
-                <button onClick={backfillCost} className="text-xs text-purple-700 border border-purple-200 rounded-lg px-2.5 py-1 hover:bg-purple-50">用最新批次成本回填</button>
+            <Card className="px-4 py-3">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div><div className="text-sm font-medium text-gray-700">独立 SKU 库存估值</div><div className="text-[11px] text-gray-400 mt-0.5">重量原料使用共享 kg，不重复累计各销售规格</div></div>
+                <div className="flex items-center gap-5 text-right">
+                  <div><div className="text-[11px] text-gray-400">成本参考</div><div className="text-sm font-medium tabular-nums">{fmtY(stats.costVal)}</div></div>
+                  <div><div className="text-[11px] text-gray-400">零售参考</div><div className="text-sm font-medium tabular-nums">{fmtY(stats.retailVal)}</div></div>
+                  <button onClick={backfillCost} className="text-xs text-purple-700 border border-purple-200 rounded-lg px-3 py-2 hover:bg-purple-50">回填批次成本</button>
+                </div>
               </div>
-              <div className="grid grid-cols-3 gap-3 text-center">
-                <div><div className="text-lg font-medium text-gray-800">{fmtY(stats.costVal)}</div><div className="text-xs text-gray-400">成本价值</div></div>
-                <div><div className="text-lg font-medium text-gray-800">{fmtY(stats.retailVal)}</div><div className="text-xs text-gray-400">零售价值</div></div>
-                <div><div className="text-lg font-medium" style={{ color: '#7B8F67' }}>{fmtY(stats.margin)}</div><div className="text-xs text-gray-400">潜在毛利</div></div>
-              </div>
-              {stats.noCost > 0 && <div className="text-xs text-gray-400 mt-2">· {stats.noCost} 个 SKU 未录成本，未计入成本价值</div>}
             </Card>
           )}
 
-          <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
-            <div className="relative">
+          <div className="flex flex-col lg:flex-row gap-3 lg:items-center justify-between">
+            <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+            <div className="relative flex-1 sm:flex-none">
               <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
-              <input placeholder="搜索产品名/编码" value={search} onChange={e => setSearch(e.target.value)} className="pl-9 pr-3 py-2 text-sm border rounded-lg w-52 focus:outline-none focus:ring-2 focus:ring-purple-300" />
+              <input placeholder="搜索产品名 / 编码" value={search} onChange={e => setSearch(e.target.value)} className="pl-9 pr-3 py-2 text-sm border rounded-lg w-full sm:w-56 bg-white" />
             </div>
             <select value={sf} onChange={e => setSf(e.target.value)} className="border rounded-lg px-3 py-2 text-sm bg-white">
               <option value="ALL">全部系列</option>
               {SERIES_LIST.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
-            <button onClick={() => setLowOnly(!lowOnly)} className={`flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border ${lowOnly ? 'bg-red-600 border-red-600 text-white' : 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'}`}><AlertTriangle size={14} />仅看缺货</button>
+            <select value={cf} onChange={e => setCf(e.target.value)} className="border rounded-lg px-3 py-2 text-sm bg-white">
+              <option value="ALL">全部库存类型</option><option value="RAW">原料</option><option value="FINISHED">成品</option><option value="MASS">共享 kg 库存</option><option value="DENSITY">待补密度</option>
+            </select>
+            <button onClick={() => setLowOnly(!lowOnly)} className={`flex items-center justify-center gap-1.5 px-3 py-2 text-sm rounded-lg border ${lowOnly ? 'bg-red-600 border-red-600 text-white' : 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'}`}><AlertTriangle size={14} />仅看缺货</button>
+            </div>
+            <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400 hidden xl:inline"><SlidersHorizontal size={13} className="inline mr-1" />显示 {filtered.length} / {products.length} 项</span>
             {stats.low > 0 && <button onClick={copyRestockList} className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-purple-200 text-purple-700 hover:bg-purple-50"><ClipboardCopy size={14} />复制补货清单</button>}
+            </div>
           </div>
 
           {batchFor && (
-            <Card className="p-4 border-green-200">
+            <Card className="p-4 border-green-200 bg-[#FCFDF9]">
               <div className="flex items-center justify-between mb-3">
-                <div className="text-sm font-medium">批次入库：{batchFor.product.name}（{batchFor.spec.spec}）· 当前库存 {batchFor.spec.stock}</div>
-                <button onClick={() => setBatchFor(null)} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+                <div><div className="text-sm font-medium">批次入库 · {batchFor.product.name}</div><div className="text-[11px] text-gray-400 mt-0.5">{batchFor.product.inventoryMode === 'MASS' || batchFor.product.channel === 'RAW' ? `按 kg 入库 · 当前实际 ${Number(batchFor.product.baseStockKg || 0).toFixed(3)} kg` : `${batchFor.spec.spec} · 当前 ${batchFor.spec.stock}`}</div></div>
+                <button onClick={() => setBatchFor(null)} className="zidu-icon-button"><X size={15} /></button>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 <div><label className="block text-xs text-gray-500 mb-1">批次号 *</label><input value={batchData.batchNo} onChange={e => setBatchData({ ...batchData, batchNo: e.target.value })} placeholder="如 LAV202604" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
@@ -195,14 +242,14 @@ export default function Inventory() {
                 <div className="col-span-2"><label className="block text-xs text-gray-500 mb-1">备注</label><input value={batchData.note} onChange={e => setBatchData({ ...batchData, note: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
               </div>
               <div className="flex gap-2 mt-3">
-                <button onClick={() => setBatchFor(null)} className="px-3 py-1.5 text-sm border rounded-lg">取消</button>
-                <button onClick={handleSaveBatch} disabled={!batchData.batchNo || !batchData.quantity || savingBatch} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: '#5C4B73' }}>{savingBatch ? '保存中...' : '确认入库'}</button>
+                <button onClick={() => setBatchFor(null)} className="px-3 py-2 text-sm border rounded-lg bg-white">取消</button>
+                <button onClick={handleSaveBatch} disabled={!batchData.batchNo || !batchData.quantity || savingBatch} className="btn-primary text-sm">{savingBatch ? '保存中...' : '确认入库'}</button>
               </div>
             </Card>
           )}
 
           {adjustFor && (
-            <Card className="p-4 border-purple-200">
+            <Card className="p-4 border-purple-200 bg-[#FBF9FD]">
               <div className="text-sm font-medium mb-3">调整库存：{adjustFor.product.name}（{adjustFor.spec.spec}）· 当前库存 {adjustFor.spec.stock}</div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div><label className="block text-xs text-gray-500 mb-1">类型</label>
@@ -219,38 +266,42 @@ export default function Inventory() {
                 <div><label className="block text-xs text-gray-500 mb-1">备注</label><input value={adjNote} onChange={e => setAdjNote(e.target.value)} placeholder="可选" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
               </div>
               <div className="flex gap-2 mt-3">
-                <button onClick={() => setAdjustFor(null)} className="px-3 py-1.5 text-sm border rounded-lg">取消</button>
-                <button onClick={handleAdjust} disabled={(!adjQty && adjType !== 'CORRECTION') || adjusting} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: '#5C4B73' }}>{adjusting ? '处理中...' : '确认调整'}</button>
+                <button onClick={() => setAdjustFor(null)} className="px-3 py-2 text-sm border rounded-lg bg-white">取消</button>
+                <button onClick={handleAdjust} disabled={(!adjQty && adjType !== 'CORRECTION') || adjusting} className="btn-primary text-sm">{adjusting ? '处理中...' : '确认调整'}</button>
               </div>
             </Card>
           )}
 
           <Card>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead><tr className="border-b bg-gray-50/80">
+              <table className="zidu-table w-full text-sm">
+                <thead><tr className="border-b">
                   <th className="text-left py-3 px-4 text-xs text-gray-500 font-medium">编号</th>
                   <th className="text-left py-3 px-4 text-xs text-gray-500 font-medium">产品</th>
-                  <th className="text-left py-3 px-4 text-xs text-gray-500 font-medium hidden md:table-cell">系列</th>
-                  <th className="text-left py-3 px-4 text-xs text-gray-500 font-medium">规格 · 价格{isAdmin ? '/成本' : ''} · 库存</th>
+                  <th className="text-left py-3 px-4 text-xs text-gray-500 font-medium">库存基准</th>
+                  <th className="text-left py-3 px-4 text-xs text-gray-500 font-medium">可售规格 · 价格{isAdmin ? ' / 成本' : ''}</th>
                 </tr></thead>
                 <tbody>{filtered.map(p => (
-                  <tr key={p.id} className="border-b last:border-0 hover:bg-gray-50 align-top">
+                  <tr key={p.id} className="border-b last:border-0 align-top">
                     <td className="py-2.5 px-4 font-mono text-xs text-gray-500">{p.code}</td>
-                    <td className="py-2.5 px-4"><div className="text-gray-800 font-medium">{p.name}</div><div className="text-xs text-gray-400">{p.origin}</div></td>
-                    <td className="py-2.5 px-4 text-xs text-gray-500 hidden md:table-cell">{p.series}</td>
+                    <td className="py-2.5 px-4 min-w-40"><div className="text-gray-800 font-medium">{p.name}</div><div className="text-xs text-gray-400 mt-0.5">{p.origin} · {p.series}</div></td>
+                    <td className="py-2.5 px-4 min-w-44">
+                      {p.inventoryMode === 'MASS' ? <>
+                        <div className="flex items-baseline gap-1"><span className="text-lg font-medium text-purple-700 tabular-nums">{Number(p.baseStockKg || 0).toFixed(3)}</span><span className="text-xs text-gray-400">kg</span></div>
+                        <div className="text-[11px] text-gray-400 mt-0.5">共享重量库存 · {p.densityGml ? `${p.densityGml} g/ml @ ${p.densityTemperatureC}°C` : '密度未录'}</div>
+                      </> : <><div className="text-xs font-medium text-gray-600">独立 SKU 库存</div><div className="text-[11px] text-gray-400 mt-1">{p.channel === 'RAW' ? '原料尚未启用 kg 管理' : '各规格分别入库与扣减'}</div></>}
+                    </td>
                     <td className="py-2.5 px-4">
-                      {p.inventoryMode === 'MASS' && <div className="text-xs text-purple-700 mb-1.5">重量库存 {p.baseStockKg.toFixed(3)} kg{p.densityGml ? ` · 密度 ${p.densityGml} g/ml @ ${p.densityTemperatureC}°C` : ' · 密度未录'}</div>}
                       <div className="flex flex-wrap gap-1.5">
                         {p.specs.map(s => (
-                          <div key={s.id} className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md ${STOCK_PILL[level(s.stock, s.safeStock)]}`}>
+                          <div key={s.id} className={`inline-flex items-center gap-1 text-xs px-2 py-1.5 rounded-md ${STOCK_PILL[level(s.stock, s.safeStock)]}`}>
                             <span>{s.spec}</span>
                             {user.role !== 'SALES' && <span>· {fmtY(s.price)}</span>}
                             {isAdmin && <span className="opacity-70">/{s.cost ? fmtY(s.cost) : '未录'}</span>}
                             <span>· 剩{s.stock}</span>
                             {canAdjust && (<>
-                              <button onClick={() => startAdjust(p, s)} title="调整库存" className="ml-1 text-purple-600 hover:text-purple-800"><Edit2 size={11} /></button>
-                              <button onClick={() => startBatch(p, s)} title="批次入库" className="text-green-600 hover:text-green-800"><Package size={11} /></button>
+                              <button onClick={() => startAdjust(p, s)} title="调整库存" className="ml-1 w-5 h-5 inline-flex items-center justify-center rounded hover:bg-white/60 text-purple-600"><Edit2 size={11} /></button>
+                              <button onClick={() => startBatch(p, s)} title={p.inventoryMode === 'MASS' || p.channel === 'RAW' ? '按 kg 批次入库' : '批次入库'} className="w-5 h-5 inline-flex items-center justify-center rounded hover:bg-white/60 text-green-700"><Package size={11} /></button>
                             </>)}
                           </div>
                         ))}
@@ -267,11 +318,14 @@ export default function Inventory() {
 
       {tab === 'batches' && (
         <>
-          <div className="text-sm text-gray-500">共 {batchList.length} 个批次 · 按入库日期降序</div>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div><div className="text-sm text-gray-600">共 {batchList.length} 个批次</div><div className="text-[11px] text-gray-400 mt-0.5">按入库日期降序 · 批次删除会同步回退对应剩余库存</div></div>
+            <div className="flex items-center gap-3 text-xs"><span className="text-amber-700">临期 {stats.expiring}</span><span className="text-red-600">过期 {stats.expired}</span></div>
+          </div>
           <Card>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead><tr className="border-b bg-gray-50/80">
+              <table className="zidu-table w-full text-sm">
+                <thead><tr className="border-b">
                   <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">批次号</th>
                   <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">产品/规格</th>
                   <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">GC-MS</th>
@@ -286,17 +340,20 @@ export default function Inventory() {
                   {!loadingBatches && batchList.map(b => {
                     const product = products.find(p => p.id === b.productId);
                     const spec = product?.specs.find(s => s.id === b.specId);
-                    const expiringSoon = b.expiryDate && (new Date(b.expiryDate).getTime() - Date.now()) < 90 * 86400000;
+                    const expiryTime = b.expiryDate ? new Date(b.expiryDate).getTime() : null;
+                    const expired = expiryTime && expiryTime < Date.now() && Number(b.remainingQty || 0) > 0;
+                    const expiringSoon = expiryTime && !expired && expiryTime - Date.now() < 90 * 86400000;
+                    const unit = product?.inventoryMode === 'MASS' || product?.channel === 'RAW' ? ' kg' : '';
                     return (
-                      <tr key={b.id} className="border-b last:border-0 hover:bg-gray-50">
+                      <tr key={b.id} className="border-b last:border-0">
                         <td className="py-2 px-3 font-mono text-xs">{b.batchNo}</td>
                         <td className="py-2 px-3"><div>{product?.name || `ID ${b.productId}`}</div><div className="text-xs text-gray-400">{spec?.spec || ''}</div></td>
                         <td className="py-2 px-3 text-xs font-mono text-gray-600">{b.gcmsNo || '—'}</td>
                         <td className="py-2 px-3 text-xs text-gray-600">{b.receivedDate}</td>
-                        <td className={`py-2 px-3 text-xs ${expiringSoon ? 'text-red-500 font-medium' : 'text-gray-600'}`}>{b.expiryDate || '—'}{expiringSoon && ' ⚠'}</td>
-                        <td className="py-2 px-3 text-right">{b.initialQty} / <span className={b.remainingQty === 0 ? 'text-gray-400' : 'font-medium'}>{b.remainingQty}</span></td>
+                        <td className="py-2 px-3 text-xs"><span className={expired ? 'text-red-600 font-medium' : expiringSoon ? 'text-amber-700 font-medium' : 'text-gray-600'}>{b.expiryDate || '—'}</span>{expired && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-600">已过期</span>}{expiringSoon && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">临期</span>}</td>
+                        <td className="py-2 px-3 text-right tabular-nums">{b.initialQty}{unit} / <span className={Number(b.remainingQty) === 0 ? 'text-gray-400' : 'font-medium'}>{b.remainingQty}{unit}</span></td>
                         <td className="py-2 px-3 text-xs text-gray-500 hidden md:table-cell">{b.supplier}</td>
-                        {canAdjust && <td className="py-2 px-3 text-right"><button onClick={() => handleDeleteBatch(b)} className="text-gray-400 hover:text-red-500"><X size={14} /></button></td>}
+                        {canAdjust && <td className="py-2 px-3 text-right"><button onClick={() => handleDeleteBatch(b)} title="删除批次并回退库存" className="zidu-icon-button !w-7 !h-7 text-gray-400 hover:text-red-500"><X size={13} /></button></td>}
                       </tr>
                     );
                   })}
@@ -316,31 +373,33 @@ export default function Inventory() {
           </div>
           <Card>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead><tr className="border-b bg-gray-50/80">
+              <table className="zidu-table w-full text-sm">
+                <thead><tr className="border-b">
                   <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">时间</th>
                   <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">产品</th>
                   <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">类型</th>
                   <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">原因</th>
                   <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">数量</th>
                   <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">前→后</th>
+                  <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">kg 变动</th>
                   <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium hidden md:table-cell">操作人</th>
                 </tr></thead>
                 <tbody>{stockLog.map(l => {
                   const product = products.find(p => p.id === l.product_id);
                   const spec = product?.specs.find(s => s.id === l.spec_id);
                   return (
-                    <tr key={l.id} className="border-b last:border-0 hover:bg-gray-50">
+                    <tr key={l.id} className="border-b last:border-0">
                       <td className="py-2 px-3 text-xs text-gray-500 whitespace-nowrap">{l.created_at?.slice(0, 16).replace('T', ' ')}</td>
                       <td className="py-2 px-3"><div className="text-gray-800">{product?.name || `ID ${l.product_id}`}</div><div className="text-xs text-gray-400">{spec?.spec || ''}</div></td>
                       <td className="py-2 px-3"><span className={`text-xs px-2 py-0.5 rounded-full ${TYPE_CLS[l.type]}`}>{TYPE_LABEL[l.type]}</span></td>
                       <td className="py-2 px-3 text-xs text-gray-600">{REASONS[l.reason] || l.reason}</td>
                       <td className="py-2 px-3 text-right font-medium">{l.type === 'OUT' ? '-' : '+'}{l.quantity}</td>
                       <td className="py-2 px-3 text-right text-xs text-gray-500">{l.before_stock} → {l.after_stock}</td>
+                      <td className="py-2 px-3 text-right text-xs tabular-nums">{l.quantity_kg != null ? <><span className={l.type === 'OUT' ? 'text-red-600' : 'text-green-700'}>{l.type === 'OUT' ? '-' : '+'}{Number(l.quantity_kg).toFixed(3)}</span><div className="text-[10px] text-gray-400">{l.before_stock_kg} → {l.after_stock_kg}</div></> : <span className="text-gray-300">—</span>}</td>
                       <td className="py-2 px-3 text-xs hidden md:table-cell">{l.operator_name}</td>
                     </tr>
                   );
-                })}{stockLog.length === 0 && <tr><td colSpan="7" className="text-center py-12 text-gray-400 text-sm">暂无记录</td></tr>}</tbody>
+                })}{stockLog.length === 0 && <tr><td colSpan="8" className="text-center py-12 text-gray-400 text-sm">暂无记录</td></tr>}</tbody>
               </table>
             </div>
           </Card>

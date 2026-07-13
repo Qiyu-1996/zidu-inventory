@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Package, ShoppingCart, Users, TrendingUp, AlertTriangle, Clock, ClipboardCheck, TrendingDown, RefreshCw, Target } from 'lucide-react';
+import { ShoppingCart, AlertTriangle, Clock, ClipboardCheck, RefreshCw, Target, UserPlus, ArrowUpRight } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, StatCard, Badge, fmtY, STATUS_MAP } from '../components/ui';
@@ -49,26 +49,53 @@ export default function Dashboard({ nav }) {
   }, [salesTargets, user, myOrders]);
 
   const validOrders = myOrders.filter(o => o.status !== "CANCELLED");
-  const totalRevenue = validOrders.reduce((s, o) => s + o.total, 0);
+  const now = new Date();
+  const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const previousMonthKey = `${previousMonth.getFullYear()}-${String(previousMonth.getMonth() + 1).padStart(2, '0')}`;
+  const monthOrders = validOrders.filter(o => o.createdAt?.startsWith(monthKey));
+  const previousMonthOrders = validOrders.filter(o => o.createdAt?.startsWith(previousMonthKey));
+  const monthRevenue = monthOrders.reduce((s, o) => s + o.total, 0);
+  const previousMonthRevenue = previousMonthOrders.reduce((s, o) => s + o.total, 0);
+  const revenueGrowth = previousMonthRevenue > 0 ? Math.round((monthRevenue - previousMonthRevenue) / previousMonthRevenue * 100) : null;
   const pendingOrders = myOrders.filter(o => ["DRAFT","SUBMITTED","CONFIRMED","PREPARING"].includes(o.status)).length;
+  const newCustomersThisMonth = myCustomers.filter(c => c.createdAt?.startsWith(monthKey)).length;
 
   const lowStock = useMemo(() => {
     const items = [];
-    products.forEach(p => p.specs.forEach(s => {
-      if (s.stock <= s.safeStock) items.push({ product: p.name, spec: s.spec, stock: s.stock, safeStock: s.safeStock });
-    }));
+    products.forEach(p => {
+      if (p.inventoryMode === 'MASS') {
+        if (Number(p.baseStockKg || 0) <= Number(p.safeStockKg || 0)) items.push({ product: p.name, spec: '共享重量库存', stock: Number(p.baseStockKg || 0).toFixed(3), safeStock: Number(p.safeStockKg || 0).toFixed(3), unit: 'kg' });
+        return;
+      }
+      p.specs.forEach(s => {
+        if (s.stock <= s.safeStock) items.push({ product: p.name, spec: s.spec, stock: s.stock, safeStock: s.safeStock, unit: '' });
+      });
+    });
     return items;
   }, [products]);
 
   const recentOrders = myOrders.slice(0, 5);
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard label="总销售额" value={fmtY(totalRevenue)} icon={TrendingUp} color="#5C4B73" />
-        <StatCard label="总订单" value={validOrders.length} icon={ShoppingCart} color="#5F7689" />
-        <StatCard label="客户数" value={myCustomers.length} icon={Users} color="#7B8F67" />
-        <StatCard label="待处理" value={pendingOrders} icon={Clock} color="#8D5F5B" />
+    <div className="space-y-5">
+      <div className="grid lg:grid-cols-[1.2fr_1.8fr] gap-3">
+        <div className="rounded-xl p-5 md:p-6 text-[#F4ECDC] overflow-hidden relative shadow-[0_12px_28px_rgba(92,75,115,0.18)]" style={{ background: '#5C4B73' }}>
+          <div className="relative z-10">
+            <div className="text-xs text-[#D6CCE0]">本月销售额</div>
+            <div className="text-3xl md:text-4xl font-medium mt-2 tabular-nums">{fmtY(monthRevenue)}</div>
+            <div className="flex items-center gap-2 mt-3 text-xs flex-wrap">
+              <span className="px-2 py-1 rounded-md text-[#5A4318] bg-[#F3BD5B]">{monthOrders.length} 笔订单</span>
+              {revenueGrowth !== null && <span className={revenueGrowth >= 0 ? 'text-[#DCE8D7]' : 'text-[#F0D8D4]'}>{revenueGrowth >= 0 ? '较上月增长' : '较上月下降'} {Math.abs(revenueGrowth)}%</span>}
+            </div>
+          </div>
+          <ArrowUpRight size={110} strokeWidth={0.8} className="absolute -right-5 -bottom-5 text-white/10" />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <StatCard label="本月全部订单" value={monthOrders.length} sub={`上月 ${previousMonthOrders.length} 笔`} icon={ShoppingCart} color="#F3BD5B" />
+          <StatCard label="全部待处理订单" value={pendingOrders} sub="待确认与备货" icon={Clock} color="#8D5F5B" />
+          <StatCard label="本月新增客户" value={newCustomersThisMonth} sub={`客户总数 ${myCustomers.length}`} icon={UserPlus} color="#7B8F67" />
+        </div>
       </div>
 
       {/* Sales target progress (for SALES) */}
@@ -122,7 +149,7 @@ export default function Dashboard({ nav }) {
           <div className="text-xs text-gray-500 mb-3">根据近30天销量 + 安全库存自动计算建议采购数量</div>
           <div className="space-y-2">
             {restockSuggestions.map((r, i) => (
-              <div key={i} className="flex items-center justify-between py-2 border-b last:border-0 text-sm">
+              <div key={i} className="flex items-center justify-between py-2 border-b border-[#EEE6D9] last:border-0 text-sm">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className={`text-xs px-1.5 py-0.5 rounded ${r.urgency === 'HIGH' ? 'bg-red-100 text-red-700' : r.urgency === 'MEDIUM' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-600'}`}>
@@ -131,13 +158,13 @@ export default function Dashboard({ nav }) {
                     <span className="text-gray-800 truncate">{r.productName} ({r.spec})</span>
                   </div>
                   <div className="text-xs text-gray-400 mt-0.5">
-                    近30天销 {r.recent30} 件 · 当前 {r.currentStock} / 安全 {r.safeStock}
+                    近30天销 {r.recent30} {r.unit || '件'} · 当前 {r.currentStock} / 安全 {r.safeStock} {r.unit || ''}
                     {r.trend !== 0 && <span className={r.trend > 0 ? 'text-green-600' : 'text-red-500'}> · {r.trend > 0 ? '↑' : '↓'}{Math.abs(r.trend)}%</span>}
                   </div>
                 </div>
                 <div className="text-right shrink-0 ml-2">
                   <div className="text-xs text-gray-400">建议采购</div>
-                  <div className="text-lg font-bold" style={{ color: "#5C4B73" }}>{r.suggestedQty}</div>
+                  <div className="text-lg font-bold" style={{ color: "#5C4B73" }}>{r.suggestedQty}<span className="text-[10px] text-gray-400 ml-1">{r.unit || '件'}</span></div>
                 </div>
               </div>
             ))}
@@ -156,7 +183,7 @@ export default function Dashboard({ nav }) {
             {recentOrders.map(o => {
               const c = customers.find(c => c.id === o.customerId);
               return (
-                <div key={o.id} className="flex items-center justify-between py-2 border-b last:border-0 text-sm">
+                <div key={o.id} className="flex items-center justify-between py-2 border-b border-[#EEE6D9] last:border-0 text-sm">
                   <div>
                     <span className="font-mono text-xs text-gray-500">{o.orderNo}</span>
                     <span className="text-gray-400 mx-2">·</span>
@@ -189,7 +216,7 @@ export default function Dashboard({ nav }) {
                   {item.product} <span className="text-xs text-gray-400">({item.spec})</span>
                 </div>
                 <span className="text-red-500 font-medium text-xs shrink-0">
-                  剩 {item.stock} / 安全 {item.safeStock}
+                  剩 {item.stock}{item.unit} / 安全 {item.safeStock}{item.unit}
                 </span>
               </div>
             ))}
