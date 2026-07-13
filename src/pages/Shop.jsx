@@ -145,7 +145,7 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
 // ═══ CHECKOUT ═══
 const BIZ_TYPES = ['院线', '芳疗师', '其他'];
 
-export function Checkout({ cart, initialCustomerId = null, onBack, onPlaceOrder, onNewCustomer }) {
+export function Checkout({ cart, removeFromCart, initialCustomerId = null, onBack, onPlaceOrder, onNewCustomer }) {
   const { user } = useAuth();
   const { customers, orders, users, configOptions, addCustomer } = useData();
   const myCustomers = user.role === "ADMIN" ? customers : customers.filter(c => c.salesId === user.id);
@@ -343,15 +343,19 @@ export function Checkout({ cart, initialCustomerId = null, onBack, onPlaceOrder,
         <div className="text-sm font-semibold text-gray-700 mb-3">订单商品 ({cart.length})</div>
         <div className="space-y-2">
           {cart.map(c => (
-            <div key={c.key} className="flex justify-between gap-3 text-sm py-2 border-b last:border-0">
+            <div key={c.key} className="flex justify-between items-center gap-3 text-sm py-2 border-b last:border-0">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap"><span className="text-gray-800">{c.productName}</span><span className={`text-[10px] px-1.5 py-0.5 rounded ${c.channel === 'RAW' ? 'bg-green-50 text-green-700' : 'bg-purple-50 text-purple-700'}`}>{channelLabel(c.channel)}</span></div>
                 <span className="text-gray-400 text-xs">{c.productCode} · {c.spec} · {fmtY(c.unitPrice)} × {c.quantity}</span>
                 {(c.unitPriceHint || unitPriceHint(c.spec, c.unitPrice)) && <span className="text-amber-700 text-xs ml-1 font-medium">{c.unitPriceHint || unitPriceHint(c.spec, c.unitPrice)}</span>}
               </div>
-              <span className="font-medium shrink-0" style={{ color: "#5C4B73" }}>{fmtY(c.unitPrice * c.quantity)}</span>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="font-medium" style={{ color: "#5C4B73" }}>{fmtY(c.unitPrice * c.quantity)}</span>
+                <button type="button" onClick={() => removeFromCart(c.key)} title="移出购物车" aria-label={`移出 ${c.productName}`} className="zidu-icon-button !w-8 !h-8 text-gray-400 hover:text-red-500"><Trash2 size={13} /></button>
+              </div>
             </div>
           ))}
+          {cart.length === 0 && <div className="py-6 text-center text-sm text-gray-400">购物车为空，请返回选购商品</div>}
         </div>
       </Card>
 

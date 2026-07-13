@@ -204,7 +204,7 @@ export default function App() {
         <main className="flex-1 overflow-y-auto p-4 md:p-6"><div className="zidu-page">
           {page === "dashboard" && <Dashboard nav={nav} />}
           {page === "shop" && !subView && <ShopCatalog cart={cart} addToCart={addToCart} updateCartQty={updateCartQty} removeFromCart={removeFromCart} onCheckout={() => { setCheckoutCustomerId(null); setSubView("checkout"); }} onCustom={() => setSubView("custom")} />}
-          {page === "shop" && subView === "checkout" && <Checkout cart={cart} initialCustomerId={checkoutCustomerId} onBack={() => setSubView(null)} onPlaceOrder={handlePlaceOrder} onNewCustomer={() => setSubView("newcust")} />}
+          {page === "shop" && subView === "checkout" && <Checkout cart={cart} removeFromCart={removeFromCart} initialCustomerId={checkoutCustomerId} onBack={() => setSubView(null)} onPlaceOrder={handlePlaceOrder} onNewCustomer={() => setSubView("newcust")} />}
           {page === "shop" && subView === "custom" && <CustomOrder onBack={() => setSubView(null)} onPlaceOrder={handlePlaceCustomOrder} />}
           {page === "shop" && subView === "newcust" && <CustomerCreate onSave={handleNewCustomerFromShop} onCancel={() => setSubView("checkout")} />}
           {page === "orders" && !subView && <OrderList nav={nav} />}
