@@ -121,7 +121,7 @@ function shipmentDocumentHtml(order, customer, seller) {
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 28px}.wide{grid-column:1/-1}.label{display:inline-block;color:#8A8178;min-width:66px}
   table{width:100%;border-collapse:collapse;margin-top:8px}th{background:#F5F2F7;color:#625970;text-align:left;padding:9px 10px;border:1px solid #DDD6E2}td{padding:10px;border:1px solid #E7E1E9}.qty{text-align:center;font-size:14px;font-weight:700;width:72px}
   .note{border:1px solid #E6DECF;background:#FBF8F2;padding:10px;min-height:38px;white-space:pre-wrap}
-  .signatures{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;margin-top:54px}.signature{color:#777}.sig-line{height:34px;border-bottom:1px solid #777}
+  .signatures{display:grid;grid-template-columns:minmax(0,2fr) minmax(140px,1fr);gap:48px;margin-top:54px}.signature{color:#777}.sig-line{height:34px;border-bottom:1px solid #777}
   .footer{text-align:center;color:#9A9078;font-size:11px;margin-top:30px;padding-top:10px;border-top:1px solid #EAE5EC}
   @media print{.sheet{max-width:none}}
 </style></head><body><div class="sheet">
@@ -145,8 +145,7 @@ function shipmentDocumentHtml(order, customer, seller) {
   </div></div>
   ${order.notes ? `<div class="section"><div class="section-title">发货备注</div><div class="note">${escapeHtml(order.notes)}</div></div>` : ''}
   <div class="signatures">
-    <div class="signature">发货人签名<div class="sig-line"></div></div>
-    <div class="signature">仓库复核签名<div class="sig-line"></div></div>
+    <div class="signature">发货人员签字<div class="sig-line"></div></div>
     <div class="signature">日期<div class="sig-line"></div></div>
   </div>
   <div class="footer">紫都精油 · 发货核对留档</div>
@@ -226,9 +225,9 @@ export function downloadShipmentImage(order, customer, seller) {
 
   const sigY = Math.max(y + 90, canvas.height - 185);
   ctx.strokeStyle = '#777'; ctx.lineWidth = 1;
-  [['发货人签名', left], ['仓库复核签名', 465], ['日期', 855]].forEach(([label, x]) => {
+  [['发货人员签字', left, 600], ['日期', 855, 280]].forEach(([label, x, width]) => {
     ctx.fillStyle = '#777'; ctx.font = '20px "PingFang SC", sans-serif'; ctx.fillText(label, x, sigY);
-    ctx.beginPath(); ctx.moveTo(x, sigY + 48); ctx.lineTo(x + 280, sigY + 48); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, sigY + 48); ctx.lineTo(x + width, sigY + 48); ctx.stroke();
   });
   const link = document.createElement('a');
   link.download = `发货单-${order.orderNo || order.id}.png`;
