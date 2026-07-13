@@ -38,6 +38,23 @@
 - 43 个产品 + 多规格
 - 2 个示例客户
 
+### 增量迁移（migration_v*.sql）⚠️ 重要
+
+每次升级网页/小程序后，按编号顺序在 SQL Editor 跑 `supabase/migration_v*.sql`（都幂等、可重复跑）。
+**升级到当前版本前，务必先跑下列迁移**，否则新功能会报错：
+
+- `migration_v10.sql` — 产品库 channel（原料/成品）
+- `migration_v11.sql` — 现场客户预设（展会/线下，可选）
+- `migration_v12.sql` — **客户加 province + distributor_level（必跑）**。
+  不跑会导致**所有新建客户失败**（网页、小程序新建客户、以及结账时自动建展会/线下客户），
+  报错 PGRST204。跑完后可执行 `NOTIFY pgrst, 'reload schema';` 让 PostgREST 立即刷新列缓存。
+- `migration_v19_mass_inventory.sql` — 原料按 kg 统一库存，ml 规格按密度换算。
+- `migration_v20_user_role_and_archive.sql` — 管理员修改角色、删除归档账号。
+- `migration_v21_batch_delete_and_kg_receiving.sql` — 修复批次删除外键、按 kg 批次入库。
+- `migration_v22_purchase_order_crud.sql` — 采购单新增、编辑、删除及按 kg 收货。
+
+运行顺序必须是 `v19 → v20 → v21 → v22`；代码 push 到 GitHub 不会自动执行 Supabase SQL。
+
 ## 第三步：获取 Supabase 密钥
 
 1. 在 Supabase 项目中，点击左侧 **Settings** → **API**

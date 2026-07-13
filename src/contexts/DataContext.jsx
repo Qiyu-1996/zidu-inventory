@@ -64,7 +64,7 @@ export function DataProvider({ children }) {
   const addCustomer = useCallback(async (c) => { const r = await api.createCustomer(c); setCustomers(p => [...p, r]); return r; }, []);
   const editCustomer = useCallback(async (id, fields) => {
     const r = await api.updateCustomer(id, fields);
-    setCustomers(p => p.map(c => c.id === id ? { ...c, name: r.name, contact: r.contact, phone: r.phone, address: r.address, type: r.type, salesId: r.sales_id } : c));
+    setCustomers(p => p.map(c => c.id === id ? { ...c, name: r.name, contact: r.contact, phone: r.phone, address: r.address, type: r.type, salesId: r.sales_id, province: r.province || '', distributorLevel: r.distributor_level || null } : c));
   }, []);
   const removeCustomer = useCallback(async (id) => {
     await api.deleteCustomer(id);
@@ -82,13 +82,20 @@ export function DataProvider({ children }) {
     const [newOrders, newProducts] = await Promise.all([api.fetchOrders(), api.fetchProducts()]);
     setOrders(newOrders); setProducts(newProducts);
   }, []);
-  const removeOrder = useCallback(async (orderId, restoreStock) => {
-    await api.deleteOrder(orderId, restoreStock);
+  const removeOrder = useCallback(async (orderId, restoreStock, deletedBy) => {
+    await api.deleteOrder(orderId, restoreStock, deletedBy || user?.name || '');
     setOrders(p => p.filter(o => o.id !== orderId));
     if (restoreStock) {
       const np = await api.fetchProducts();
       setProducts(np);
     }
+  }, [user]);
+
+  const editOrderItems = useCallback(async (orderId, changes, totals, logEntry) => {
+    await api.updateOrderItems(orderId, changes, totals, logEntry);
+    const [newOrders, newProducts] = await Promise.all([api.fetchOrders(), api.fetchProducts()]);
+    setOrders(newOrders);
+    setProducts(newProducts);
   }, []);
 
   const updateOrderStatus = useCallback(async (orderId, newStatus, logEntry, shipmentData) => {
@@ -96,9 +103,44 @@ export function DataProvider({ children }) {
     setOrders(p => p.map(o => o.id !== orderId ? o : { ...o, status: newStatus, logs: [...o.logs, logEntry], ...(shipmentData ? { shipment: shipmentData } : {}) }));
     if (newStatus === 'CANCELLED') { const np = await api.fetchProducts(); setProducts(np); }
   }, []);
-  const recordPayment = useCallback(async (orderId, amount, method, note, recordedBy) => {
-    const result = await api.recordPayment(orderId, amount, method, note, recordedBy);
-    setOrders(p => p.map(o => o.id !== orderId ? o : { ...o, paymentStatus: result.status, paidAmount: result.totalPaid, payments: [...(o.payments || []), { amount, method, note, recordedBy, createdAt: new Date().toISOString() }] }));
+  const recordPayment = useCallback(async (orderId, amount, method, note, recordedBy, priceAdjustment = 0) => {
+    const result = await api.recordPayment(orderId, amount, method, note, recordedBy, priceAdjustment);
+    setOrders(p => p.map(o => o.id !== orderId ? o : {
+      ...o,
+      subtotal: result.subtotal ?? o.subtotal,
+      total: result.total ?? o.total,
+      paymentStatus: result.status,
+      paidAmount: result.totalPaid,
+      payments: [...(o.payments || []), { amount, method, note, recordedBy, createdAt: new Date().toISOString() }]
+    }));
+    return result;
+  }, []);
+  const processAfterSale = useCallback(async (orderId, payload) => {
+    const result = await api.processOrderAfterSale(orderId, payload);
+    const [newOrders, newProducts] = await Promise.all([api.fetchOrders(), api.fetchProducts()]);
+    setOrders(newOrders);
+    setProducts(newProducts);
+    return result;
+  }, []);
+  const createAfterSale = useCallback(async (orderId, payload) => {
+    const result = await api.createAfterSale(orderId, payload);
+    const newOrders = await api.fetchOrders();
+    setOrders(newOrders);
+    return result;
+  }, []);
+  const processAfterSaleWarehouse = useCallback(async (afterSaleId, payload) => {
+    const result = await api.processAfterSaleWarehouse(afterSaleId, payload);
+    const [newOrders, newProducts] = await Promise.all([api.fetchOrders(), api.fetchProducts()]);
+    setOrders(newOrders);
+    setProducts(newProducts);
+    return result;
+  }, []);
+  const completeAfterSaleFinance = useCallback(async (afterSaleId, payload) => {
+    const result = await api.completeAfterSaleFinance(afterSaleId, payload);
+    const [newOrders, newProducts] = await Promise.all([api.fetchOrders(), api.fetchProducts()]);
+    setOrders(newOrders);
+    setProducts(newProducts);
+    return result;
   }, []);
 
   // Users
@@ -107,6 +149,14 @@ export function DataProvider({ children }) {
   const toggleUserStatus = useCallback(async (targetId, newStatus) => {
     await api.toggleUserStatus(user.id, targetId, newStatus);
     setUsers(p => p.map(u => u.id === targetId ? { ...u, status: newStatus } : u));
+  }, [user]);
+  const updateUserRole = useCallback(async (targetId, newRole) => {
+    await api.updateUserRole(user.id, targetId, newRole);
+    setUsers(p => p.map(u => u.id === targetId ? { ...u, role: newRole } : u));
+  }, [user]);
+  const archiveUser = useCallback(async (targetId) => {
+    await api.archiveUser(user.id, targetId);
+    setUsers(p => p.map(u => u.id === targetId ? { ...u, status: 'deleted' } : u));
   }, [user]);
 
   // Stock
@@ -119,14 +169,15 @@ export function DataProvider({ children }) {
 
   // Purchase Orders
   const addPurchaseOrder = useCallback(async (po) => { const id = await api.createPurchaseOrder(po); await loadAll(); return id; }, [loadAll]);
+  const editPurchaseOrder = useCallback(async (poId, po) => { await api.updatePurchaseOrder(poId, po); await loadAll(); }, [loadAll]);
+  const removePurchaseOrder = useCallback(async (poId) => { await api.deletePurchaseOrder(poId); setPurchaseOrders(p => p.filter(po => po.id !== poId)); }, []);
   const updatePOStatus = useCallback(async (poId, status) => { await api.updatePurchaseOrderStatus(poId, status); setPurchaseOrders(p => p.map(po => po.id === poId ? { ...po, status } : po)); }, []);
   const receivePOItems = useCallback(async (poId, items) => {
-    const po = purchaseOrders.find(p => p.id === poId);
     await api.receivePurchaseItems(poId, items, user.name);
     // Reload everything since stock changed
     const [newProducts, newPOs] = await Promise.all([api.fetchProducts(), api.fetchPurchaseOrders()]);
     setProducts(newProducts); setPurchaseOrders(newPOs);
-  }, [user, purchaseOrders]);
+  }, [user]);
 
   // Pricing Tiers
   const updateTiers = useCallback(async (tiers) => { const r = await api.updatePricingTiers(tiers); setPricingTiers(r); }, []);
@@ -183,19 +234,12 @@ export function DataProvider({ children }) {
   // Batches
   const addBatch = useCallback(async (batch) => {
     const b = await api.createBatch({ ...batch, operatorName: user.name });
-    // Update product stock locally
-    setProducts(p => p.map(pr => pr.id === batch.productId ? {
-      ...pr,
-      specs: pr.specs.map(s => s.id === batch.specId ? { ...s, stock: s.stock + batch.quantity } : s)
-    } : pr));
+    setProducts(await api.fetchProducts());
     return b;
   }, [user]);
-  const removeBatch = useCallback(async (batchId, productId, specId, remainingQty) => {
+  const removeBatch = useCallback(async (batchId) => {
     await api.deleteBatch(batchId);
-    setProducts(p => p.map(pr => pr.id === productId ? {
-      ...pr,
-      specs: pr.specs.map(s => s.id === specId ? { ...s, stock: Math.max(0, s.stock - remainingQty) } : s)
-    } : pr));
+    setProducts(await api.fetchProducts());
   }, []);
 
   return (
@@ -205,10 +249,11 @@ export function DataProvider({ children }) {
       loading, error,
       addProduct, editProduct, removeProduct,
       addCustomer, editCustomer, removeCustomer, addCustomerNote,
-      addOrder, updateOrderStatus, removeOrder, recordPayment,
-      addUser, resetUserPassword, toggleUserStatus,
+      addOrder, updateOrderStatus, removeOrder, editOrderItems, recordPayment, processAfterSale,
+      createAfterSale, processAfterSaleWarehouse, completeAfterSaleFinance,
+      addUser, resetUserPassword, toggleUserStatus, updateUserRole, archiveUser,
       adjustStock, loadStockLog,
-      addPurchaseOrder, updatePOStatus, receivePOItems,
+      addPurchaseOrder, editPurchaseOrder, removePurchaseOrder, updatePOStatus, receivePOItems,
       updateTiers, getCustomerTier,
       updatePackageItems,
       addConfig, removeConfig,

@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Home, ShoppingBag, ShoppingCart, Users, Package, Truck, TrendingUp, Settings, LogOut, X, Menu, ClipboardList, ClipboardCheck, Wallet } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import { useData } from './contexts/DataContext';
-import { LoadingScreen } from './components/ui';
+import { LoadingScreen, unitPriceHint } from './components/ui';
 import LoginScreen from './pages/LoginScreen';
 import Dashboard from './pages/Dashboard';
 import { ShopCatalog, Checkout, CustomerCreate } from './pages/Shop';
@@ -17,17 +17,16 @@ import Tasks from './pages/Tasks';
 import Finance from './pages/Finance';
 import ziduLogo from './assets/zidu-logo.png';
 
+const ROLE_LABEL = { ADMIN: "管理员", SALES: "销售", WAREHOUSE: "仓库", FINANCE: "财务" };
+
 export default function App() {
   const { user, logout } = useAuth();
-  const { loading, addCustomer, addOrder, orders, reload } = useData();
+  const { loading, addCustomer, addOrder, orders, purchaseOrders, reload } = useData();
 
   const [page, setPage] = useState("dashboard");
   const [subView, setSubView] = useState(null);
   const [sideOpen, setSideOpen] = useState(false);
   const [cart, setCart] = useState([]);
-  const [lastSeenMax, setLastSeenMax] = useState(() => {
-    try { return Number(localStorage.getItem('zidu_last_seen_order_id') || 0); } catch { return 0; }
-  });
 
   // 每 30 秒自动刷新订单检查新订单
   useEffect(() => {
@@ -41,8 +40,7 @@ export default function App() {
     if (!user || !orders?.length) return;
     if (page === 'orders' || page === 'shipping') {
       const maxId = Math.max(...orders.map(o => o.id));
-      setLastSeenMax(maxId);
-      try { localStorage.setItem('zidu_last_seen_order_id', String(maxId)); } catch {}
+      try { localStorage.setItem('zidu_last_seen_order_id', String(maxId)); } catch { /* ignore localStorage errors */ }
     }
   }, [page, orders, user]);
 
@@ -64,7 +62,7 @@ export default function App() {
     setCart(prev => {
       const e = prev.find(c => c.key === key);
       if (e) return prev.map(c => c.key === key ? { ...c, quantity: c.quantity + qty } : c);
-      return [...prev, { key, productId: product.id, specId: specObj.id, spec: specObj.spec, quantity: qty, unitPrice: specObj.price, unitCost: specObj.cost || 0, productName: product.name, productCode: product.code }];
+      return [...prev, { key, productId: product.id, specId: specObj.id, spec: specObj.spec, quantity: qty, unitPrice: specObj.price, unitPriceHint: unitPriceHint(specObj.spec, specObj.price), unitCost: specObj.cost || 0, productName: product.name, productCode: product.code, channel: product.channel || 'BOTH' }];
     });
   }, []);
   const updateCartQty = useCallback((key, qty) => { if (qty <= 0) setCart(p => p.filter(c => c.key !== key)); else setCart(p => p.map(c => c.key === key ? { ...c, quantity: qty } : c)); }, []);
@@ -78,7 +76,7 @@ export default function App() {
     // 财务：只看订单 + 收款流水
     { key: "dashboard", icon: Home, label: "工作台" },
     { key: "orders", icon: ShoppingCart, label: "订单查看", badge: unreadOrders || null },
-    { key: "finance", icon: Wallet, label: "收款流水" },
+    { key: "finance", icon: Wallet, label: "财务报表" },
   ] : [
     { key: "dashboard", icon: Home, label: "工作台" },
     ...(user.role === "SALES" ? [{ key: "shop", icon: ShoppingBag, label: "产品下单", badge: cart.length || null }] : []),
@@ -89,7 +87,7 @@ export default function App() {
     ...(user.role === "ADMIN" || user.role === "WAREHOUSE" ? [{ key: "purchase", icon: ClipboardList, label: "采购管理" }] : []),
     ...(user.role === "WAREHOUSE" ? [{ key: "shipping", icon: Truck, label: "发货管理", badge: unreadOrders || null }] : []),
     ...(user.role !== "WAREHOUSE" ? [{ key: "analytics", icon: TrendingUp, label: "数据分析" }] : []),
-    ...(user.role === "ADMIN" ? [{ key: "finance", icon: Wallet, label: "收款流水" }] : []),
+    ...(user.role === "ADMIN" ? [{ key: "finance", icon: Wallet, label: "财务报表" }] : []),
     ...(user.role === "ADMIN" ? [{ key: "settings", icon: Settings, label: "系统管理" }] : []),
   ];
 
@@ -130,7 +128,7 @@ export default function App() {
             <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ background: "#5C4B73" }}>{user.name[0]}</div>
             <div className="flex-1 min-w-0">
               <div className="text-sm text-white truncate">{user.name}</div>
-              <div className="text-xs text-purple-300/50">{{ ADMIN: "管理员", SALES: "销售", WAREHOUSE: "仓库" }[user.role]}</div>
+              <div className="text-xs text-purple-300/50">{ROLE_LABEL[user.role] || user.role}</div>
             </div>
             <button onClick={() => { logout(); setCart([]); }} className="text-purple-300/40 hover:text-red-400"><LogOut size={16} /></button>
           </div>
@@ -164,7 +162,7 @@ export default function App() {
           <div className="text-sm text-gray-500 hidden sm:flex items-center gap-2">
             <span>你好，{user.name}</span>
             <span className="text-gray-300">|</span>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">{{ADMIN: '管理员', SALES: '销售', WAREHOUSE: '仓库'}[user.role]}</span>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">{ROLE_LABEL[user.role] || user.role}</span>
           </div>
           {user.role === "SALES" && (
             <button onClick={() => nav("shop")} className="relative p-2 rounded-lg hover:bg-gray-100">
@@ -187,7 +185,8 @@ export default function App() {
           {page === "inventory" && <Inventory />}
           {page === "purchase" && !subView && <PurchaseOrderList nav={nav} />}
           {page === "purchaseCreate" && <PurchaseOrderCreate onBack={() => nav('purchase')} />}
-          {page === "purchaseDetail" && <PurchaseOrderDetail poId={subView} onBack={() => nav('purchase')} />}
+          {page === "purchaseEdit" && <PurchaseOrderCreate editPo={purchaseOrders.find(po => po.id === subView)} onBack={() => nav('purchaseDetail', subView)} />}
+          {page === "purchaseDetail" && <PurchaseOrderDetail poId={subView} onBack={() => nav('purchase')} onEdit={() => nav('purchaseEdit', subView)} />}
           {page === "shipping" && <ShippingWorkbench />}
           {page === "analytics" && <Analytics />}
           {page === "finance" && <Finance />}

@@ -1,10 +1,20 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, UserPlus, X, Edit2, Key, UserX, UserCheck, Layers, Tag, Truck, ClipboardCheck, Target, FileText } from 'lucide-react';
+import { Plus, UserPlus, X, Edit2, Key, UserX, UserCheck, Trash2, Layers, Tag, Truck, ClipboardCheck, Target, FileText } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, fmtY, SERIES_LIST, CUSTOMER_TYPES, DEFAULT_SPEC_OPTIONS } from '../components/ui';
 import * as api from '../lib/api';
 import { backfillSpecCost } from '../lib/api';
+
+const CHANNEL_OPTIONS = [
+  { value: 'FINISHED', label: '成品' },
+  { value: 'RAW', label: '原料' },
+  { value: 'BOTH', label: '原料+成品' },
+];
+
+function channelLabel(channel) {
+  return CHANNEL_OPTIONS.find(o => o.value === (channel || 'BOTH'))?.label || '原料+成品';
+}
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -40,7 +50,7 @@ export default function SettingsPage() {
 
 function UserMgmt() {
   const { user: currentUser } = useAuth();
-  const { users, addUser, resetUserPassword, toggleUserStatus } = useData();
+  const { users, addUser, resetUserPassword, toggleUserStatus, updateUserRole, archiveUser } = useData();
   const [show, setShow] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -50,6 +60,8 @@ function UserMgmt() {
   const [error, setError] = useState('');
   const [resetForUser, setResetForUser] = useState(null);
   const [newPw, setNewPw] = useState('');
+  const [roleForUser, setRoleForUser] = useState(null);
+  const [roleDraft, setRoleDraft] = useState('SALES');
 
   const handleCreate = async () => {
     if (!name.trim() || !phone.trim() || !pw.trim()) return;
@@ -76,6 +88,20 @@ function UserMgmt() {
     catch (e) { alert('操作失败: ' + e.message); }
   };
 
+  const handleRoleChange = async () => {
+    if (!roleForUser || roleDraft === roleForUser.role) { setRoleForUser(null); return; }
+    try {
+      await updateUserRole(roleForUser.id, roleDraft);
+      setRoleForUser(null);
+    } catch (e) { alert('修改失败: ' + e.message); }
+  };
+
+  const handleArchive = async (u) => {
+    if (!confirm(`确定删除账号“${u.name}”吗？\n\n该账号将不能再登录，但历史订单、客户与财务记录会保留。`)) return;
+    try { await archiveUser(u.id); }
+    catch (e) { alert('删除失败: ' + e.message); }
+  };
+
   return (
     <Card className="p-4">
       <div className="flex items-center justify-between mb-3">
@@ -93,7 +119,7 @@ function UserMgmt() {
             <div><label className="block text-xs text-gray-500 mb-1">密码 *</label><input type="password" value={pw} onChange={e => setPw(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
             <div><label className="block text-xs text-gray-500 mb-1">角色</label>
               <select value={role} onChange={e => setRole(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
-                <option value="SALES">销售</option><option value="WAREHOUSE">仓库</option><option value="ADMIN">管理员</option>
+                <option value="SALES">销售</option><option value="WAREHOUSE">仓库</option><option value="FINANCE">财务</option><option value="ADMIN">管理员</option>
               </select>
             </div>
           </div>
@@ -118,6 +144,19 @@ function UserMgmt() {
         </div>
       )}
 
+      {roleForUser && (
+        <div className="bg-purple-50 rounded-lg p-4 mb-4 space-y-3 border border-purple-200">
+          <div className="text-sm font-medium">修改 {roleForUser.name} 的角色</div>
+          <select value={roleDraft} onChange={e => setRoleDraft(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
+            <option value="SALES">销售</option><option value="WAREHOUSE">仓库</option><option value="FINANCE">财务</option><option value="ADMIN">管理员</option>
+          </select>
+          <div className="flex gap-2">
+            <button onClick={() => setRoleForUser(null)} className="px-3 py-1.5 text-sm border rounded-lg">取消</button>
+            <button onClick={handleRoleChange} className="px-4 py-1.5 text-sm text-white rounded-lg" style={{ background: '#5C4B73' }}>保存角色</button>
+          </div>
+        </div>
+      )}
+
       <table className="w-full text-sm">
         <thead><tr className="border-b bg-gray-50/80">
           <th className="text-left py-2 px-4 text-xs text-gray-500 font-medium">姓名</th>
@@ -126,13 +165,13 @@ function UserMgmt() {
           <th className="text-center py-2 px-4 text-xs text-gray-500 font-medium">状态</th>
           <th className="text-right py-2 px-4 text-xs text-gray-500 font-medium">操作</th>
         </tr></thead>
-        <tbody>{users.map(u => (
+        <tbody>{users.filter(u => u.status !== 'deleted').map(u => (
           <tr key={u.id} className="border-b last:border-0">
             <td className="py-2.5 px-4 font-medium">{u.name}</td>
             <td className="py-2.5 px-4 font-mono text-xs text-gray-600">{u.phone}</td>
             <td className="py-2.5 px-4">
-              <span className={`text-xs px-2 py-0.5 rounded-full ${u.role === "ADMIN" ? "bg-purple-100 text-purple-700" : u.role === "SALES" ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700"}`}>
-                {{ ADMIN: "管理员", SALES: "销售", WAREHOUSE: "仓库" }[u.role]}
+              <span className={`text-xs px-2 py-0.5 rounded-full ${u.role === "ADMIN" ? "bg-purple-100 text-purple-700" : u.role === "SALES" ? "bg-blue-100 text-blue-700" : u.role === "FINANCE" ? "bg-amber-100 text-amber-700" : "bg-green-100 text-green-700"}`}>
+                {{ ADMIN: "管理员", SALES: "销售", WAREHOUSE: "仓库", FINANCE: "财务" }[u.role]}
               </span>
             </td>
             <td className="py-2.5 px-4 text-center text-xs">
@@ -140,10 +179,14 @@ function UserMgmt() {
             </td>
             <td className="py-2.5 px-4 text-right space-x-2">
               <button onClick={() => setResetForUser(u)} title="重置密码" className="text-gray-500 hover:text-purple-600"><Key size={14} /></button>
+              <button onClick={() => { setRoleForUser(u); setRoleDraft(u.role); }} title="修改角色" className="text-gray-500 hover:text-purple-600"><Edit2 size={14} /></button>
               {u.id !== currentUser.id && (
-                <button onClick={() => handleToggle(u)} title={u.status === 'active' ? '禁用' : '启用'} className={u.status === 'active' ? 'text-gray-500 hover:text-red-500' : 'text-gray-500 hover:text-green-600'}>
-                  {u.status === 'active' ? <UserX size={14} /> : <UserCheck size={14} />}
-                </button>
+                <>
+                  <button onClick={() => handleToggle(u)} title={u.status === 'active' ? '禁用' : '启用'} className={u.status === 'active' ? 'text-gray-500 hover:text-red-500' : 'text-gray-500 hover:text-green-600'}>
+                    {u.status === 'active' ? <UserX size={14} /> : <UserCheck size={14} />}
+                  </button>
+                  <button onClick={() => handleArchive(u)} title="删除账号" className="text-gray-400 hover:text-red-600"><Trash2 size={14} /></button>
+                </>
               )}
             </td>
           </tr>
@@ -163,6 +206,14 @@ function ProductMgmt() {
   const [name, setName] = useState('');
   const [series, setSeries] = useState('');
   const [origin, setOrigin] = useState('');
+  const [channel, setChannel] = useState('FINISHED');
+  const [inventoryMode, setInventoryMode] = useState('SKU');
+  const [baseStockKg, setBaseStockKg] = useState('');
+  const [safeStockKg, setSafeStockKg] = useState('');
+  const [densityGml, setDensityGml] = useState('');
+  const [densityTemperatureC, setDensityTemperatureC] = useState(20);
+  const [densitySource, setDensitySource] = useState('');
+  const [densityStatus, setDensityStatus] = useState('UNSET');
   const [specs, setSpecs] = useState([{ spec: '10ml', price: '', cost: '', stock: '', safeStock: 10 }]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -170,11 +221,19 @@ function ProductMgmt() {
 
   const reset = () => {
     setShow(false); setEditingId(null); setCode(''); setName(''); setSeries(''); setOrigin('');
+    setChannel('FINISHED');
+    setInventoryMode('SKU'); setBaseStockKg(''); setSafeStockKg(''); setDensityGml('');
+    setDensityTemperatureC(20); setDensitySource(''); setDensityStatus('UNSET');
     setSpecs([{ spec: '10ml', price: '', cost: '', stock: '', safeStock: 10 }]);
   };
 
   const startEdit = (p) => {
     setEditingId(p.id); setCode(p.code); setName(p.name); setSeries(p.series); setOrigin(p.origin);
+    setChannel(p.channel || 'BOTH');
+    setInventoryMode(p.inventoryMode || 'SKU'); setBaseStockKg(p.baseStockKg || '');
+    setSafeStockKg(p.safeStockKg || ''); setDensityGml(p.densityGml || '');
+    setDensityTemperatureC(p.densityTemperatureC || 20); setDensitySource(p.densitySource || '');
+    setDensityStatus(p.densityStatus || 'UNSET');
     setSpecs(p.specs.map(s => ({ id: s.id, spec: s.spec, price: s.price, cost: s.cost ?? '', stock: s.stock, safeStock: s.safeStock })));
     setShow(true);
   };
@@ -185,10 +244,18 @@ function ProductMgmt() {
 
   const handleSave = async () => {
     if (!code.trim() || !name.trim() || !series || specs.length === 0 || !specs.every(s => s.spec && s.price)) return;
+    if (inventoryMode === 'MASS' && specs.some(s => /(?:ml|毫升|l|升)/i.test(s.spec)) && !(Number(densityGml) > 0)) {
+      setError('存在 ml/L 销售规格，请先填写该原料的密度');
+      return;
+    }
     setSaving(true); setError('');
     try {
       const payload = {
-        code: code.trim(), name: name.trim(), series, origin: origin.trim() || '中国',
+        code: code.trim(), name: name.trim(), series, origin: origin.trim() || '中国', channel,
+        inventoryMode, baseStockKg: Number(baseStockKg) || 0, safeStockKg: Number(safeStockKg) || 0,
+        densityGml: densityGml ? Number(densityGml) : null,
+        densityTemperatureC: Number(densityTemperatureC) || 20,
+        densitySource: densitySource.trim(), densityStatus,
         specs: specs.map(s => ({ id: s.id, spec: s.spec, price: Number(s.price), cost: Number(s.cost) || 0, stock: Number(s.stock) || 0, safeStock: Number(s.safeStock) || 10 }))
       };
       if (editingId) await editProduct({ ...payload, id: editingId });
@@ -234,27 +301,56 @@ function ProductMgmt() {
             <div><label className="block text-xs text-gray-500 mb-1">编码 *</label><input value={code} onChange={e => setCode(e.target.value)} placeholder="EO-XXX-01" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
             <div><label className="block text-xs text-gray-500 mb-1">名称 *</label><input value={name} onChange={e => setName(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div><label className="block text-xs text-gray-500 mb-1">系列 *</label>
               <select value={series} onChange={e => setSeries(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
                 <option value="">选择</option>{SERIES_LIST.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
             <div><label className="block text-xs text-gray-500 mb-1">产地</label><input value={origin} onChange={e => setOrigin(e.target.value)} placeholder="中国" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+            <div><label className="block text-xs text-gray-500 mb-1">归属 *</label>
+              <select value={channel} onChange={e => setChannel(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
+                {CHANNEL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
           </div>
+          {(channel === 'RAW' || channel === 'BOTH') && (
+            <div className="border border-purple-200 bg-white rounded-lg p-3 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div><div className="text-xs font-medium text-gray-700">原料重量库存</div><div className="text-xs text-gray-400 mt-0.5">按 kg 入库；ml 规格按该原料密度自动换算扣减</div></div>
+                <select value={inventoryMode} onChange={e => setInventoryMode(e.target.value)} className="border rounded-lg px-3 py-2 text-sm bg-white">
+                  <option value="SKU">各规格独立库存</option><option value="MASS">按 kg 统一库存</option>
+                </select>
+              </div>
+              {inventoryMode === 'MASS' && <>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div><label className="block text-xs text-gray-500 mb-1">实际库存 kg *</label><input type="number" min="0" step="0.001" value={baseStockKg} onChange={e => setBaseStockKg(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+                  <div><label className="block text-xs text-gray-500 mb-1">安全库存 kg</label><input type="number" min="0" step="0.001" value={safeStockKg} onChange={e => setSafeStockKg(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+                  <div><label className="block text-xs text-gray-500 mb-1">密度 g/ml</label><input type="number" min="0" step="0.00001" value={densityGml} onChange={e => setDensityGml(e.target.value)} placeholder="如 0.898" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+                  <div><label className="block text-xs text-gray-500 mb-1">参考温度 °C</label><input type="number" step="0.1" value={densityTemperatureC} onChange={e => setDensityTemperatureC(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div><label className="block text-xs text-gray-500 mb-1">密度状态</label><select value={densityStatus} onChange={e => setDensityStatus(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm bg-white"><option value="UNSET">未录入</option><option value="REFERENCE">公开资料参考</option><option value="CONFIRMED">供应商/本批次确认</option></select></div>
+                  <div className="md:col-span-2"><label className="block text-xs text-gray-500 mb-1">密度来源</label><input value={densitySource} onChange={e => setDensitySource(e.target.value)} placeholder="优先填写批次 COA/SDS 编号或资料链接" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+                </div>
+                {!densityGml && specs.some(s => /(?:ml|毫升|l|升)/i.test(s.spec)) && <div className="text-xs text-amber-700">存在 ml/L 销售规格，启用前必须填写密度，否则系统会拒绝该规格出库。</div>}
+              </>}
+            </div>
+          )}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs text-gray-500 font-medium">规格/售价/成本/库存/安全库存</label>
               <button onClick={addSpec} className="text-xs text-purple-600 flex items-center gap-0.5"><Plus size={12} />添加规格</button>
             </div>
+            <datalist id="product-spec-options">
+              {DEFAULT_SPEC_OPTIONS.map(o => <option key={o} value={o} />)}
+            </datalist>
             {specs.map((s, i) => (
               <div key={i} className="flex gap-2 items-center mb-2">
-                <select value={s.spec} onChange={e => updateSpec(i, 'spec', e.target.value)} className="border rounded-lg px-2 py-1.5 text-sm w-24 bg-white">
-                  <option value="">规格</option>{DEFAULT_SPEC_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-                </select>
+                <input list="product-spec-options" value={s.spec} onChange={e => updateSpec(i, 'spec', e.target.value)} placeholder="规格" className="border rounded-lg px-2 py-1.5 text-sm w-36" />
                 <input type="number" value={s.price} onChange={e => updateSpec(i, 'price', e.target.value)} placeholder="售价" className="border rounded-lg px-2 py-1.5 text-sm w-20" />
                 <input type="number" value={s.cost} onChange={e => updateSpec(i, 'cost', e.target.value)} placeholder="成本" className="border rounded-lg px-2 py-1.5 text-sm w-20" title="成本（留空或 0 表示未录）" />
-                <input type="number" value={s.stock} onChange={e => updateSpec(i, 'stock', e.target.value)} placeholder="库存" className="border rounded-lg px-2 py-1.5 text-sm w-20" />
+                <input type="number" value={s.stock} onChange={e => updateSpec(i, 'stock', e.target.value)} placeholder={inventoryMode === 'MASS' ? '自动' : '库存'} disabled={inventoryMode === 'MASS'} className="border rounded-lg px-2 py-1.5 text-sm w-20 disabled:bg-gray-100 disabled:text-gray-400" />
                 <input type="number" value={s.safeStock} onChange={e => updateSpec(i, 'safeStock', e.target.value)} placeholder="安全" className="border rounded-lg px-2 py-1.5 text-sm w-16" />
                 {specs.length > 1 && <button onClick={() => removeSpec(i)} className="text-gray-400 hover:text-red-500"><X size={14} /></button>}
               </div>
@@ -275,6 +371,7 @@ function ProductMgmt() {
           <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">编码</th>
           <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">名称</th>
           <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium hidden md:table-cell">系列</th>
+          <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium hidden lg:table-cell">归属</th>
           <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">{isAdmin ? '规格/售价/成本/毛利率' : '规格/价格'}</th>
           <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">操作</th>
         </tr></thead>
@@ -283,6 +380,7 @@ function ProductMgmt() {
             <td className="py-2 px-3 font-mono text-xs text-gray-500">{p.code}</td>
             <td className="py-2 px-3 text-gray-800">{p.name}</td>
             <td className="py-2 px-3 text-xs text-gray-500 hidden md:table-cell">{p.series}</td>
+            <td className="py-2 px-3 text-xs text-gray-500 hidden lg:table-cell">{channelLabel(p.channel)}</td>
             <td className="py-2 px-3">
               {isAdmin ? (
                 <div className="flex flex-wrap gap-1.5">{p.specs.map(s => {
@@ -543,7 +641,7 @@ function TargetMgmt() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [editing, setEditing] = useState({});
-  const salesUsers = users.filter(u => u.role === 'SALES');
+  const salesUsers = users.filter(u => u.role === 'SALES' && u.status === 'active');
 
   const monthPrefix = `${year}-${String(month).padStart(2, '0')}`;
 
@@ -697,7 +795,6 @@ function AuditLogView() {
   const [filter, setFilter] = useState('');
 
   useEffect(() => {
-    setLoading(true);
     api.fetchAuditLogs(500).then(setLogs).catch(() => {}).finally(() => setLoading(false));
   }, []);
 

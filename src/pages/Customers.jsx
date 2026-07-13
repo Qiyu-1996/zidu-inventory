@@ -1,23 +1,33 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import { Search, Plus, ArrowLeft, Edit2, Tag, Trash2 } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
-import { Card, Badge, fmtY, CUSTOMER_TYPES } from '../components/ui';
+import { Card, Badge, fmtY, CUSTOMER_TYPES, PROVINCES, DISTRIBUTOR_LEVELS, customerTier, distributorLabel } from '../components/ui';
 
 const CL = ["#5C4B73","#a29bfe","#5F7689","#74b9ff","#7B8F67","#fdcb6e","#8D5F5B"];
 
 // ═══ CUSTOMER LIST ═══
 export function CustomerList({ nav, onNew }) {
   const { user } = useAuth();
-  const { customers, orders, products } = useData();
+  const { customers, orders } = useData();
   const myCustomers = user.role === "ADMIN" ? customers : customers.filter(c => c.salesId === user.id);
 
   const [search, setSearch] = useState('');
   const [tf, setTf] = useState('ALL');
+  const [tierF, setTierF] = useState('ALL');
+  const [regionF, setRegionF] = useState('ALL');
 
-  const filtered = myCustomers.filter(c => {
+  // 预算每个客户的累计金额与分级
+  const withTier = myCustomers.map(c => {
+    const co = orders.filter(o => o.customerId === c.id && o.status !== "CANCELLED");
+    const tot = co.reduce((s, o) => s + o.total, 0);
+    return { ...c, _total: tot, _tier: customerTier(tot, c.distributorLevel) };
+  });
+  const filtered = withTier.filter(c => {
+    if (tierF !== 'ALL' && c._tier !== tierF) return false;
     if (tf !== 'ALL' && c.type !== tf) return false;
+    if (regionF !== 'ALL' && c.province !== regionF) return false;
     if (search && !`${c.name} ${c.contact}`.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
@@ -30,9 +40,20 @@ export function CustomerList({ nav, onNew }) {
             <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
             <input placeholder="搜索客户" value={search} onChange={e => setSearch(e.target.value)} className="pl-9 pr-3 py-2 text-sm border rounded-lg w-48 focus:outline-none focus:ring-2 focus:ring-purple-300" />
           </div>
+          <select value={tierF} onChange={e => setTierF(e.target.value)} className="border rounded-lg px-3 py-2 text-sm bg-white">
+            <option value="ALL">所有分级</option>
+            <option value="大客户">大客户</option>
+            <option value="中客户">中客户</option>
+            <option value="小客户">小客户</option>
+            <option value="分销商">分销商</option>
+          </select>
           <select value={tf} onChange={e => setTf(e.target.value)} className="border rounded-lg px-3 py-2 text-sm bg-white">
-            <option value="ALL">全部</option>
+            <option value="ALL">全部类型</option>
             {CUSTOMER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <select value={regionF} onChange={e => setRegionF(e.target.value)} className="border rounded-lg px-3 py-2 text-sm bg-white">
+            <option value="ALL">全部地区</option>
+            {PROVINCES.map(p => <option key={p} value={p}>{p}</option>)}
           </select>
         </div>
         <button onClick={onNew} className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-white text-sm font-medium shadow" style={{ background: "#5C4B73" }}>
@@ -43,16 +64,19 @@ export function CustomerList({ nav, onNew }) {
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {filtered.map(c => {
           const co = orders.filter(o => o.customerId === c.id && o.status !== "CANCELLED");
-          const tot = co.reduce((s, o) => s + o.total, 0);
+          const tot = c._total;
           const last = co.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0];
           return (
             <Card key={c.id} className="p-4 cursor-pointer hover:shadow-md transition" onClick={() => nav("customerDetail", c.id)}>
               <div className="flex items-start justify-between mb-2">
                 <div>
                   <div className="font-medium text-gray-800">{c.name}</div>
-                  <div className="text-xs text-gray-400">{c.contact} · {c.phone}</div>
+                  <div className="text-xs text-gray-400">{c.province ? c.province + ' · ' : ''}{c.contact} · {c.phone}</div>
                 </div>
-                <span className="text-xs px-2 py-0.5 rounded bg-purple-50 text-purple-700 shrink-0">{c.type}</span>
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  <span className="text-xs px-2 py-0.5 rounded bg-indigo-50 text-indigo-700">{c.distributorLevel ? distributorLabel(c.distributorLevel) : c._tier}</span>
+                  <span className="text-xs px-2 py-0.5 rounded bg-purple-50 text-purple-700">{c.type}</span>
+                </div>
               </div>
               <div className="flex gap-4 mt-3 pt-3 border-t text-xs text-gray-500">
                 <div><span className="font-semibold text-gray-700">{co.length}</span>笔</div>
@@ -79,19 +103,20 @@ export function CustomerDetail({ customerId, onBack }) {
   const [savingEdit, setSavingEdit] = useState(false);
 
   const customer = customers.find(c => c.id === customerId);
-  if (!customer) return <div className="text-center py-12 text-gray-400">客户不存在</div>;
-
-  const tier = getCustomerTier ? getCustomerTier(customer.id) : null;
+  const tier = customer && getCustomerTier ? getCustomerTier(customer.id) : null;
 
   const startEdit = () => {
+    if (!customer) return;
     setEditData({
       name: customer.name, contact: customer.contact || '', phone: customer.phone || '',
-      address: customer.address || '', type: customer.type || CUSTOMER_TYPES[0], salesId: customer.salesId
+      address: customer.address || '', type: customer.type || CUSTOMER_TYPES[0], salesId: customer.salesId,
+      province: customer.province || '', distributorLevel: customer.distributorLevel || 0
     });
     setEditing(true);
   };
   const canDelete = user.role === 'ADMIN';
   const handleDeleteCustomer = async () => {
+    if (!customer) return;
     if (!confirm(`确定删除客户「${customer.name}」？\n\n注意：此客户的订单记录不会被删除。此操作不可恢复。`)) return;
     try {
       await removeCustomer(customer.id);
@@ -101,6 +126,7 @@ export function CustomerDetail({ customerId, onBack }) {
   };
 
   const handleSaveEdit = async () => {
+    if (!customer) return;
     setSavingEdit(true);
     try {
       await editCustomer(customer.id, editData);
@@ -108,9 +134,11 @@ export function CustomerDetail({ customerId, onBack }) {
     } catch (e) { alert('保存失败: ' + e.message); } finally { setSavingEdit(false); }
   };
 
-  const co = orders.filter(o => o.customerId === customer.id && o.status !== "CANCELLED");
+  const co = useMemo(() => (
+    customer ? orders.filter(o => o.customerId === customer.id && o.status !== "CANCELLED") : []
+  ), [customer, orders]);
   const tot = co.reduce((s, o) => s + o.total, 0);
-  const seller = users.find(u => u.id === customer.salesId);
+  const seller = customer ? users.find(u => u.id === customer.salesId) : null;
 
   const ps = useMemo(() => {
     const m = {};
@@ -139,6 +167,8 @@ export function CustomerDetail({ customerId, onBack }) {
     for (let i = 1; i < ds.length; i++) s += ds[i] - ds[i - 1];
     return Math.round(s / ((ds.length - 1) * 86400000));
   }, [co]);
+
+  if (!customer) return <div className="text-center py-12 text-gray-400">客户不存在</div>;
 
   const handleAddNote = async () => {
     if (!note.trim() || saving) return;
@@ -171,15 +201,30 @@ export function CustomerDetail({ customerId, onBack }) {
                 </select>
               </div>
               <div><label className="block text-xs text-gray-500 mb-1">联系人</label><input value={editData.contact} onChange={e => setEditData({ ...editData, contact: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-              <div><label className="block text-xs text-gray-500 mb-1">电话 <span className="text-gray-300">（仅用于发货联系，非收集用户信息）</span></label><input value={editData.phone} onChange={e => setEditData({ ...editData, phone: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+              <div><label className="block text-xs text-gray-500 mb-1">电话</label><input value={editData.phone} onChange={e => setEditData({ ...editData, phone: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
             </div>
-            <div><label className="block text-xs text-gray-500 mb-1">地址</label><input value={editData.address} onChange={e => setEditData({ ...editData, address: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-            {user.role === 'ADMIN' && (
-              <div><label className="block text-xs text-gray-500 mb-1">所属销售</label>
-                <select value={editData.salesId || ''} onChange={e => setEditData({ ...editData, salesId: Number(e.target.value) || null })} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
-                  <option value="">未分配</option>
-                  {users.filter(u => u.role === 'SALES').map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="block text-xs text-gray-500 mb-1">省份</label>
+                <select value={editData.province || ''} onChange={e => setEditData({ ...editData, province: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
+                  <option value="">（不填）</option>
+                  {PROVINCES.map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
+              </div>
+              <div><label className="block text-xs text-gray-500 mb-1">详细地址</label><input value={editData.address} onChange={e => setEditData({ ...editData, address: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+            </div>
+            {user.role === 'ADMIN' && (
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="block text-xs text-gray-500 mb-1">所属销售</label>
+                  <select value={editData.salesId || ''} onChange={e => setEditData({ ...editData, salesId: Number(e.target.value) || null })} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
+                    <option value="">未分配</option>
+                    {users.filter(u => u.role === 'SALES' && u.status === 'active').map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
+                </div>
+                <div><label className="block text-xs text-gray-500 mb-1">分销商等级</label>
+                  <select value={editData.distributorLevel || 0} onChange={e => setEditData({ ...editData, distributorLevel: Number(e.target.value) || 0 })} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
+                    {DISTRIBUTOR_LEVELS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+                  </select>
+                </div>
               </div>
             )}
             <div className="flex gap-2">

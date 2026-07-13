@@ -10,19 +10,24 @@ export default function Dashboard({ nav }) {
   const { user } = useAuth();
   const { orders, customers, products, salesTasks, salesTargets } = useData();
 
-  const myOrders = user.role === "ADMIN" ? orders : user.role === "SALES" ? orders.filter(o => o.salesId === user.id) : orders.filter(o => ["CONFIRMED","PREPARING","SHIPPED","DELIVERED"].includes(o.status));
-  const myCustomers = user.role === "ADMIN" ? customers : customers.filter(c => c.salesId === user.id);
-  const myTasks = user.role === "ADMIN" ? (salesTasks || []) : (salesTasks || []).filter(t => t.salesId === user.id);
+  const canViewAllBusiness = user.role === "ADMIN" || user.role === "FINANCE";
+  const myOrders = canViewAllBusiness ? orders : user.role === "SALES" ? orders.filter(o => o.salesId === user.id) : orders.filter(o => ["CONFIRMED","PREPARING","SHIPPED","DELIVERED"].includes(o.status));
+  const myCustomers = canViewAllBusiness ? customers : customers.filter(c => c.salesId === user.id);
+  const myTasks = useMemo(() => {
+    if (user.role === "ADMIN") return salesTasks || [];
+    if (user.role === "SALES") return (salesTasks || []).filter(t => t.salesId === user.id);
+    return [];
+  }, [salesTasks, user.id, user.role]);
 
   // Restock suggestions (ADMIN + WAREHOUSE)
   const restockSuggestions = useMemo(() => {
-    if (user.role === 'SALES') return [];
+    if (user.role !== 'ADMIN' && user.role !== 'WAREHOUSE') return [];
     return calculateRestockSuggestions(products, orders).slice(0, 6);
   }, [products, orders, user.role]);
 
   // Upcoming tasks (SALES + ADMIN)
   const upcomingTasks = useMemo(() => {
-    if (user.role === 'WAREHOUSE') return [];
+    if (user.role !== 'ADMIN' && user.role !== 'SALES') return [];
     const t0 = today();
     return myTasks.filter(t => t.status === 'PENDING')
       .sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''))

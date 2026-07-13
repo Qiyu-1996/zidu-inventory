@@ -44,7 +44,7 @@ export default function Inventory() {
   const [adjusting, setAdjusting] = useState(false);
 
   const [batchFor, setBatchFor] = useState(null);
-  const [batchData, setBatchData] = useState({ batchNo: '', gcmsNo: '', receivedDate: today(), expiryDate: '', quantity: '', unitCost: '', supplier: '', note: '' });
+  const [batchData, setBatchData] = useState({ batchNo: '', gcmsNo: '', receivedDate: today(), expiryDate: '', quantity: '', unitCost: '', supplier: '', note: '', densityGml: '', densityTemperatureC: 20 });
   const [savingBatch, setSavingBatch] = useState(false);
   const [batchList, setBatchList] = useState([]);
   const [loadingBatches, setLoadingBatches] = useState(false);
@@ -77,7 +77,7 @@ export default function Inventory() {
   const copyRestockList = () => {
     const lines = [];
     products.forEach(p => p.specs.forEach(s => {
-      if (s.stock <= s.safeStock) lines.push(`${p.name} ${s.spec}　剩${s.stock}/安全${s.safeStock}${s.stock <= 0 ? '（售罄）' : ''}`);
+      if (s.stock <= s.safeStock) lines.push(`${p.name} ${s.spec} 剩${s.stock}/安全${s.safeStock}${s.stock <= 0 ? '（售罄）' : ''}`);
     }));
     if (!lines.length) { alert('当前无缺货品'); return; }
     navigator.clipboard.writeText(`【紫都补货清单】${today()}\n${lines.join('\n')}`).then(
@@ -96,7 +96,7 @@ export default function Inventory() {
     } catch (e) { alert('调整失败: ' + e.message); } finally { setAdjusting(false); }
   };
 
-  const startBatch = (product, spec) => { setBatchFor({ product, spec }); setBatchData({ batchNo: '', gcmsNo: '', receivedDate: today(), expiryDate: '', quantity: '', unitCost: '', supplier: '', note: '' }); };
+  const startBatch = (product, spec) => { setBatchFor({ product, spec }); setBatchData({ batchNo: '', gcmsNo: '', receivedDate: today(), expiryDate: '', quantity: '', unitCost: '', supplier: '', note: '', densityGml: product.densityGml || '', densityTemperatureC: product.densityTemperatureC || 20 }); };
   const handleSaveBatch = async () => {
     const qty = Number(batchData.quantity);
     if (!batchData.batchNo || !batchData.receivedDate || !qty || qty <= 0) return;
@@ -105,7 +105,9 @@ export default function Inventory() {
       await addBatch({
         productId: batchFor.product.id, specId: batchFor.spec.id, batchNo: batchData.batchNo, gcmsNo: batchData.gcmsNo,
         receivedDate: batchData.receivedDate, expiryDate: batchData.expiryDate || null, quantity: qty,
-        unitCost: Number(batchData.unitCost) || 0, supplier: batchData.supplier, note: batchData.note
+        unitCost: Number(batchData.unitCost) || 0, supplier: batchData.supplier, note: batchData.note,
+        densityGml: batchData.densityGml ? Number(batchData.densityGml) : null,
+        densityTemperatureC: Number(batchData.densityTemperatureC || 20)
       });
       setBatchFor(null); alert('入库成功');
       if (tab === 'batches') { const fresh = await api.fetchBatches(); setBatchList(fresh); }
@@ -181,11 +183,15 @@ export default function Inventory() {
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 <div><label className="block text-xs text-gray-500 mb-1">批次号 *</label><input value={batchData.batchNo} onChange={e => setBatchData({ ...batchData, batchNo: e.target.value })} placeholder="如 LAV202604" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
                 <div><label className="block text-xs text-gray-500 mb-1">GC-MS 编号</label><input value={batchData.gcmsNo} onChange={e => setBatchData({ ...batchData, gcmsNo: e.target.value })} placeholder="可选" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-                <div><label className="block text-xs text-gray-500 mb-1">入库数量 *</label><input type="number" min="1" value={batchData.quantity} onChange={e => setBatchData({ ...batchData, quantity: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+                <div><label className="block text-xs text-gray-500 mb-1">{batchFor.product.inventoryMode === 'MASS' || batchFor.product.channel === 'RAW' ? '入库重量 kg *' : '入库数量 *'}</label><input type="number" min="0.001" step={batchFor.product.inventoryMode === 'MASS' || batchFor.product.channel === 'RAW' ? '0.001' : '1'} value={batchData.quantity} onChange={e => setBatchData({ ...batchData, quantity: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
                 <div><label className="block text-xs text-gray-500 mb-1">入库日期 *</label><input type="date" value={batchData.receivedDate} onChange={e => setBatchData({ ...batchData, receivedDate: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
                 <div><label className="block text-xs text-gray-500 mb-1">保质期至</label><input type="date" value={batchData.expiryDate} onChange={e => setBatchData({ ...batchData, expiryDate: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
                 <div><label className="block text-xs text-gray-500 mb-1">单位成本</label><input type="number" min="0" step="0.01" value={batchData.unitCost} onChange={e => setBatchData({ ...batchData, unitCost: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
                 <div><label className="block text-xs text-gray-500 mb-1">供应商</label><input value={batchData.supplier} onChange={e => setBatchData({ ...batchData, supplier: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+                {batchFor.product.channel === 'RAW' && batchFor.product.inventoryMode !== 'MASS' && batchFor.product.specs.some(s => /(?:ml|毫升|l|升)/i.test(s.spec)) && <>
+                  <div><label className="block text-xs text-gray-500 mb-1">密度 g/ml *</label><input type="number" min="0.001" step="0.00001" value={batchData.densityGml} onChange={e => setBatchData({ ...batchData, densityGml: e.target.value })} placeholder="如 0.898" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+                  <div><label className="block text-xs text-gray-500 mb-1">参考温度 °C</label><input type="number" step="0.1" value={batchData.densityTemperatureC} onChange={e => setBatchData({ ...batchData, densityTemperatureC: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+                </>}
                 <div className="col-span-2"><label className="block text-xs text-gray-500 mb-1">备注</label><input value={batchData.note} onChange={e => setBatchData({ ...batchData, note: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
               </div>
               <div className="flex gap-2 mt-3">
@@ -209,7 +215,7 @@ export default function Inventory() {
                     {adjType === 'OUT' && <><option value="DAMAGE">损耗/报废</option><option value="OTHER">其他</option></>}
                     {adjType === 'CORRECTION' && <option value="CORRECTION">盘点修正</option>}
                   </select></div>
-                <div><label className="block text-xs text-gray-500 mb-1">{adjType === 'CORRECTION' ? '新库存值' : '数量'}</label><input type="number" min="0" value={adjQty} onChange={e => setAdjQty(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+                <div><label className="block text-xs text-gray-500 mb-1">{adjustFor.product.inventoryMode === 'MASS' ? (adjType === 'CORRECTION' ? '实际库存 kg' : '重量 kg') : (adjType === 'CORRECTION' ? '新库存值' : '数量')}</label><input type="number" min="0" step={adjustFor.product.inventoryMode === 'MASS' ? '0.001' : '1'} value={adjQty} onChange={e => setAdjQty(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
                 <div><label className="block text-xs text-gray-500 mb-1">备注</label><input value={adjNote} onChange={e => setAdjNote(e.target.value)} placeholder="可选" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
               </div>
               <div className="flex gap-2 mt-3">
@@ -234,6 +240,7 @@ export default function Inventory() {
                     <td className="py-2.5 px-4"><div className="text-gray-800 font-medium">{p.name}</div><div className="text-xs text-gray-400">{p.origin}</div></td>
                     <td className="py-2.5 px-4 text-xs text-gray-500 hidden md:table-cell">{p.series}</td>
                     <td className="py-2.5 px-4">
+                      {p.inventoryMode === 'MASS' && <div className="text-xs text-purple-700 mb-1.5">重量库存 {p.baseStockKg.toFixed(3)} kg{p.densityGml ? ` · 密度 ${p.densityGml} g/ml @ ${p.densityTemperatureC}°C` : ' · 密度未录'}</div>}
                       <div className="flex flex-wrap gap-1.5">
                         {p.specs.map(s => (
                           <div key={s.id} className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md ${STOCK_PILL[level(s.stock, s.safeStock)]}`}>

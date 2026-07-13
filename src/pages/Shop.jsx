@@ -2,7 +2,8 @@ import { useState, useMemo, useEffect } from 'react';
 import { Search, Plus, Minus, X, ShoppingCart, ArrowLeft, Layers, Tag } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
-import { Card, fmtY, today, now16, SERIES_LIST, CUSTOMER_TYPES } from '../components/ui';
+import { Card, fmtY, SERIES_LIST, CUSTOMER_TYPES, PROVINCES, DISTRIBUTOR_LEVELS, unitPriceHint } from '../components/ui';
+import { createOrderNo, detectSourceFromCart, localDateKey, localMinuteKey } from '../lib/orderNo';
 import * as api from '../lib/api';
 
 // ═══ SHOP CATALOG ═══
@@ -93,7 +94,7 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
               <div key={c.key} className="flex items-center gap-3 py-2 border-b last:border-0">
                 <div className="flex-1 min-w-0">
                   <div className="text-sm text-gray-800 truncate">{c.productName}</div>
-                  <div className="text-xs text-gray-400">{c.productCode} · {c.spec} · {fmtY(c.unitPrice)}</div>
+                  <div className="text-xs text-gray-400">{c.productCode} · {c.spec} · {fmtY(c.unitPrice)}{(c.unitPriceHint || unitPriceHint(c.spec, c.unitPrice)) && <span className="ml-1 text-amber-700 font-medium">{c.unitPriceHint || unitPriceHint(c.spec, c.unitPrice)}</span>}</div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <button onClick={() => updateCartQty(c.key, c.quantity - 1)} className="w-7 h-7 rounded-full border flex items-center justify-center hover:bg-gray-100"><Minus size={14} /></button>
@@ -132,6 +133,7 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
                       <span className="text-gray-700">{s.spec}</span>
                       <span className="text-gray-400 mx-1">·</span>
                       <span className="font-medium" style={{ color: "#5C4B73" }}>{fmtY(s.price)}</span>
+                      {unitPriceHint(s.spec, s.price) && <span className="text-amber-700 text-xs ml-1 font-medium">{unitPriceHint(s.spec, s.price)}</span>}
                       {s.stock <= s.safeStock && <span className="text-red-500 text-xs ml-1">库存{s.stock}</span>}
                     </div>
                     {inCart ? (
@@ -168,6 +170,7 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
   const [customerId, setCustomerId] = useState('');
   const [businessType, setBusinessType] = useState('院线');
   const [discount, setDiscount] = useState(0);
+  const [shippingFee, setShippingFee] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [custSearch, setCustSearch] = useState('');
@@ -206,19 +209,41 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
     setCustSearch('');
   };
 
+  const handleShippingFeeChange = (value) => {
+    if (value === '') {
+      setShippingFee('');
+      return;
+    }
+    const n = Number(value);
+    if (!Number.isFinite(n)) return;
+    setShippingFee(n < 0 ? '0' : value);
+  };
+
   const subtotal = cart.reduce((s, c) => s + c.unitPrice * c.quantity, 0);
   const discountAmount = Math.round(subtotal * discount / 100);
-  const total = subtotal - discountAmount;
+  const shippingValue = Number(shippingFee);
+  const shippingAmount = Number.isFinite(shippingValue)
+    ? Math.max(0, Math.round((shippingValue + Number.EPSILON) * 100) / 100)
+    : 0;
+  const total = subtotal - discountAmount + shippingAmount;
 
   const handlePlace = async () => {
-    if (!customerId || submitting) return;
-    setSubmitting(true);
-    try {
-      const orderNo = `ZD${Date.now().toString(36).toUpperCase()}`;
-      await onPlaceOrder({
-        orderNo,
+	    if (!customerId || submitting) return;
+	    setSubmitting(true);
+	    try {
+	      const now = new Date();
+	      const productSource = detectSourceFromCart(cart, 'FINISHED');
+	      const orderNo = createOrderNo({
+	        source: productSource,
+	        customer: selectedCustomer,
+	        now
+	      });
+	      await onPlaceOrder({
+	        orderNo,
         customerId: Number(customerId),
         salesId: user.id,
+	        source: 'web_admin',
+	        channelMeta: { productSource, shippingFee: shippingAmount },
         businessType,
         status: "SUBMITTED",
         subtotal,
@@ -226,7 +251,7 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
         discountAmount,
         total,
         notes,
-        createdAt: today(),
+	        createdAt: localDateKey(now),
         items: cart.map(c => ({
           productId: c.productId,
           specId: c.specId,
@@ -238,8 +263,8 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
           unitCost: c.unitCost || 0,
           subtotal: c.unitPrice * c.quantity
         })),
-        logs: [{ time: now16(), user: user.name, action: "创建订单并提交" }]
-      });
+	        logs: [{ time: localMinuteKey(now), user: user.name, action: "创建订单并提交" }]
+	      });
     } catch (e) {
       alert('下单失败: ' + e.message);
     } finally {
@@ -261,6 +286,7 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
               <div>
                 <span className="text-gray-800">{c.productName}</span>
                 <span className="text-gray-400 text-xs ml-1">({c.spec}) x{c.quantity}</span>
+                {(c.unitPriceHint || unitPriceHint(c.spec, c.unitPrice)) && <span className="text-amber-700 text-xs ml-1 font-medium">{c.unitPriceHint || unitPriceHint(c.spec, c.unitPrice)}</span>}
               </div>
               <span className="font-medium" style={{ color: "#5C4B73" }}>{fmtY(c.unitPrice * c.quantity)}</span>
             </div>
@@ -371,6 +397,22 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
         </div>
 
         <div>
+          <label className="block text-xs text-gray-500 mb-1.5">运费</label>
+          <div className="relative w-40">
+            <span className="absolute left-3 top-2 text-sm text-gray-400">¥</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={shippingFee}
+              onChange={e => handleShippingFeeChange(e.target.value)}
+              className="w-full border rounded-lg pl-7 pr-3 py-2 text-sm"
+              placeholder="选填"
+            />
+          </div>
+        </div>
+
+        <div>
           <label className="block text-xs text-gray-500 mb-1.5">备注</label>
           <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="订单备注（可选）" />
         </div>
@@ -380,6 +422,7 @@ export function Checkout({ cart, onBack, onPlaceOrder, onNewCustomer }) {
         <div className="space-y-2 text-sm">
           <div className="flex justify-between"><span className="text-gray-500">小计</span><span>{fmtY(subtotal)}</span></div>
           {discountAmount > 0 && <div className="flex justify-between text-orange-600"><span>折扣 ({discount}%)</span><span>-{fmtY(discountAmount)}</span></div>}
+          {shippingAmount > 0 && <div className="flex justify-between text-green-700"><span>运费</span><span>+{fmtY(shippingAmount)}</span></div>}
           <div className="flex justify-between pt-2 border-t text-base font-bold">
             <span className="text-gray-800">应付</span>
             <span style={{ color: "#5C4B73" }}>{fmtY(total)}</span>
@@ -406,17 +449,19 @@ export function CustomerCreate({ onSave, onCancel }) {
   const [contact, setContact] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
-  const [type, setType] = useState('SPA水疗馆');
+  const [type, setType] = useState(CUSTOMER_TYPES[0]);
+  const [province, setProvince] = useState('');
+  const [distributorLevel, setDistributorLevel] = useState(0);
   const [salesId, setSalesId] = useState(user.role === "SALES" ? user.id : 0);
   const [saving, setSaving] = useState(false);
 
-  const salesList = users.filter(u => u.role === "SALES");
+  const salesList = users.filter(u => u.role === "SALES" && u.status === 'active');
 
   const handleSave = async () => {
     if (!name.trim() || saving) return;
     setSaving(true);
     try {
-      await onSave({ name: name.trim(), contact: contact.trim(), phone: phone.trim(), address: address.trim(), type, salesId: salesId || null });
+      await onSave({ name: name.trim(), contact: contact.trim(), phone: phone.trim(), address: address.trim(), type, province, distributorLevel: distributorLevel || null, salesId: salesId || null });
     } catch (e) {
       alert('保存失败: ' + e.message);
     } finally {
@@ -436,20 +481,37 @@ export function CustomerCreate({ onSave, onCancel }) {
           <div><label className="block text-xs text-gray-500 mb-1">联系人</label><input value={contact} onChange={e => setContact(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <div><label className="block text-xs text-gray-500 mb-1">电话 <span className="text-gray-300">（仅用于发货联系，非收集用户信息）</span></label><input value={phone} onChange={e => setPhone(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+          <div><label className="block text-xs text-gray-500 mb-1">电话</label><input value={phone} onChange={e => setPhone(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
           <div><label className="block text-xs text-gray-500 mb-1">类型</label>
             <select value={type} onChange={e => setType(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
               {CUSTOMER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
         </div>
-        <div><label className="block text-xs text-gray-500 mb-1">地址</label><input value={address} onChange={e => setAddress(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-        {user.role === "ADMIN" && salesList.length > 0 && (
-          <div><label className="block text-xs text-gray-500 mb-1">所属销售</label>
-            <select value={salesId} onChange={e => setSalesId(Number(e.target.value))} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
-              <option value={0}>未分配</option>
-              {salesList.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+        <div className="grid grid-cols-2 gap-3">
+          <div><label className="block text-xs text-gray-500 mb-1">省份</label>
+            <select value={province} onChange={e => setProvince(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
+              <option value="">（不填）</option>
+              {PROVINCES.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
+          </div>
+          <div><label className="block text-xs text-gray-500 mb-1">详细地址</label><input value={address} onChange={e => setAddress(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+        </div>
+        {user.role === "ADMIN" && (
+          <div className="grid grid-cols-2 gap-3">
+            {salesList.length > 0 && (
+              <div><label className="block text-xs text-gray-500 mb-1">所属销售</label>
+                <select value={salesId} onChange={e => setSalesId(Number(e.target.value))} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
+                  <option value={0}>未分配</option>
+                  {salesList.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+              </div>
+            )}
+            <div><label className="block text-xs text-gray-500 mb-1">分销商等级</label>
+              <select value={distributorLevel} onChange={e => setDistributorLevel(Number(e.target.value))} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
+                {DISTRIBUTOR_LEVELS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+              </select>
+            </div>
           </div>
         )}
         <div className="flex gap-2 pt-2">

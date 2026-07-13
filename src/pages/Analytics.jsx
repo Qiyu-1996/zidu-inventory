@@ -15,8 +15,9 @@ const C_RISK    = "#8D5F5B";   // 陶土红/风险（折扣）
 const C_GRID    = "#E6DECF";   // 暖灰网格线/Tooltip
 
 // 业务类型固定顺序与配色
-const BIZ_TYPES = ["院线","芳疗师","OEM代工","ODM定制","其他"];
-const BIZ_COLOR = { "院线": "#5C4B73", "芳疗师": "#8D7AA6", "OEM代工": "#F3BD5B", "ODM定制": "#7B8F67", "其他": "#B3A99A" };
+const BIZ_TYPES = ["院线","芳疗师","品牌定制","私人定制","其他"];
+const BIZ_COLOR = { "院线": "#5C4B73", "芳疗师": "#8D7AA6", "品牌定制": "#F3BD5B", "私人定制": "#7B8F67", "其他": "#B3A99A" };
+const bizTypeLabel = t => t === "OEM代工" ? "品牌定制" : t === "ODM定制" ? "私人定制" : (t || "院线");
 const bizColor = t => BIZ_COLOR[t] || "#B3A99A";
 
 // 暖色 Tooltip 样式
@@ -104,7 +105,7 @@ export default function Analytics() {
 
   const salesComp = useMemo(() => {
     if (user.role !== "ADMIN") return [];
-    return users.filter(u => u.role === "SALES").map(su => {
+    return users.filter(u => u.role === "SALES" && u.status === 'active').map(su => {
       const so = vo.filter(o => o.salesId === su.id);
       const sales = so.reduce((s, o) => s + o.total, 0);
       const disc = so.reduce((s, o) => s + (o.discountAmount || 0), 0);
@@ -119,7 +120,7 @@ export default function Analytics() {
       const margin = gpRev > 0 ? gp / gpRev : 0;
       // 按业务类型分组营收 Σtotal
       const bizMap = {};
-      so.forEach(o => { const t = o.businessType || "院线"; bizMap[t] = (bizMap[t] || 0) + o.total; });
+      so.forEach(o => { const t = bizTypeLabel(o.businessType); bizMap[t] = (bizMap[t] || 0) + o.total; });
       const types = [...BIZ_TYPES.filter(t => bizMap[t] != null), ...Object.keys(bizMap).filter(t => !BIZ_TYPES.includes(t))];
       const byBiz = types.map(t => ({ type: t, revenue: bizMap[t] }));
       return { name: su.name, sales, count: so.length, custs: customers.filter(c => c.salesId === su.id).length, disc, discRate, gp, margin, costed, byBiz };
@@ -144,7 +145,7 @@ export default function Analytics() {
   // 业务类型总分布（全部 vo 按 businessType 营收占比）
   const bizDist = useMemo(() => {
     const m = {};
-    vo.forEach(o => { const t = o.businessType || "院线"; m[t] = (m[t] || 0) + o.total; });
+    vo.forEach(o => { const t = bizTypeLabel(o.businessType); m[t] = (m[t] || 0) + o.total; });
     const types = [...BIZ_TYPES.filter(t => m[t] != null), ...Object.keys(m).filter(t => !BIZ_TYPES.includes(t))];
     return types.map(t => ({ name: t, value: m[t] }));
   }, [vo]);
@@ -153,7 +154,6 @@ export default function Analytics() {
   const custAnalytics = useMemo(() => {
     return customers.map(c => {
       const co = vo.filter(o => o.customerId === c.id); const rev = co.reduce((s, o) => s + o.total, 0);
-      const dates = co.map(o => new Date(o.createdAt).getTime()).sort((a, b) => a - b);
       const lastOrder = co.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0];
       const daysSinceLast = lastOrder ? Math.round((Date.now() - new Date(lastOrder.createdAt).getTime()) / 86400000) : 999;
       const now = Date.now(); const d90 = 90 * 86400000;
@@ -334,7 +334,7 @@ export default function Analytics() {
             <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">累计金额</th>
             <th className="text-center py-2 px-3 text-xs text-gray-500 font-medium">趋势</th>
             <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium hidden md:table-cell">上次下单</th>
-          </tr></thead><tbody>{custAnalytics.filter(c => c.orders > 0).map((c, i) => (
+          </tr></thead><tbody>{custAnalytics.filter(c => c.orders > 0).map(c => (
             <tr key={c.id} className="border-b last:border-0 hover:bg-gray-50">
               <td className="py-2 px-3 font-medium text-gray-800">{c.name}</td>
               <td className="py-2 px-3 text-xs text-gray-500 hidden md:table-cell">{c.type}</td>
