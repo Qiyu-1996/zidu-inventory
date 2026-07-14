@@ -31,7 +31,7 @@ const STOCK_PILL = {
 
 export default function Inventory({ nav }) {
   const { user } = useAuth();
-  const { products, purchaseOrders, suppliers, stockLog, loadStockLog, adjustStock, adjustRawStock, editProductDensity, addBatch, removeBatch, reload } = useData();
+  const { products, purchaseOrders, suppliers, stockLog, loadStockLog, adjustStock, adjustRawStock, adjustStockFromBatch, editProductDensity, addBatch, removeBatch, reload } = useData();
   const isAdmin = user.role === 'ADMIN';
   const canAdjust = user.role === 'ADMIN' || user.role === 'WAREHOUSE';
 
@@ -46,6 +46,8 @@ export default function Inventory({ nav }) {
   const [adjReason, setAdjReason] = useState('PURCHASE');
   const [adjQty, setAdjQty] = useState('');
   const [adjNote, setAdjNote] = useState('');
+  const [adjBatchMode, setAdjBatchMode] = useState('FIFO');
+  const [adjBatchId, setAdjBatchId] = useState('');
   const [adjusting, setAdjusting] = useState(false);
   const [rawStockDrafts, setRawStockDrafts] = useState({});
   const [rawEditMode, setRawEditMode] = useState(false);
@@ -155,6 +157,16 @@ export default function Inventory({ nav }) {
     const index = queue.findIndex(item => item.id === batch.id);
     return index >= 0 ? index + 1 : null;
   };
+  const adjustmentBatches = adjustFor ? batchList.filter(batch =>
+    Number(batch.remainingQty || 0) > 0
+    && (isRawProduct(adjustFor.product)
+      ? batch.productId === adjustFor.product.id
+      : batch.specId === adjustFor.spec.id)
+  ).sort((a, b) => Number(Boolean(a.expiryDate && a.expiryDate < today())) - Number(Boolean(b.expiryDate && b.expiryDate < today()))
+    || String(a.receivedDate || '').localeCompare(String(b.receivedDate || ''))
+    || String(a.expiryDate || '9999-12-31').localeCompare(String(b.expiryDate || '9999-12-31'))
+    || Number(a.id) - Number(b.id)) : [];
+  const selectedAdjustmentBatch = adjustmentBatches.find(batch => String(batch.id) === String(adjBatchId));
   const changedRawProducts = products.filter(p =>
     isRawProduct(p)
     && rawStockDrafts[p.id] !== undefined
@@ -213,19 +225,46 @@ export default function Inventory({ nav }) {
     setBatchFor(null);
     setAdjustFor({ product, spec });
     setAdjType(type);
-    setAdjReason(type === 'IN' ? 'PURCHASE' : type === 'OUT' ? 'DAMAGE' : 'CORRECTION');
+    setAdjReason(type === 'IN' ? 'PURCHASE' : type === 'OUT' ? 'OTHER' : 'CORRECTION');
+    setAdjBatchMode('FIFO');
+    setAdjBatchId('');
     setAdjQty(''); setAdjNote('');
+  };
+  const startBatchOutbound = (batch, product, spec, expired = false) => {
+    setBatchFor(null);
+    setAdjustFor({ product, spec });
+    setAdjType('OUT');
+    setAdjReason(expired ? 'DAMAGE' : 'OTHER');
+    setAdjBatchMode('SELECTED');
+    setAdjBatchId(String(batch.id));
+    setAdjQty('');
+    setAdjNote('');
   };
   const handleAdjust = async () => {
     const qty = Number(adjQty);
     if (qty < 0 || (adjType !== 'CORRECTION' && !qty)) return;
+    if (adjType === 'OUT' && adjBatchMode === 'SELECTED') {
+      if (!selectedAdjustmentBatch) { alert('请选择有库存的批次'); return; }
+      if (qty > Number(selectedAdjustmentBatch.remainingQty || 0)) {
+        alert(`该批次只剩 ${selectedAdjustmentBatch.remainingQty}`);
+        return;
+      }
+      if (selectedAdjustmentBatch.expiryDate && selectedAdjustmentBatch.expiryDate < today() && adjReason !== 'DAMAGE') {
+        alert('过期批次只能按损耗/报废出库');
+        return;
+      }
+    }
     setAdjusting(true);
     try {
-      if (isRawProduct(adjustFor.product)) {
+      if (adjType === 'OUT' && adjBatchMode === 'SELECTED') {
+        await adjustStockFromBatch(adjustFor.spec.id, Number(adjBatchId), qty, adjReason, adjNote);
+      } else if (isRawProduct(adjustFor.product)) {
         await adjustRawStock(adjustFor.product.id, adjType, adjReason, qty, adjNote, defaultDensityForProduct(adjustFor.product));
       } else {
         await adjustStock(adjustFor.spec.id, adjustFor.product.id, adjType, adjReason, qty, adjNote);
       }
+      const fresh = await api.fetchBatches();
+      setBatchList(fresh);
       setAdjustFor(null);
       if (tab === 'log') await loadStockLog();
     } catch (e) { alert('调整失败: ' + e.message); } finally { setAdjusting(false); }
@@ -388,7 +427,7 @@ export default function Inventory({ nav }) {
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div><label className="block text-xs text-gray-500 mb-1">类型</label>
-          <select value={adjType} onChange={e => { setAdjType(e.target.value); setAdjReason(e.target.value === 'IN' ? 'PURCHASE' : e.target.value === 'OUT' ? 'DAMAGE' : 'CORRECTION'); }} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
+          <select value={adjType} onChange={e => { setAdjType(e.target.value); setAdjReason(e.target.value === 'IN' ? 'PURCHASE' : e.target.value === 'OUT' ? 'OTHER' : 'CORRECTION'); setAdjBatchMode('FIFO'); setAdjBatchId(''); }} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
             <option value="IN">入库 (+)</option><option value="OUT">出库 (-)</option><option value="CORRECTION">修正 (直接设为)</option>
           </select></div>
         <div><label className="block text-xs text-gray-500 mb-1">原因</label>
@@ -400,9 +439,42 @@ export default function Inventory({ nav }) {
         <div><label className="block text-xs text-gray-500 mb-1">{isRawProduct(adjustFor.product) ? (adjType === 'CORRECTION' ? '实际库存 kg' : '重量 kg') : (adjType === 'CORRECTION' ? '实际数量' : '数量')}</label><input type="number" min="0" step={isRawProduct(adjustFor.product) ? '0.001' : '1'} value={adjQty} onChange={e => setAdjQty(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
         <div><label className="block text-xs text-gray-500 mb-1">备注</label><input value={adjNote} onChange={e => setAdjNote(e.target.value)} placeholder="可选" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
       </div>
+      {adjType === 'OUT' && (
+        <div className="mt-3 rounded-md border border-[#E5DDED] bg-white p-3">
+          <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">出库方式</label>
+              <div className="zidu-segment">
+                <button type="button" onClick={() => { setAdjBatchMode('FIFO'); setAdjBatchId(''); }} className={adjBatchMode === 'FIFO' ? 'active' : ''}>自动 FIFO</button>
+                <button type="button" onClick={() => { setAdjBatchMode('SELECTED'); setAdjBatchId(current => current || String(adjustmentBatches[0]?.id || '')); }} className={adjBatchMode === 'SELECTED' ? 'active' : ''}>指定批次</button>
+              </div>
+            </div>
+            {adjBatchMode === 'SELECTED' && (
+              <div className="flex-1 min-w-0">
+                <label className="block text-xs text-gray-500 mb-1">批次</label>
+                <select value={adjBatchId} onChange={e => setAdjBatchId(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
+                  <option value="">请选择批次</option>
+                  {adjustmentBatches.map(batch => {
+                    const expired = batch.expiryDate && batch.expiryDate < today();
+                    return <option key={batch.id} value={batch.id}>{fifoRankForBatch(batch) === 1 ? 'FIFO 推荐 · ' : ''}{batch.batchNo} · 剩 {batch.remainingQty}{isRawProduct(adjustFor.product) ? ' kg' : ''} · 入库 {batch.receivedDate}{expired ? ' · 已过期' : batch.expiryDate ? ` · 至 ${batch.expiryDate}` : ''}</option>;
+                  })}
+                </select>
+              </div>
+            )}
+          </div>
+          {adjBatchMode === 'SELECTED' && selectedAdjustmentBatch && (
+            <div className={`mt-2 text-xs ${selectedAdjustmentBatch.expiryDate && selectedAdjustmentBatch.expiryDate < today() ? 'text-red-600' : 'text-gray-500'}`}>
+              {selectedAdjustmentBatch.expiryDate && selectedAdjustmentBatch.expiryDate < today()
+                ? '已过期，仅允许损耗/报废'
+                : `批次余量 ${selectedAdjustmentBatch.remainingQty}${isRawProduct(adjustFor.product) ? ' kg' : ' 瓶 / 个'} · ${batchSupplier(selectedAdjustmentBatch) || '未录供应商'}`}
+            </div>
+          )}
+          {adjBatchMode === 'SELECTED' && adjustmentBatches.length === 0 && <div className="mt-2 text-xs text-amber-700">当前没有可选择的批次库存</div>}
+        </div>
+      )}
       <div className="flex gap-2 mt-3">
         <button onClick={() => setAdjustFor(null)} className="px-3 py-2 text-sm border rounded-lg bg-white">取消</button>
-        <button onClick={handleAdjust} disabled={(!adjQty && adjType !== 'CORRECTION') || adjusting} className="btn-primary text-sm">{adjusting ? '处理中...' : '确认调整'}</button>
+        <button onClick={handleAdjust} disabled={(!adjQty && adjType !== 'CORRECTION') || (adjType === 'OUT' && adjBatchMode === 'SELECTED' && !adjBatchId) || adjusting} className="btn-primary text-sm">{adjusting ? '处理中...' : '确认调整'}</button>
       </div>
     </div>
   );
@@ -647,6 +719,7 @@ export default function Inventory({ nav }) {
             <div><div className="text-sm text-gray-600">共 {visibleBatches.length} 个{stockKind === 'RAW' ? '原料' : '成品'}批次</div><div className="text-[11px] text-gray-400 mt-0.5">按入库日期从早到晚 · 有效批次依次出库</div></div>
             <div className="flex items-center gap-3 text-xs"><span className="text-amber-700">临期 {viewStats.expiring}</span><span className="text-red-600">过期 {viewStats.expired}</span></div>
           </div>
+          {adjustFor && adjustmentEditor}
           <Card>
             <div className="overflow-x-auto">
               <table className="zidu-table w-full text-sm">
@@ -683,7 +756,7 @@ export default function Inventory({ nav }) {
                         <td className="py-2 px-3 text-right tabular-nums">{b.initialQty}{unit} / <span className={Number(b.remainingQty) === 0 ? 'text-gray-400' : 'font-medium'}>{b.remainingQty}{unit}</span></td>
                         <td className="py-2 px-3 text-xs text-gray-500">{b.purchaseOrderId ? <span className="font-mono text-purple-700">{purchaseOrderNo(b.purchaseOrderId) || `采购单 #${b.purchaseOrderId}`}</span> : '手工入库'}</td>
                         <td className="py-2 px-3 text-xs text-gray-700">{batchSupplier(b) || '—'}</td>
-                        {canAdjust && <td className="py-2 px-3 text-right"><button onClick={() => handleDeleteBatch(b)} title="删除批次并回退库存" className="zidu-icon-button !w-7 !h-7 text-gray-400 hover:text-red-500"><X size={13} /></button></td>}
+                        {canAdjust && <td className="py-2 px-3 text-right"><div className="inline-flex items-center gap-1.5">{Number(b.remainingQty || 0) > 0 && <button onClick={() => startBatchOutbound(b, product, spec, Boolean(expired))} className={`h-7 px-2 rounded-md border text-[11px] ${expired ? 'border-red-200 bg-red-50 text-red-600' : 'border-purple-200 bg-white text-purple-700'}`}>{expired ? '报废' : '出库'}</button>}<button onClick={() => handleDeleteBatch(b)} title="删除批次并回退库存" className="zidu-icon-button !w-7 !h-7 text-gray-400 hover:text-red-500"><X size={13} /></button></div></td>}
                       </tr>
                     );
                   })}

@@ -1,5 +1,5 @@
 -- ZIDU 上线前数据完整性检查（只读，不修改任何数据）。
--- 请在 migration_v34_order_after_sales_integrity.sql 之后运行。
+-- 请在 migration_v34 至 migration_v36 全部成功后运行。
 
 SELECT
   to_regprocedure('public.zidu_create_order_atomic(jsonb)') IS NOT NULL AS create_order_ready,
@@ -13,7 +13,8 @@ SELECT
   to_regprocedure('public.zidu_cancel_after_sale(integer,text,text)') IS NOT NULL AS after_sale_cancel_ready,
   to_regprocedure('public.zidu_delete_order_atomic(integer,boolean,text)') IS NOT NULL AS delete_ready,
   to_regclass('public.batch_stock_movements') IS NOT NULL AS batch_movements_ready,
-  to_regprocedure('public.zidu_fifo_consume_batches(integer,integer,numeric,text)') IS NOT NULL AS fifo_ready;
+  to_regprocedure('public.zidu_fifo_consume_batches(integer,integer,numeric,text)') IS NOT NULL AS fifo_ready,
+  to_regprocedure('public.zidu_adjust_inventory_from_batch(integer,integer,numeric,text,text,text)') IS NOT NULL AS manual_batch_out_ready;
 
 WITH payment_totals AS (
   SELECT order_id, round(coalesce(sum(amount), 0), 2) AS actual_paid

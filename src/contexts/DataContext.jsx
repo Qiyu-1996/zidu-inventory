@@ -190,6 +190,11 @@ export function DataProvider({ children }) {
     setProducts(await api.fetchProducts());
     return result;
   }, [user]);
+  const adjustStockFromBatch = useCallback(async (specId, batchId, qty, reason, note) => {
+    const result = await api.adjustStockFromBatch(specId, batchId, qty, reason, note, user.name);
+    setProducts(await api.fetchProducts());
+    return result;
+  }, [user]);
   const loadStockLog = useCallback(async () => { const log = await api.fetchStockLog(); setStockLog(log); return log; }, []);
 
   // Purchase Orders
@@ -277,7 +282,7 @@ export function DataProvider({ children }) {
       addOrder, updateOrderStatus, requestUnpaidShipping, reviewUnpaidShipping, removeOrder, editOrderItems, updateOrderDiscountResponsibility, recordPayment,
       createAfterSale, processAfterSaleWarehouse, completeAfterSaleFinance, cancelAfterSale,
       addUser, resetUserPassword, toggleUserStatus, updateUserRole, archiveUser,
-      adjustStock, adjustRawStock, loadStockLog,
+      adjustStock, adjustRawStock, adjustStockFromBatch, loadStockLog,
       addPurchaseOrder, editPurchaseOrder, removePurchaseOrder, updatePOStatus, receivePOItems,
       updateTiers, getCustomerTier,
       updatePackageItems,

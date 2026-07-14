@@ -924,6 +924,25 @@ export async function adjustRawStock(productId, type, reason, quantityKg, note, 
   return data;
 }
 
+export async function adjustStockFromBatch(specId, batchId, quantity, reason, note, operatorName) {
+  const { data, error } = await supabase.rpc('zidu_adjust_inventory_from_batch', {
+    p_spec_id: Number(specId),
+    p_batch_id: Number(batchId),
+    p_quantity: Number(quantity),
+    p_reason: reason || 'OTHER',
+    p_note: note || '',
+    p_operator_name: operatorName || ''
+  });
+  if (error) {
+    if (/zidu_adjust_inventory_from_batch|schema cache|could not find the function/i.test(error.message || '')) {
+      throw new Error('请先在 Supabase 运行 migration_v36_manual_batch_outbound.sql');
+    }
+    throw new Error(error.message);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
 export async function fetchStockLog(limit = 100) {
   const { data, error } = await supabase.from('stock_adjustments')
     .select('*').order('created_at', { ascending: false }).limit(limit);
