@@ -951,50 +951,108 @@ export async function fetchStockLog(limit = 100) {
 }
 
 // ═══ PURCHASE ORDERS ═══
-export async function fetchPurchaseOrders() {
-  const { data, error } = await supabase.from('purchase_orders')
-    .select('*, items:purchase_order_items(*)').order('id', { ascending: false });
-  if (error) throw new Error(error.message);
-  return data.map(po => ({
+function mapPurchaseOrder(po) {
+  return {
     id: po.id, poNo: po.po_no, supplier: po.supplier, status: po.status,
     total: Number(po.total), notes: po.notes, createdByName: po.created_by_name,
-    createdAt: po.created_at,
+    createdAt: po.created_at, expectedDate: po.expected_date || '',
+    closedAt: po.closed_at || null, closedBy: po.closed_by || '', closeNote: po.close_note || '',
+    deletedAt: po.deleted_at || null, deletedBy: po.deleted_by || '',
+    deletedPreviousStatus: po.deleted_previous_status || null,
     items: (po.items || []).map(it => ({
       id: it.id, productId: it.product_id, specId: it.spec_id,
       productName: it.product_name, spec: it.spec,
       quantity: Number(it.quantity), receivedQty: Number(it.received_qty || 0),
       unitCost: Number(it.unit_cost), subtotal: Number(it.subtotal)
     }))
-  }));
+  };
+}
+
+export async function fetchPurchaseOrders() {
+  const { data, error } = await supabase.from('purchase_orders')
+    .select('*, items:purchase_order_items(*)').order('id', { ascending: false });
+  if (error) throw new Error(error.message);
+  return data.map(mapPurchaseOrder).filter(po => !po.deletedAt);
 }
 
 export async function createPurchaseOrder(po) {
-  const { data, error } = await supabase.rpc('zidu_create_purchase_order', {
+  const { data, error } = await supabase.rpc('zidu_create_purchase_order_v2', {
     p_po_no: po.poNo, p_supplier: po.supplier, p_notes: po.notes || '',
-    p_created_by_name: po.createdByName, p_items: po.items || []
+    p_created_by_name: po.createdByName, p_items: po.items || [],
+    p_expected_date: po.expectedDate || null
   });
-  if (error) throw new Error(/zidu_create_purchase_order|schema cache|could not find/i.test(error.message || '') ? '请先运行 migration_v22_purchase_order_crud.sql' : error.message);
+  if (error) throw new Error(/zidu_create_purchase_order_v2|schema cache|could not find/i.test(error.message || '') ? '请先运行 migration_v37_purchase_workflow.sql' : error.message);
   if (data?.error) throw new Error(data.error);
   return data.id;
 }
 
 export async function updatePurchaseOrder(poId, po) {
-  const { data, error } = await supabase.rpc('zidu_update_purchase_order', {
-    p_po_id: poId, p_supplier: po.supplier, p_notes: po.notes || '', p_items: po.items || []
+  const { data, error } = await supabase.rpc('zidu_update_purchase_order_v2', {
+    p_po_id: poId, p_supplier: po.supplier, p_notes: po.notes || '',
+    p_items: po.items || [], p_expected_date: po.expectedDate || null
   });
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(/zidu_update_purchase_order_v2|schema cache|could not find/i.test(error.message || '') ? '请先运行 migration_v37_purchase_workflow.sql' : error.message);
   if (data?.error) throw new Error(data.error);
 }
 
-export async function deletePurchaseOrder(poId) {
-  const { data, error } = await supabase.rpc('zidu_delete_purchase_order', { p_po_id: poId });
-  if (error) throw new Error(/zidu_delete_purchase_order|schema cache|could not find/i.test(error.message || '') ? '请先运行 migration_v22_purchase_order_crud.sql' : error.message);
+export async function deletePurchaseOrder(poId, operatorName) {
+  const { data, error } = await supabase.rpc('zidu_delete_purchase_order', {
+    p_po_id: poId, p_operator_name: operatorName || ''
+  });
+  if (error) throw new Error(/zidu_delete_purchase_order|schema cache|could not find/i.test(error.message || '') ? '请先运行 migration_v37_purchase_workflow.sql' : error.message);
   if (data?.error) throw new Error(data.error);
 }
 
-export async function updatePurchaseOrderStatus(poId, status) {
-  const { error } = await supabase.from('purchase_orders').update({ status }).eq('id', poId);
-  if (error) throw new Error(error.message);
+export async function fetchDeletedPurchaseOrders() {
+  await supabase.rpc('zidu_purge_expired_deleted_purchase_orders');
+  const { data, error } = await supabase.from('purchase_orders')
+    .select('*, items:purchase_order_items(*)').not('deleted_at', 'is', null)
+    .order('deleted_at', { ascending: false });
+  if (error) throw new Error(/deleted_at|schema cache|column/i.test(error.message || '') ? '请先运行 migration_v37_purchase_workflow.sql' : error.message);
+  return data.map(mapPurchaseOrder);
+}
+
+export async function restoreDeletedPurchaseOrder(poId, operatorName) {
+  const { data, error } = await supabase.rpc('zidu_restore_deleted_purchase_order', {
+    p_po_id: poId, p_operator_name: operatorName || ''
+  });
+  if (error) throw new Error(/schema cache|could not find/i.test(error.message || '') ? '请先运行 migration_v37_purchase_workflow.sql' : error.message);
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+export async function permanentlyDeletePurchaseOrder(poId) {
+  const { data, error } = await supabase.rpc('zidu_permanently_delete_purchase_order', { p_po_id: poId });
+  if (error) throw new Error(/schema cache|could not find/i.test(error.message || '') ? '请先运行 migration_v37_purchase_workflow.sql' : error.message);
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+export async function updatePurchaseOrderStatus(poId, status, operatorName) {
+  const { data, error } = await supabase.rpc('zidu_update_purchase_order_status', {
+    p_po_id: poId, p_new_status: status, p_operator_name: operatorName || ''
+  });
+  if (error) throw new Error(/schema cache|could not find/i.test(error.message || '') ? '请先运行 migration_v37_purchase_workflow.sql' : error.message);
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+export async function closePurchaseOrder(poId, operatorName, note) {
+  const { data, error } = await supabase.rpc('zidu_close_purchase_order', {
+    p_po_id: poId, p_operator_name: operatorName || '', p_note: note || ''
+  });
+  if (error) throw new Error(/schema cache|could not find/i.test(error.message || '') ? '请先运行 migration_v37_purchase_workflow.sql' : error.message);
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+export async function reversePurchaseReceipt(batchId, operatorName, note) {
+  const { data, error } = await supabase.rpc('zidu_reverse_purchase_receipt', {
+    p_batch_id: batchId, p_operator_name: operatorName || '', p_note: note || ''
+  });
+  if (error) throw new Error(/schema cache|could not find/i.test(error.message || '') ? '请先运行 migration_v37_purchase_workflow.sql' : error.message);
+  if (data?.error) throw new Error(data.error);
+  return data;
 }
 
 export async function receivePurchaseItems(poId, receivedItems, operatorName) {
@@ -1068,9 +1126,11 @@ function mapBatch(b) {
   return {
     id: b.id, batchNo: b.batch_no, productId: b.product_id, specId: b.spec_id,
     gcmsNo: b.gcms_no || '', receivedDate: b.received_date, expiryDate: b.expiry_date,
-    initialQty: b.initial_qty, remainingQty: b.remaining_qty,
+    initialQty: Number(b.initial_qty || 0), remainingQty: Number(b.remaining_qty || 0),
     unitCost: Number(b.unit_cost || 0), supplier: b.supplier || '', note: b.note || '',
-    purchaseOrderId: b.purchase_order_id || null, purchaseOrderItemId: b.purchase_order_item_id || null
+    purchaseOrderId: b.purchase_order_id || null, purchaseOrderItemId: b.purchase_order_item_id || null,
+    createdAt: b.created_at || null, receiptReversedAt: b.receipt_reversed_at || null,
+    receiptReversedBy: b.receipt_reversed_by || '', receiptReverseNote: b.receipt_reverse_note || ''
   };
 }
 
@@ -1079,7 +1139,25 @@ export async function fetchBatches(specId) {
   if (specId) query = query.eq('spec_id', specId);
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  return data.map(mapBatch);
+  return data.map(mapBatch).filter(batch => !batch.receiptReversedAt);
+}
+
+export async function fetchPurchaseReceipts() {
+  const { data, error } = await supabase.from('product_batches').select('*')
+    .not('purchase_order_id', 'is', null).order('received_date', { ascending: false });
+  if (error) throw new Error(error.message);
+  const batches = data.map(mapBatch);
+  if (!batches.length) return [];
+  const { data: adjustments, error: adjustmentError } = await supabase.from('stock_adjustments')
+    .select('batch_id,operator_name,created_at').in('batch_id', batches.map(batch => batch.id))
+    .eq('type', 'IN').eq('reason', 'PURCHASE');
+  if (adjustmentError) throw new Error(adjustmentError.message);
+  const receiptByBatch = new Map((adjustments || []).map(row => [row.batch_id, row]));
+  return batches.map(batch => ({
+    ...batch,
+    receivedBy: receiptByBatch.get(batch.id)?.operator_name || '',
+    receivedAt: receiptByBatch.get(batch.id)?.created_at || batch.createdAt
+  }));
 }
 
 export async function fetchBatchesWithStock(specId) {

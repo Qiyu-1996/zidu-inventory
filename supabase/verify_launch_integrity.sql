@@ -1,5 +1,5 @@
 -- ZIDU 上线前数据完整性检查（只读，不修改任何数据）。
--- 请在 migration_v34 至 migration_v36 全部成功后运行。
+-- 请在 migration_v34 至 migration_v37 全部成功后运行。
 
 SELECT
   to_regprocedure('public.zidu_create_order_atomic(jsonb)') IS NOT NULL AS create_order_ready,
@@ -14,7 +14,11 @@ SELECT
   to_regprocedure('public.zidu_delete_order_atomic(integer,boolean,text)') IS NOT NULL AS delete_ready,
   to_regclass('public.batch_stock_movements') IS NOT NULL AS batch_movements_ready,
   to_regprocedure('public.zidu_fifo_consume_batches(integer,integer,numeric,text)') IS NOT NULL AS fifo_ready,
-  to_regprocedure('public.zidu_adjust_inventory_from_batch(integer,integer,numeric,text,text,text)') IS NOT NULL AS manual_batch_out_ready;
+  to_regprocedure('public.zidu_adjust_inventory_from_batch(integer,integer,numeric,text,text,text)') IS NOT NULL AS manual_batch_out_ready,
+  to_regprocedure('public.zidu_create_purchase_order_v2(text,text,text,text,jsonb,date)') IS NOT NULL AS purchase_create_v2_ready,
+  to_regprocedure('public.zidu_delete_purchase_order(integer,text)') IS NOT NULL AS purchase_recycle_ready,
+  to_regprocedure('public.zidu_close_purchase_order(integer,text,text)') IS NOT NULL AS purchase_close_ready,
+  to_regprocedure('public.zidu_reverse_purchase_receipt(integer,text,text)') IS NOT NULL AS purchase_reverse_ready;
 
 WITH payment_totals AS (
   SELECT order_id, round(coalesce(sum(amount), 0), 2) AS actual_paid
@@ -53,6 +57,30 @@ SELECT id, order_id, status, warehouse_at, finance_at
 FROM public.after_sales
 WHERE status = 'CANCELLED'
   AND (warehouse_at IS NOT NULL OR finance_at IS NOT NULL);
+
+-- 采购已收数量必须等于仍有效的采购收货批次累计数量。
+WITH receipt_totals AS (
+  SELECT purchase_order_item_id, sum(initial_qty) AS batch_received
+  FROM public.product_batches
+  WHERE purchase_order_item_id IS NOT NULL
+    AND receipt_reversed_at IS NULL
+  GROUP BY purchase_order_item_id
+)
+SELECT po.po_no, i.id AS item_id, i.product_name,
+       i.received_qty AS recorded_received,
+       coalesce(r.batch_received, 0) AS batch_received
+FROM public.purchase_order_items i
+JOIN public.purchase_orders po ON po.id = i.po_id
+LEFT JOIN receipt_totals r ON r.purchase_order_item_id = i.id
+WHERE abs(coalesce(i.received_qty, 0) - coalesce(r.batch_received, 0)) > 0.000001;
+
+-- 回收站采购单不得存在已收货数量。
+SELECT po.id, po.po_no, po.deleted_at, sum(i.received_qty) AS received_qty
+FROM public.purchase_orders po
+JOIN public.purchase_order_items i ON i.po_id = po.id
+WHERE po.deleted_at IS NOT NULL
+GROUP BY po.id, po.po_no, po.deleted_at
+HAVING sum(i.received_qty) > 0;
 
 SELECT p.id AS product_id, p.code, p.name, p.base_stock_kg
 FROM public.products p

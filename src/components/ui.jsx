@@ -125,6 +125,7 @@ export const PO_STATUS_MAP = {
   ORDERED: { label: "已下单", cls: "bg-blue-100 text-blue-700" },
   PARTIAL_RECEIVED: { label: "部分收货", cls: "bg-yellow-100 text-yellow-700" },
   RECEIVED: { label: "已收货", cls: "bg-green-100 text-green-700" },
+  CLOSED: { label: "部分完成", cls: "bg-amber-100 text-amber-800" },
   CANCELLED: { label: "已取消", cls: "bg-red-100 text-red-700" }
 };
 

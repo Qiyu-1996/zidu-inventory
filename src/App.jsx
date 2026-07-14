@@ -217,7 +217,7 @@ export default function App() {
           {page === "tasks" && <Tasks />}
           {page === "inventory" && <Inventory nav={nav} />}
           {page === "purchase" && !subView && <PurchaseOrderList nav={nav} />}
-          {page === "purchaseCreate" && <PurchaseOrderCreate onBack={() => nav('purchase')} />}
+          {page === "purchaseCreate" && <PurchaseOrderCreate initialSuggestion={subView?.suggestion || null} onBack={() => nav('purchase')} />}
           {page === "purchaseEdit" && <PurchaseOrderCreate editPo={purchaseOrders.find(po => po.id === subView)} onBack={() => nav('purchaseDetail', subView)} />}
           {page === "purchaseDetail" && <PurchaseOrderDetail poId={subView} onBack={() => nav('purchase')} onEdit={() => nav('purchaseEdit', subView)} />}
           {page === "shipping" && canShip && <ShippingWorkbench />}

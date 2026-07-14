@@ -200,8 +200,23 @@ export function DataProvider({ children }) {
   // Purchase Orders
   const addPurchaseOrder = useCallback(async (po) => { const id = await api.createPurchaseOrder(po); await loadAll(); return id; }, [loadAll]);
   const editPurchaseOrder = useCallback(async (poId, po) => { await api.updatePurchaseOrder(poId, po); await loadAll(); }, [loadAll]);
-  const removePurchaseOrder = useCallback(async (poId) => { await api.deletePurchaseOrder(poId); setPurchaseOrders(p => p.filter(po => po.id !== poId)); }, []);
-  const updatePOStatus = useCallback(async (poId, status) => { await api.updatePurchaseOrderStatus(poId, status); setPurchaseOrders(p => p.map(po => po.id === poId ? { ...po, status } : po)); }, []);
+  const removePurchaseOrder = useCallback(async (poId) => {
+    await api.deletePurchaseOrder(poId, user?.name || '');
+    setPurchaseOrders(p => p.filter(po => po.id !== poId));
+  }, [user]);
+  const updatePOStatus = useCallback(async (poId, status) => {
+    await api.updatePurchaseOrderStatus(poId, status, user?.name || '');
+    setPurchaseOrders(await api.fetchPurchaseOrders());
+  }, [user]);
+  const closePurchaseOrder = useCallback(async (poId, note) => {
+    await api.closePurchaseOrder(poId, user?.name || '', note);
+    setPurchaseOrders(await api.fetchPurchaseOrders());
+  }, [user]);
+  const reversePurchaseReceipt = useCallback(async (batchId, note) => {
+    await api.reversePurchaseReceipt(batchId, user?.name || '', note);
+    const [newProducts, newPOs] = await Promise.all([api.fetchProducts(), api.fetchPurchaseOrders()]);
+    setProducts(newProducts); setPurchaseOrders(newPOs);
+  }, [user]);
   const receivePOItems = useCallback(async (poId, items) => {
     await api.receivePurchaseItems(poId, items, user.name);
     // Reload everything since stock changed
@@ -283,7 +298,7 @@ export function DataProvider({ children }) {
       createAfterSale, processAfterSaleWarehouse, completeAfterSaleFinance, cancelAfterSale,
       addUser, resetUserPassword, toggleUserStatus, updateUserRole, archiveUser,
       adjustStock, adjustRawStock, adjustStockFromBatch, loadStockLog,
-      addPurchaseOrder, editPurchaseOrder, removePurchaseOrder, updatePOStatus, receivePOItems,
+      addPurchaseOrder, editPurchaseOrder, removePurchaseOrder, updatePOStatus, closePurchaseOrder, reversePurchaseReceipt, receivePOItems,
       updateTiers, getCustomerTier,
       updatePackageItems,
       addConfig, removeConfig,

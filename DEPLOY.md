@@ -52,8 +52,12 @@
 - `migration_v20_user_role_and_archive.sql` — 管理员修改角色、删除归档账号。
 - `migration_v21_batch_delete_and_kg_receiving.sql` — 修复批次删除外键、按 kg 批次入库。
 - `migration_v22_purchase_order_crud.sql` — 采购单新增、编辑、删除及按 kg 收货。
+- `migration_v25_purchase_receiving_batches.sql` — 采购收货、批次和库存流水原子关联。
+- `migration_v35_fifo_batch_inventory.sql` — 批次 FIFO 出库。
+- `migration_v36_manual_batch_outbound.sql` — 指定批次出库。
+- `migration_v37_purchase_workflow.sql` — 采购工作台、预计到货、30 天回收站、关闭剩余采购及安全撤销收货。
 
-运行顺序必须是 `v19 → v20 → v21 → v22`；代码 push 到 GitHub 不会自动执行 Supabase SQL。
+迁移必须按编号顺序执行；代码 push 到 GitHub 不会自动执行 Supabase SQL。升级本次采购功能时，在 `v36` 成功后运行 `v37`。
 
 ## 第三步：获取 Supabase 密钥
 

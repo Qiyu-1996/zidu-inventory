@@ -5,6 +5,7 @@ import { useData } from '../contexts/DataContext';
 import { Card, fmtY, SERIES_LIST, CUSTOMER_TYPES, DEFAULT_SPEC_OPTIONS } from '../components/ui';
 import * as api from '../lib/api';
 import { defaultDensityForProduct } from '../lib/densityDefaults';
+import SupplierManager from '../components/SupplierManager';
 
 const CHANNEL_OPTIONS = [
   { value: 'FINISHED', label: '成品' },
@@ -40,7 +41,7 @@ export default function SettingsPage() {
       </div>
       {tab === "users" && <UserMgmt />}
       {tab === "products" && <ProductMgmt />}
-      {tab === "suppliers" && <SupplierMgmt />}
+      {tab === "suppliers" && <SupplierManager />}
       {tab === "targets" && <TargetMgmt />}
       {tab === "config" && <ConfigMgmt />}
       {tab === "audit" && <AuditLogView />}
@@ -536,87 +537,6 @@ function ScenarioMgmt() {
           ))}
         </div>
       )}
-    </Card>
-  );
-}
-
-function SupplierMgmt() {
-  const { suppliers, addSupplier, editSupplier, removeSupplier } = useData();
-  const [show, setShow] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState({ name: '', contact: '', phone: '', email: '', address: '', category: '', paymentTerms: '', note: '', isActive: true });
-  const [saving, setSaving] = useState(false);
-
-  const reset = () => { setShow(false); setEditingId(null); setForm({ name: '', contact: '', phone: '', email: '', address: '', category: '', paymentTerms: '', note: '', isActive: true }); };
-
-  const startEdit = (s) => { setEditingId(s.id); setForm({ ...s }); setShow(true); };
-
-  const handleSave = async () => {
-    if (!form.name.trim()) return;
-    setSaving(true);
-    try {
-      if (editingId) await editSupplier(editingId, form);
-      else await addSupplier(form);
-      reset();
-    } catch (e) { alert(e.message); } finally { setSaving(false); }
-  };
-
-  const handleDelete = async (s) => {
-    if (!confirm(`确定删除供应商 "${s.name}"？`)) return;
-    try { await removeSupplier(s.id); }
-    catch (e) { alert(e.message); }
-  };
-
-  return (
-    <Card className="p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2"><Truck size={16} className="text-purple-600" /><div className="text-sm font-semibold text-gray-700">供应商管理（{suppliers.length}）</div></div>
-        <button onClick={() => show ? reset() : setShow(true)} className="flex items-center gap-1 text-sm font-medium text-purple-700"><Plus size={16} />添加供应商</button>
-      </div>
-
-      {show && (
-        <div className="bg-purple-50 rounded-lg p-4 mb-4 space-y-3">
-          <div className="text-sm font-medium">{editingId ? '编辑供应商' : '新建供应商'}</div>
-          <div className="grid grid-cols-2 gap-3">
-            <div><label className="block text-xs text-gray-500 mb-1">名称 *</label><input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-            <div><label className="block text-xs text-gray-500 mb-1">分类</label><input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} placeholder="如：精油原料/包材/物流" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-            <div><label className="block text-xs text-gray-500 mb-1">联系人</label><input value={form.contact} onChange={e => setForm({ ...form, contact: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-            <div><label className="block text-xs text-gray-500 mb-1">电话</label><input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-            <div><label className="block text-xs text-gray-500 mb-1">邮箱</label><input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-            <div><label className="block text-xs text-gray-500 mb-1">付款条款</label><input value={form.paymentTerms} onChange={e => setForm({ ...form, paymentTerms: e.target.value })} placeholder="如：月结30天" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-          </div>
-          <div><label className="block text-xs text-gray-500 mb-1">地址</label><input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-          <div><label className="block text-xs text-gray-500 mb-1">备注</label><textarea value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} rows="2" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-          <div className="flex gap-2">
-            <button onClick={reset} className="px-3 py-1.5 text-sm border rounded-lg">取消</button>
-            <button onClick={handleSave} disabled={!form.name.trim() || saving} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>{saving ? '保存中...' : '保存'}</button>
-          </div>
-        </div>
-      )}
-
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead><tr className="border-b bg-gray-50/80">
-            <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">名称</th>
-            <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">分类</th>
-            <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">联系人</th>
-            <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium hidden md:table-cell">付款条款</th>
-            <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">操作</th>
-          </tr></thead>
-          <tbody>{suppliers.map(s => (
-            <tr key={s.id} className="border-b last:border-0 hover:bg-gray-50">
-              <td className="py-2 px-3"><div className="font-medium">{s.name}</div><div className="text-xs text-gray-400">{s.address}</div></td>
-              <td className="py-2 px-3 text-xs text-gray-600">{s.category}</td>
-              <td className="py-2 px-3 text-xs">{s.contact}<br /><span className="text-gray-400">{s.phone}</span></td>
-              <td className="py-2 px-3 text-xs text-gray-600 hidden md:table-cell">{s.paymentTerms}</td>
-              <td className="py-2 px-3 text-right space-x-2">
-                <button onClick={() => startEdit(s)} className="text-gray-500 hover:text-purple-600"><Edit2 size={14} /></button>
-                <button onClick={() => handleDelete(s)} className="text-gray-500 hover:text-red-500"><X size={14} /></button>
-              </td>
-            </tr>
-          ))}{suppliers.length === 0 && <tr><td colSpan="5" className="text-center py-12 text-gray-400 text-sm">暂无供应商</td></tr>}</tbody>
-        </table>
-      </div>
     </Card>
   );
 }
