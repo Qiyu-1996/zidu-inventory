@@ -442,6 +442,14 @@ function roundMoney(n) {
   return Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100;
 }
 
+function orderIntegrityError(error) {
+  const message = error?.message || '';
+  if (/zidu_(cancel_order|update_order_status_atomic|record_payment_atomic|update_order_items_atomic|create_after_sale_atomic|process_after_sale_warehouse_atomic|complete_after_sale_finance_atomic|cancel_after_sale|delete_order_atomic)|schema cache|could not find the function/i.test(message)) {
+    return new Error('请先在 Supabase 运行 supabase/migration_v34_order_after_sales_integrity.sql');
+  }
+  return new Error(message || '订单操作失败');
+}
+
 async function writeStockAdjustment(specId, productId, type, reason, quantity, note, operatorName) {
   if (!specId || !quantity) return;
   const result = await adjustInventoryValue(specId, type, Number(quantity), 'SPEC');
@@ -463,52 +471,6 @@ async function writeStockAdjustment(specId, productId, type, reason, quantity, n
   if (logError) throw new Error(logError.message);
 }
 
-async function recalculatePaymentState(orderId, total) {
-  const { data: payments, error } = await supabase.from('payment_records').select('amount').eq('order_id', orderId);
-  if (error) throw new Error(error.message);
-  const totalPaid = roundMoney((payments || []).reduce((s, p) => s + Number(p.amount || 0), 0));
-  const orderTotal = Number(total || 0);
-  const status = orderTotal <= 0 ? (totalPaid > 0 ? 'PAID' : 'UNPAID') : totalPaid >= orderTotal ? 'PAID' : totalPaid > 0 ? 'PARTIAL' : 'UNPAID';
-  const { error: updateError } = await supabase.from('orders').update({ payment_status: status, paid_amount: totalPaid }).eq('id', orderId);
-  if (updateError) throw new Error(updateError.message);
-  return { totalPaid, status };
-}
-
-function normalizeAfterSaleItems(order, requested) {
-  const selected = (requested || [])
-    .map(it => ({ itemId: Number(it.itemId), quantity: Math.floor(Number(it.quantity) || 0) }))
-    .filter(it => it.itemId && it.quantity > 0)
-    .map(req => {
-      const item = (order.items || []).find(it => it.id === req.itemId);
-      if (!item) throw new Error('售后商品不存在');
-      if (req.quantity > Number(item.quantity || 0)) throw new Error(`${item.product_name || '商品'} 数量超出订单数量`);
-      return {
-        itemId: item.id,
-        productId: item.product_id,
-        specId: item.spec_id,
-        productName: item.product_name,
-        productCode: item.product_code,
-        spec: item.spec,
-        quantity: req.quantity,
-        unitPrice: Number(item.unit_price || 0),
-        subtotal: roundMoney(req.quantity * Number(item.unit_price || 0))
-      };
-    });
-  if (selected.length === 0) throw new Error('请选择要处理的商品数量');
-  return selected;
-}
-
-function afterSaleSummary(items) {
-  const summary = (items || []).map(it => `${it.productName || ''}(${it.spec || ''})x${it.quantity}`).join('，');
-  return summary || '仅退款';
-}
-
-function getShippingFeeFromOrderRow(order) {
-  const meta = order?.channel_meta || {};
-  const fee = Number(meta.shippingFee ?? meta.freightFee ?? meta.shipping_fee ?? 0);
-  return Number.isFinite(fee) ? fee : 0;
-}
-
 async function insertOrderLog(orderId, time, userName, action) {
   const { error } = await supabase.from('order_logs').insert({
     order_id: orderId,
@@ -520,328 +482,45 @@ async function insertOrderLog(orderId, time, userName, action) {
 }
 
 export async function createAfterSale(orderId, payload) {
-  const { data: order, error } = await supabase.from('orders')
-    .select('id, order_no, status, paid_amount, total, items:order_items(*)')
-    .eq('id', orderId)
-    .single();
-  if (error) throw new Error(error.message);
-  if (!order) throw new Error('订单不存在');
-  if (order.status === 'CANCELLED') throw new Error('已取消订单不能发起售后');
-
-  const refundOnly = payload.refundOnly === true;
-  const items = refundOnly ? [] : normalizeAfterSaleItems(order, payload.items);
-  const type = 'RETURN_REFUND';
-  const isFullReturn = payload.fullReturn === true;
-  const createdBy = payload.createdBy || '';
-  const time = payload.time || new Date().toISOString().slice(0, 16);
-  const requestedAmount = refundOnly
-    ? roundMoney(Number(payload.requestedAmount || 0))
-    : isFullReturn
-      ? roundMoney(Number(payload.requestedAmount || 0) || items.reduce((s, it) => s + Number(it.subtotal || 0), 0))
-      : roundMoney(items.reduce((s, it) => s + Number(it.subtotal || 0), 0));
-  if (requestedAmount < 0 || (refundOnly && requestedAmount <= 0)) throw new Error('退款金额不能小于等于0');
-  if (requestedAmount > Number(order.paid_amount || 0) + 0.01) throw new Error('退款金额不能大于当前已收金额');
-  const note = (payload.note || '').trim();
-  const requestNote = refundOnly
-    ? `仅退款${note ? `：${note}` : ''}`
-    : isFullReturn
-      ? `整单退${note ? `：${note}` : ''}`
-      : note;
-  const row = {
-    order_id: orderId,
-    type,
-    status: refundOnly ? 'FINANCE_PENDING' : 'WAREHOUSE_PENDING',
-    items,
-    requested_amount: requestedAmount,
-    request_note: requestNote,
-    created_by: createdBy
-  };
-  const { data, error: insertError } = await supabase.from('after_sales').insert(row).select().single();
-  if (insertError) throw new Error(insertError.message);
-  const action = `发起售后：${refundOnly ? '仅退款' : isFullReturn ? '整单退' : '退货退款'}；${afterSaleSummary(items)}；退款 ¥${requestedAmount}${note ? `；${note}` : ''}`;
-  await insertOrderLog(orderId, time, createdBy, action);
-  return mapAfterSale(data);
-}
-
-async function fetchAfterSaleRow(afterSaleId) {
-  const { data, error } = await supabase.from('after_sales')
-    .select('*, order:orders(id, order_no, status, subtotal, discount_percent, total, paid_amount, channel_meta, items:order_items(*))')
-    .eq('id', afterSaleId)
-    .single();
-  if (error) throw new Error(error.message);
-  if (!data) throw new Error('售后单不存在');
+  const { data, error } = await supabase.rpc('zidu_create_after_sale_atomic', {
+    p_order_id: Number(orderId),
+    p_payload: payload || {}
+  });
+  if (error) throw orderIntegrityError(error);
+  if (data?.error) throw new Error(data.error);
   return data;
 }
 
 export async function processAfterSaleWarehouse(afterSaleId, payload) {
-  const row = await fetchAfterSaleRow(afterSaleId);
-  if (row.status !== 'WAREHOUSE_PENDING') throw new Error('该售后单不在待仓库处理状态');
-  const items = row.items || [];
-  const restockReturned = payload.restockReturned !== false;
-  const deductReplacement = row.type === 'EXCHANGE' && payload.deductReplacement !== false;
-  const operatorName = payload.operatorName || '';
-  const time = payload.time || new Date().toISOString().slice(0, 16);
-  const note = (payload.note || '').trim();
-
-  for (const item of items) {
-    if (item.specId && restockReturned) {
-      await writeStockAdjustment(
-        item.specId,
-        item.productId,
-        'IN',
-        'RETURN',
-        item.quantity,
-        `${row.type === 'RETURN_REFUND' ? '售后退回' : '换货退回'} ${row.order?.order_no || ''} ${item.productName || ''}`,
-        operatorName
-      );
-    }
-    if (item.specId && deductReplacement) {
-      await writeStockAdjustment(
-        item.specId,
-        item.productId,
-        'OUT',
-        'ORDER',
-        item.quantity,
-        `换货补发 ${row.order?.order_no || ''} ${item.productName || ''}`,
-        operatorName
-      );
-    }
-  }
-
-  const financePending = row.type === 'RETURN_REFUND' || Number(row.requested_amount || 0) !== 0;
-  const nextStatus = financePending ? 'FINANCE_PENDING' : 'COMPLETED';
-  const { error } = await supabase.from('after_sales').update({
-    status: nextStatus,
-    restock_returned: restockReturned,
-    deduct_replacement: deductReplacement,
-    warehouse_note: note,
-    warehouse_by: operatorName,
-    warehouse_at: new Date().toISOString(),
-    completed_at: nextStatus === 'COMPLETED' ? new Date().toISOString() : null
-  }).eq('id', afterSaleId);
-  if (error) throw new Error(error.message);
-
-  const action = `仓库处理售后：${afterSaleSummary(items)}；${restockReturned ? '退回已入库' : '退回不入库'}${row.type === 'EXCHANGE' ? `；${deductReplacement ? '补发已扣库存' : '补发不扣库存'}` : ''}${note ? `；${note}` : ''}`;
-  await insertOrderLog(row.order_id, time, operatorName, action);
-  return { status: nextStatus };
-}
-
-async function reduceReturnedOrderItems(order, items, refundAmount = 0) {
-  const remainingItems = (order.items || []).map(it => ({ ...it }));
-  for (const item of items) {
-    const current = remainingItems.find(it => it.id === item.itemId);
-    if (!current) throw new Error(`${item.productName || '商品'} 已不在订单明细中`);
-    const newQty = Number(current.quantity || 0) - Number(item.quantity || 0);
-    if (newQty < 0) throw new Error(`${item.productName || '商品'} 数量超出订单数量`);
-    current.quantity = newQty;
-    current.subtotal = roundMoney(newQty * Number(current.unit_price || 0));
-    if (newQty <= 0) {
-      const { error } = await supabase.from('order_items').delete().eq('id', current.id);
-      if (error) throw new Error(error.message);
-    } else {
-      const { error } = await supabase.from('order_items')
-        .update({ quantity: newQty, subtotal: current.subtotal })
-        .eq('id', current.id);
-      if (error) throw new Error(error.message);
-    }
-  }
-
-  const keptItems = remainingItems.filter(it => Number(it.quantity || 0) > 0);
-  const subtotal = roundMoney(keptItems.reduce((s, it) => s + Number(it.subtotal || 0), 0));
-  const shippingFee = keptItems.length > 0 ? getShippingFeeFromOrderRow(order) : 0;
-  const total = refundAmount > 0
-    ? Math.max(0, roundMoney(Number(order.total || 0) - refundAmount))
-    : roundMoney(subtotal - roundMoney(subtotal * Number(order.discount_percent || 0) / 100) + shippingFee);
-  const discountAmount = Math.max(0, roundMoney(subtotal + shippingFee - total));
-  const orderPatch = { subtotal, discount_amount: discountAmount, total };
-  if (keptItems.length === 0) orderPatch.status = 'COMPLETED';
-  const { error } = await supabase.from('orders')
-    .update(orderPatch)
-    .eq('id', order.id);
-  if (error) throw new Error(error.message);
-  return { subtotal, discountAmount, total, fullReturn: keptItems.length === 0 };
+  const { data, error } = await supabase.rpc('zidu_process_after_sale_warehouse_atomic', {
+    p_after_sale_id: Number(afterSaleId),
+    p_payload: payload || {}
+  });
+  if (error) throw orderIntegrityError(error);
+  if (data?.error) throw new Error(data.error);
+  return data;
 }
 
 export async function completeAfterSaleFinance(afterSaleId, payload) {
-  const row = await fetchAfterSaleRow(afterSaleId);
-  if (row.status !== 'FINANCE_PENDING') throw new Error('该售后单不在待财务处理状态');
-  const operatorName = payload.operatorName || '';
-  const time = payload.time || new Date().toISOString().slice(0, 16);
-  const note = (payload.note || '').trim();
-  const financeAmount = roundMoney(Number(payload.amount || 0));
-  const paymentMethod = financeAmount !== 0 ? requirePaymentMethod(payload.method) : '';
-  const refundOnly = /^仅退款/.test(row.request_note || '');
-  const expectedRefund = roundMoney(Number(row.requested_amount || 0));
-  if (row.type === 'RETURN_REFUND') {
-    if (financeAmount >= 0) throw new Error('请记录退款金额');
-    if (expectedRefund > 0 && Math.abs(Math.abs(financeAmount) - expectedRefund) > 0.01) {
-      throw new Error('退款金额必须等于售后申请金额');
-    }
-  }
-  if (financeAmount < 0 && Math.abs(financeAmount) > Number(row.order?.paid_amount || 0) + 0.01) {
-    throw new Error('退款金额不能大于当前已收金额');
-  }
-
-  let total = Number(row.order?.total || 0);
-  if (row.type === 'RETURN_REFUND' && !refundOnly) {
-    const totals = await reduceReturnedOrderItems(row.order, row.items || [], expectedRefund);
-    total = totals.total;
-  } else if (financeAmount !== 0) {
-    const subtotal = Math.max(0, roundMoney(Number(row.order?.subtotal || 0) + financeAmount));
-    total = Math.max(0, roundMoney(Number(row.order?.total || 0) + financeAmount));
-    const { error } = await supabase.from('orders')
-      .update({ subtotal, total })
-      .eq('id', row.order_id);
-    if (error) throw new Error(error.message);
-  }
-
-  if (financeAmount !== 0) {
-    const { error } = await supabase.from('payment_records').insert({
-      order_id: row.order_id,
-      amount: financeAmount,
-      method: paymentMethod,
-      note: `${financeAmount < 0 ? '退款' : '补款'}：${note || afterSaleSummary(row.items || [])}`,
-      recorded_by: operatorName
-    });
-    if (error) throw new Error(error.message);
-  }
-  const payment = await recalculatePaymentState(row.order_id, total);
-  const { error } = await supabase.from('after_sales').update({
-    status: 'COMPLETED',
-    finance_amount: financeAmount,
-    finance_method: paymentMethod,
-    finance_note: note,
-    finance_by: operatorName,
-    finance_at: new Date().toISOString(),
-    completed_at: new Date().toISOString()
-  }).eq('id', afterSaleId);
-  if (error) throw new Error(error.message);
-
-  const action = `财务处理售后：${financeAmount < 0 ? '退款' : financeAmount > 0 ? '补款' : '无退款/补款'} ¥${Math.abs(financeAmount)}；${afterSaleSummary(row.items || [])}${note ? `；${note}` : ''}`;
-  await insertOrderLog(row.order_id, time, operatorName, action);
-  return { total, paidAmount: payment.totalPaid, paymentStatus: payment.status };
+  if (Number(payload?.amount || 0) !== 0) requirePaymentMethod(payload.method);
+  const { data, error } = await supabase.rpc('zidu_complete_after_sale_finance_atomic', {
+    p_after_sale_id: Number(afterSaleId),
+    p_payload: payload || {}
+  });
+  if (error) throw orderIntegrityError(error);
+  if (data?.error) throw new Error(data.error);
+  return data;
 }
 
-export async function processOrderAfterSale(orderId, payload) {
-  const { data: order, error } = await supabase.from('orders')
-    .select('id, order_no, status, subtotal, discount_percent, total, paid_amount, items:order_items(*)')
-    .eq('id', orderId)
-    .single();
-  if (error) throw new Error(error.message);
-  if (!order) throw new Error('订单不存在');
-  if (order.status === 'CANCELLED') throw new Error('已取消订单不能处理售后');
-
-  const requested = (payload.items || [])
-    .map(it => ({ itemId: Number(it.itemId), quantity: Math.floor(Number(it.quantity) || 0) }))
-    .filter(it => it.itemId && it.quantity > 0);
-  if (requested.length === 0) throw new Error('请选择要处理的商品数量');
-
-  const selected = requested.map(req => {
-    const item = (order.items || []).find(it => it.id === req.itemId);
-    if (!item) throw new Error('售后商品不存在');
-    if (req.quantity > Number(item.quantity || 0)) throw new Error(`${item.product_name || '商品'} 数量超出订单数量`);
-    return { item, quantity: req.quantity };
+export async function cancelAfterSale(afterSaleId, operatorName, note = '') {
+  const { data, error } = await supabase.rpc('zidu_cancel_after_sale', {
+    p_after_sale_id: Number(afterSaleId),
+    p_operator_name: operatorName || '',
+    p_note: note || ''
   });
-
-  const type = payload.type || 'RETURN_REFUND';
-  const restockReturned = payload.restockReturned !== false;
-  const operatorName = payload.operatorName || '';
-  const time = payload.time || new Date().toISOString().slice(0, 16);
-  const note = (payload.note || '').trim();
-  const summary = selected.map(({ item, quantity }) => `${item.product_name}(${item.spec})x${quantity}`).join('，');
-
-  if (type === 'RETURN_REFUND') {
-    const refundAmount = roundMoney(Number(payload.refundAmount || 0));
-    const refundMethod = refundAmount > 0 ? requirePaymentMethod(payload.refundMethod) : '';
-    if (refundAmount < 0) throw new Error('退款金额不能为负数');
-    if (refundAmount > Number(order.paid_amount || 0) + 0.01) throw new Error('退款金额不能大于当前已收金额');
-
-    const remainingItems = (order.items || []).map(it => ({ ...it }));
-    for (const { item, quantity } of selected) {
-      const newQty = Number(item.quantity || 0) - quantity;
-      const row = remainingItems.find(it => it.id === item.id);
-      if (row) {
-        row.quantity = newQty;
-        row.subtotal = roundMoney(newQty * Number(item.unit_price || 0));
-      }
-      if (item.spec_id && restockReturned) {
-        await writeStockAdjustment(
-          item.spec_id,
-          item.product_id,
-          'IN',
-          'RETURN',
-          quantity,
-          `退货入库 ${order.order_no} ${item.product_name || ''}`,
-          operatorName
-        );
-      }
-      if (newQty <= 0) {
-        const { error: deleteError } = await supabase.from('order_items').delete().eq('id', item.id);
-        if (deleteError) throw new Error(deleteError.message);
-      } else {
-        const { error: updateError } = await supabase.from('order_items')
-          .update({ quantity: newQty, subtotal: row.subtotal })
-          .eq('id', item.id);
-        if (updateError) throw new Error(updateError.message);
-      }
-    }
-
-    const keptItems = remainingItems.filter(it => Number(it.quantity || 0) > 0);
-    const subtotal = roundMoney(keptItems.reduce((s, it) => s + Number(it.subtotal || 0), 0));
-    const discountAmount = roundMoney(subtotal * Number(order.discount_percent || 0) / 100);
-    const total = roundMoney(subtotal - discountAmount);
-    const { error: orderError } = await supabase.from('orders')
-      .update({ subtotal, discount_amount: discountAmount, total })
-      .eq('id', orderId);
-    if (orderError) throw new Error(orderError.message);
-
-    if (refundAmount > 0) {
-      const { error: refundError } = await supabase.from('payment_records').insert({
-        order_id: orderId,
-        amount: -refundAmount,
-        method: refundMethod,
-        note: `退款：${note || summary}`,
-        recorded_by: operatorName
-      });
-      if (refundError) throw new Error(refundError.message);
-    }
-
-    const payment = await recalculatePaymentState(orderId, total);
-    const action = `退货退款：${summary}；退款 ¥${refundAmount}；${restockReturned ? '退货已入库' : '退货不入库'}${note ? `；${note}` : ''}`;
-    const { error: logError } = await supabase.from('order_logs').insert({ order_id: orderId, time, user_name: operatorName, action });
-    if (logError) throw new Error(logError.message);
-    return { total, subtotal, discountAmount, paidAmount: payment.totalPaid, paymentStatus: payment.status };
-  }
-
-  const deductReplacement = payload.deductReplacement !== false;
-  for (const { item, quantity } of selected) {
-    if (item.spec_id && restockReturned) {
-      await writeStockAdjustment(
-        item.spec_id,
-        item.product_id,
-        'IN',
-        'RETURN',
-        quantity,
-        `换货退回 ${order.order_no} ${item.product_name || ''}`,
-        operatorName
-      );
-    }
-    if (item.spec_id && deductReplacement) {
-      await writeStockAdjustment(
-        item.spec_id,
-        item.product_id,
-        'OUT',
-        'ORDER',
-        quantity,
-        `换货补发 ${order.order_no} ${item.product_name || ''}`,
-        operatorName
-      );
-    }
-  }
-  const action = `换货补发：${summary}；${restockReturned ? '退回已入库' : '退回不入库'}；${deductReplacement ? '补发已扣库存' : '补发不扣库存'}${note ? `；${note}` : ''}`;
-  const { error: logError } = await supabase.from('order_logs').insert({ order_id: orderId, time, user_name: operatorName, action });
-  if (logError) throw new Error(logError.message);
-  return { total: Number(order.total || 0), paidAmount: Number(order.paid_amount || 0) };
+  if (error) throw orderIntegrityError(error);
+  if (data?.error) throw new Error(data.error);
+  return data;
 }
 
 export async function createOrder(order) {
@@ -886,63 +565,15 @@ export async function updateOrderDiscountResponsibility(orderId, responsibility,
 }
 
 export async function updateOrderItems(orderId, changes, totals, logEntry) {
-  for (const ch of (changes || [])) {
-    const delta = Number(ch.newQty || 0) - Number(ch.oldQty || 0);
-    if (ch.specId && delta !== 0) {
-      await writeStockAdjustment(
-        ch.specId,
-        ch.productId || null,
-        delta > 0 ? 'OUT' : 'IN',
-        'ORDER',
-        Math.abs(delta),
-        '管理员修改订单明细',
-        logEntry?.user || ''
-      );
-    }
-    if (Number(ch.newQty || 0) <= 0) {
-      const { error } = await supabase.from('order_items').delete().eq('id', ch.itemId);
-      if (error) throw new Error(error.message);
-    } else if (delta !== 0) {
-      const { error } = await supabase.from('order_items')
-        .update({ quantity: ch.newQty, subtotal: roundMoney(Number(ch.newQty || 0) * Number(ch.unitPrice || 0)) })
-        .eq('id', ch.itemId);
-      if (error) throw new Error(error.message);
-    }
-  }
-
-  const { error: orderError } = await supabase.from('orders').update({
-    subtotal: totals.subtotal,
-    discount_amount: totals.discountAmount,
-    total: totals.total
-  }).eq('id', orderId);
-  if (orderError) throw new Error(orderError.message);
-  await recalculatePaymentState(orderId, totals.total);
-  if (logEntry) await insertOrderLog(orderId, logEntry.time, logEntry.user, logEntry.action);
-}
-
-async function fetchOrderDeletionSnapshot(orderId) {
-  let { data, error } = await supabase.from('orders')
-    .select('*, customer:customers(name), items:order_items(*), logs:order_logs(*), shipment:shipments(*), payments:payment_records(*), afterSales:after_sales(*)')
-    .eq('id', orderId)
-    .single();
-  if (isMissingAfterSalesError(error)) {
-    const retry = await supabase.from('orders')
-      .select('*, customer:customers(name), items:order_items(*), logs:order_logs(*), shipment:shipments(*), payments:payment_records(*)')
-      .eq('id', orderId)
-      .single();
-    data = retry.data;
-    error = retry.error;
-  }
-  if (error) throw new Error(error.message);
-  if (!data) throw new Error('订单不存在');
-  return {
-    order: data,
-    items: data.items || [],
-    logs: data.logs || [],
-    shipment: data.shipment || [],
-    payments: data.payments || [],
-    afterSales: data.afterSales || []
-  };
+  const { data, error } = await supabase.rpc('zidu_update_order_items_atomic', {
+    p_order_id: Number(orderId),
+    p_changes: changes || [],
+    p_totals: totals || {},
+    p_log: logEntry || {}
+  });
+  if (error) throw orderIntegrityError(error);
+  if (data?.error) throw new Error(data.error);
+  return data;
 }
 
 function mapDeletedOrder(row) {
@@ -1139,48 +770,14 @@ export async function restoreDeletedOrder(deletedOrderId, restoredBy = '') {
 }
 
 export async function deleteOrder(orderId, restoreStock = true, deletedBy = '') {
-  const snapshot = await fetchOrderDeletionSnapshot(orderId);
-  const order = snapshot.order;
-  const { error: archiveError } = await supabase.from('deleted_orders').insert({
-    original_order_id: orderId,
-    order_no: order.order_no,
-    customer_id: order.customer_id,
-    customer_name: order.customer?.name || '',
-    sales_id: order.sales_id,
-    status: order.status,
-    payment_status: order.payment_status || 'UNPAID',
-    total: Number(order.total || 0),
-    paid_amount: Number(order.paid_amount || 0),
-    stock_restored: restoreStock,
-    snapshot,
-    deleted_by: deletedBy || '',
-    expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+  const { data, error } = await supabase.rpc('zidu_delete_order_atomic', {
+    p_order_id: Number(orderId),
+    p_restore_stock: Boolean(restoreStock),
+    p_deleted_by: deletedBy || ''
   });
-  if (isMissingDeletedOrdersError(archiveError)) {
-    throw new Error('请先在 Supabase 运行 supabase/migration_v15.sql，启用删除订单库；为避免数据丢失，本次没有删除订单');
-  }
-  if (archiveError) throw new Error(archiveError.message);
-
-  // 如果订单未取消且需要恢复库存
-  if (restoreStock) {
-    const { data: items } = await supabase.from('order_items').select('*').eq('order_id', orderId);
-    for (const it of (items || [])) {
-      if (it.spec_id) {
-        await writeStockAdjustment(
-          it.spec_id,
-          it.product_id,
-          'IN',
-          'CANCEL_RESTORE',
-          Number(it.quantity || 0),
-          '删除订单恢复库存',
-          deletedBy || ''
-        );
-      }
-    }
-  }
-  // 订单有 ON DELETE CASCADE，会自动删除 items/logs/shipments/payments
-  const { error } = await supabase.from('orders').delete().eq('id', orderId);
-  if (error) throw new Error(error.message);
+  if (error) throw orderIntegrityError(error);
+  if (data?.error) throw new Error(data.error);
+  return data;
 }
 
 // 获取快递公司按使用频率排序
@@ -1193,35 +790,25 @@ export async function fetchCarriersByUsage() {
 }
 
 export async function updateOrderStatus(orderId, newStatus, logEntry, shipmentData) {
-  const { error: orderError } = await supabase.from('orders').update({ status: newStatus }).eq('id', orderId);
-  if (orderError) throw new Error(orderError.message);
-  if (logEntry) {
-    const { error: logError } = await supabase.from('order_logs').insert({ order_id: orderId, time: logEntry.time, user_name: logEntry.user, action: logEntry.action });
-    if (logError) throw new Error(logError.message);
-  }
-  if (shipmentData) {
-    const { error: shipmentError } = await supabase.from('shipments').insert({ order_id: orderId, carrier: shipmentData.carrier, tracking_no: shipmentData.trackingNo, shipped_at: shipmentData.shippedAt, operator: shipmentData.operator });
-    if (shipmentError) throw new Error(shipmentError.message);
-  }
-
-  // If cancelled, restore stock + record adjustments
   if (newStatus === 'CANCELLED') {
-    const { data: items } = await supabase.from('order_items').select('*').eq('order_id', orderId);
-    const { data: orderData } = await supabase.from('orders').select('order_no').eq('id', orderId).single();
-    for (const it of (items || [])) {
-      if (it.spec_id) {
-        await writeStockAdjustment(
-          it.spec_id,
-          it.product_id,
-          'IN',
-          'CANCEL_RESTORE',
-          Number(it.quantity || 0),
-          `取消订单 ${orderData?.order_no || ''}`,
-          logEntry?.user || ''
-        );
-      }
-    }
+    const { data, error } = await supabase.rpc('zidu_cancel_order', {
+      p_order_id: Number(orderId),
+      p_operator_name: logEntry?.user || '',
+      p_time: logEntry?.time || ''
+    });
+    if (error) throw orderIntegrityError(error);
+    if (data?.error) throw new Error(data.error);
+    return data;
   }
+  const { data, error } = await supabase.rpc('zidu_update_order_status_atomic', {
+    p_order_id: Number(orderId),
+    p_new_status: newStatus,
+    p_log: logEntry || {},
+    p_shipment: shipmentData || null
+  });
+  if (error) throw orderIntegrityError(error);
+  if (data?.error) throw new Error(data.error);
+  return data;
 }
 
 function unpaidShippingError(error, data) {
@@ -1258,27 +845,17 @@ export async function reviewUnpaidShipping(orderId, adminId, approved, note = ''
 // ═══ PAYMENTS ═══
 export async function recordPayment(orderId, amount, method, note, recordedBy, priceAdjustment = 0) {
   const paymentMethod = requirePaymentMethod(method);
-  const adjustment = roundMoney(Number(priceAdjustment || 0));
-  if (adjustment !== 0) {
-    const { data: current, error: orderError } = await supabase.from('orders').select('subtotal,total').eq('id', orderId).single();
-    if (orderError) throw new Error(orderError.message);
-    if (!current) throw new Error('订单不存在');
-    const subtotal = roundMoney(Number(current.subtotal || 0) + adjustment);
-    const total = roundMoney(Number(current.total || 0) + adjustment);
-    if (total < 0) throw new Error('价格调整后订单金额不能为负数');
-    const { error: updateTotalError } = await supabase.from('orders').update({ subtotal, total }).eq('id', orderId);
-    if (updateTotalError) throw new Error(updateTotalError.message);
-  }
-  const { error: paymentError } = await supabase.from('payment_records').insert({ order_id: orderId, amount, method: paymentMethod, note, recorded_by: recordedBy });
-  if (paymentError) throw new Error(paymentError.message);
-  // Recalculate payment status
-  const { data: payments } = await supabase.from('payment_records').select('amount').eq('order_id', orderId);
-  const totalPaid = (payments || []).reduce((s, p) => s + Number(p.amount), 0);
-  const { data: order } = await supabase.from('orders').select('subtotal,total').eq('id', orderId).single();
-  const total = Number(order.total || 0);
-  const status = total <= 0 ? (totalPaid > 0 ? 'PAID' : 'UNPAID') : totalPaid >= total ? 'PAID' : totalPaid > 0 ? 'PARTIAL' : 'UNPAID';
-  await supabase.from('orders').update({ payment_status: status, paid_amount: totalPaid }).eq('id', orderId);
-  return { totalPaid, status, total, subtotal: Number(order.subtotal || 0), priceAdjustment: adjustment };
+  const { data, error } = await supabase.rpc('zidu_record_payment_atomic', {
+    p_order_id: Number(orderId),
+    p_amount: roundMoney(Number(amount || 0)),
+    p_method: paymentMethod,
+    p_note: note || '',
+    p_recorded_by: recordedBy || '',
+    p_price_adjustment: roundMoney(Number(priceAdjustment || 0))
+  });
+  if (error) throw orderIntegrityError(error);
+  if (data?.error) throw new Error(data.error);
+  return data;
 }
 
 // 财务收款流水：全部收款记录 + 关联订单信息（按时间倒序）
@@ -1313,7 +890,8 @@ export async function adjustStock(specId, productId, type, reason, quantity, not
   } catch (error) {
     if (!isMissingMassInventoryRpc(error) || massMode) throw error;
     const before = Number(spec.stock || 0);
-    const after = type === 'IN' ? before + quantity : type === 'OUT' ? Math.max(0, before - quantity) : quantity;
+    if (type === 'OUT' && Number(quantity || 0) > before) throw new Error('库存不足');
+    const after = type === 'IN' ? before + quantity : type === 'OUT' ? before - quantity : quantity;
     await supabase.from('product_specs').update({ stock: after }).eq('id', specId);
     result = { before, after };
   }

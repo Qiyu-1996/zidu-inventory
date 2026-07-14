@@ -132,15 +132,9 @@ export function DataProvider({ children }) {
       total: result.total ?? o.total,
       paymentStatus: result.status,
       paidAmount: result.totalPaid,
+      status: result.orderStatus || o.status,
       payments: [...(o.payments || []), { amount, method, note, recordedBy, createdAt: new Date().toISOString() }]
     }));
-    return result;
-  }, []);
-  const processAfterSale = useCallback(async (orderId, payload) => {
-    const result = await api.processOrderAfterSale(orderId, payload);
-    const [newOrders, newProducts] = await Promise.all([api.fetchOrders(), api.fetchProducts()]);
-    setOrders(newOrders);
-    setProducts(newProducts);
     return result;
   }, []);
   const createAfterSale = useCallback(async (orderId, payload) => {
@@ -163,6 +157,11 @@ export function DataProvider({ children }) {
     setProducts(newProducts);
     return result;
   }, []);
+  const cancelAfterSale = useCallback(async (afterSaleId, note) => {
+    const result = await api.cancelAfterSale(afterSaleId, user?.name || '', note || '');
+    setOrders(await api.fetchOrders());
+    return result;
+  }, [user]);
 
   // Users
   const addUser = useCallback(async (n, ph, pw, r) => { const u = await api.createUser(n, ph, pw, r); setUsers(p => [...p, u]); return u; }, []);
@@ -275,8 +274,8 @@ export function DataProvider({ children }) {
       loading, error,
       addProduct, editProduct, editProductDensity, removeProduct,
       addCustomer, editCustomer, removeCustomer, addCustomerNote,
-      addOrder, updateOrderStatus, requestUnpaidShipping, reviewUnpaidShipping, removeOrder, editOrderItems, updateOrderDiscountResponsibility, recordPayment, processAfterSale,
-      createAfterSale, processAfterSaleWarehouse, completeAfterSaleFinance,
+      addOrder, updateOrderStatus, requestUnpaidShipping, reviewUnpaidShipping, removeOrder, editOrderItems, updateOrderDiscountResponsibility, recordPayment,
+      createAfterSale, processAfterSaleWarehouse, completeAfterSaleFinance, cancelAfterSale,
       addUser, resetUserPassword, toggleUserStatus, updateUserRole, archiveUser,
       adjustStock, adjustRawStock, loadStockLog,
       addPurchaseOrder, editPurchaseOrder, removePurchaseOrder, updatePOStatus, receivePOItems,

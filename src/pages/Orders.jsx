@@ -301,7 +301,7 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
   const { user } = useAuth();
   const {
     orders, customers, users, updateOrderStatus, requestUnpaidShipping, reviewUnpaidShipping, removeOrder, editOrderItems, recordPayment,
-    createAfterSale, processAfterSaleWarehouse, completeAfterSaleFinance
+    createAfterSale, processAfterSaleWarehouse, completeAfterSaleFinance, cancelAfterSale
   } = useData();
   const [updating, setUpdating] = useState(false);
   const [showPayForm, setShowPayForm] = useState(false);
@@ -336,12 +336,17 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
   const seller = users.find(u => u.id === order.salesId);
   const unpaidShippingRequester = users.find(u => String(u.id) === String(order.unpaidShippingRequestedBy));
   const unpaidShippingReviewer = users.find(u => String(u.id) === String(order.unpaidShippingReviewedBy));
-  const nextStatuses = filterNextByRole(order.status, user.role);
+  const hasFinancialHistory = Number(order.paidAmount || 0) > 0
+    || (order.payments || []).length > 0
+    || (order.afterSales || []).length > 0;
+  const nextStatuses = filterNextByRole(order.status, user.role)
+    .filter(status => status !== 'CANCELLED' || !hasFinancialHistory);
   const remaining = Math.max(0, order.total - (order.paidAmount || 0));
   const shippingFee = getOrderShippingFee(order);
   const canRecordPayment = (user.role === 'ADMIN' || user.role === 'SALES' || user.role === 'FINANCE') && order.status !== 'CANCELLED' && order.paymentStatus !== 'PAID';
-  const canDelete = user.role === 'ADMIN';
-  const canEditItems = user.role === 'ADMIN' && order.status !== 'CANCELLED';
+  const canDelete = user.role === 'ADMIN' && !hasFinancialHistory;
+  const hasOpenAfterSale = (order.afterSales || []).some(a => ['WAREHOUSE_PENDING', 'FINANCE_PENDING'].includes(a.status));
+  const canEditItems = user.role === 'ADMIN' && order.status !== 'CANCELLED' && !hasOpenAfterSale;
   const unpaidShippingStatus = order.unpaidShippingStatus || 'NONE';
   const unpaidShippingApproved = order.paymentStatus !== 'PAID' && unpaidShippingStatus === 'APPROVED';
   const canRequestUnpaidShipping = (
@@ -361,7 +366,7 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
   const afterSales = order.afterSales || [];
   const hasWarehouseTodo = afterSales.some(a => a.status === 'WAREHOUSE_PENDING');
   const hasFinanceTodo = afterSales.some(a => a.status === 'FINANCE_PENDING');
-  const canStartAfterSale = canCreateAfterSaleRole && Number(order.paidAmount || 0) > 0;
+  const canStartAfterSale = canCreateAfterSaleRole && Number(order.paidAmount || 0) > 0 && !hasOpenAfterSale;
   const canAfterSale = order.status !== 'CANCELLED' && (
     canStartAfterSale ||
     (hasWarehouseTodo && canWarehouseAfterSaleRole) ||
@@ -514,7 +519,7 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
     }
   };
   const handleDelete = async () => {
-    if (!confirm(`确定删除订单 ${order.orderNo}？\n删除后会进入管理员“删除订单库”保留 30 天。${order.status !== 'CANCELLED' ? '\n注意：库存将恢复。' : ''}`)) return;
+    if (!confirm(`确定删除误下订单 ${order.orderNo}？\n将移入管理员“删除订单库”保留 30 天。${order.status !== 'CANCELLED' ? '\n库存会自动恢复。' : ''}`)) return;
     try {
       await removeOrder(order.id, order.status !== 'CANCELLED', user.name);
       alert('订单已移入删除订单库');
@@ -524,6 +529,7 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
 
   const advance = async (ns) => {
     if (updating) return;
+    if (ns === 'CANCELLED' && !confirm('确认取消该未收款订单？\n取消后库存会自动恢复，订单会保留供查询。')) return;
     setUpdating(true);
     try {
       await updateOrderStatus(order.id, ns, {
@@ -554,12 +560,7 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
       : payNote;
     setSavingPay(true);
     try {
-      const result = await recordPayment(order.id, amount, payMethod, note, user.name, adjustment);
-      if (result?.status === 'PAID' && ['DRAFT', 'SUBMITTED'].includes(order.status)) {
-        const targetStatus = isWalkInCustomer(customer) ? 'COMPLETED' : 'CONFIRMED';
-        const action = isWalkInCustomer(customer) ? '确认收款并完成（现场交付）' : '确认收款并确认订单';
-        await updateOrderStatus(order.id, targetStatus, { time: now16(), user: user.name, action });
-      }
+      await recordPayment(order.id, amount, payMethod, note, user.name, adjustment);
       setShowPayForm(false); setPayAmount(''); setPayMethod(''); setPayNote('');
     } catch (e) { alert('记录失败: ' + e.message); } finally { setSavingPay(false); }
   };
@@ -634,7 +635,9 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
 
   const handleFinanceAfterSale = async (afterSale) => {
     if (savingAfterSale) return;
-    const rawAmount = roundMoney(Number(financeAmount || 0));
+    const rawAmount = afterSale.type === 'EXCHANGE'
+      ? roundMoney(Number(financeAmount || 0))
+      : roundMoney(Number(afterSale.requestedAmount || 0));
     if (rawAmount < 0) {
       alert('金额不能为负数');
       return;
@@ -664,6 +667,22 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
       alert('财务已处理，售后已完成');
     } catch (e) {
       alert('财务处理失败: ' + e.message);
+    } finally {
+      setSavingAfterSale(false);
+    }
+  };
+
+  const handleCancelAfterSale = async (afterSale) => {
+    if (user.role !== 'ADMIN' || savingAfterSale) return;
+    const input = prompt('取消这张误建售后单的原因（可选）');
+    if (input == null) return;
+    if (!confirm(`确认取消售后工单 #${afterSale.id}？\n仅在仓库和财务尚未处理时允许取消。`)) return;
+    setSavingAfterSale(true);
+    try {
+      await cancelAfterSale(afterSale.id, input.trim());
+      alert('售后工单已取消，订单和库存未发生变化');
+    } catch (e) {
+      alert('取消失败: ' + (e.message || '操作失败'));
     } finally {
       setSavingAfterSale(false);
     }
@@ -950,6 +969,14 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
                     {a.warehouseBy && <div className="text-xs text-gray-500 mt-1">仓库：{a.restockReturned ? '退回入库' : '退回不入库'}{a.type === 'EXCHANGE' ? ` · ${a.deductReplacement ? '补发扣库存' : '补发不扣库存'}` : ''}{a.warehouseNote ? ` · ${a.warehouseNote}` : ''}</div>}
                     {a.financeBy && <div className="text-xs text-gray-500 mt-1">财务：{a.financeAmount < 0 ? '退款' : a.financeAmount > 0 ? '补款' : '无款项'} {fmtY(Math.abs(a.financeAmount))}{a.financeNote ? ` · ${a.financeNote}` : ''}</div>}
 
+                    {user.role === 'ADMIN' && (a.status === 'WAREHOUSE_PENDING' || (a.status === 'FINANCE_PENDING' && !a.warehouseAt)) && (
+                      <div className="flex justify-end mt-2">
+                        <button type="button" onClick={() => handleCancelAfterSale(a)} disabled={savingAfterSale} className="text-xs text-gray-400 hover:text-red-600 disabled:opacity-40">
+                          取消误建售后
+                        </button>
+                      </div>
+                    )}
+
                     {a.status === 'WAREHOUSE_PENDING' && canWarehouseAfterSaleRole && (
                       <div className="mt-3 pt-3 border-t space-y-2">
                         <div className="grid sm:grid-cols-2 gap-3">
@@ -973,20 +1000,25 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
 
 	                    {a.status === 'FINANCE_PENDING' && canFinanceAfterSaleRole && (
 	                      <div className="mt-3 pt-3 border-t space-y-2">
-	                        <div className="grid sm:grid-cols-4 gap-2">
-	                          <select value={a.type === 'EXCHANGE' ? financeDirection : 'REFUND'} onChange={e => setFinanceDirection(e.target.value)} disabled={a.type !== 'EXCHANGE'} className="border rounded-lg px-3 py-2 text-sm bg-white disabled:bg-gray-50">
-	                            <option value="REFUND">退款</option>
-	                            {a.type === 'EXCHANGE' && <option value="SUPPLEMENT">补款</option>}
-	                          </select>
-                          <input type="number" min="0" value={financeAmount} onChange={e => setFinanceAmount(e.target.value)} placeholder="金额" className="border rounded-lg px-3 py-2 text-sm bg-white" />
-                          <select value={financeMethod} onChange={e => setFinanceMethod(e.target.value)} className="border rounded-lg px-3 py-2 text-sm bg-white">
-                            <option value="">退款/补款方式 *</option>
-                            {PAYMENT_METHODS.map(method => <option key={method} value={method}>{method}</option>)}
-                          </select>
-                          <button type="button" onClick={() => { setFinanceDirection(a.type === 'EXCHANGE' ? 'SUPPLEMENT' : 'REFUND'); setFinanceAmount(String(a.requestedAmount || suggestedRefund || 0)); }} className="border rounded-lg px-3 py-2 text-sm text-purple-700 hover:bg-purple-50">填入退款金额</button>
+	                        <div className={`grid ${a.type === 'EXCHANGE' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'} gap-2`}>
+                              {a.type === 'EXCHANGE' ? (
+                                <>
+                                  <select value={financeDirection} onChange={e => setFinanceDirection(e.target.value)} className="border rounded-lg px-3 py-2 text-sm bg-white">
+                                    <option value="REFUND">退款</option>
+                                    <option value="SUPPLEMENT">补款</option>
+                                  </select>
+                                  <input type="number" min="0" value={financeAmount} onChange={e => setFinanceAmount(e.target.value)} placeholder="金额" className="border rounded-lg px-3 py-2 text-sm bg-white" />
+                                </>
+                              ) : (
+                                <div className="border rounded-lg px-3 py-2 text-sm text-purple-700 bg-purple-50">固定退款金额 {fmtY(a.requestedAmount)}</div>
+                              )}
+                              <select value={financeMethod} onChange={e => setFinanceMethod(e.target.value)} className="border rounded-lg px-3 py-2 text-sm bg-white">
+                                <option value="">退款/补款方式 *</option>
+                                {PAYMENT_METHODS.map(method => <option key={method} value={method}>{method}</option>)}
+                              </select>
                         </div>
                         <input value={afterSaleNote} onChange={e => setAfterSaleNote(e.target.value)} placeholder="财务备注：退款/补款说明" className="w-full border rounded-lg px-3 py-2 text-sm bg-white" />
-                        <button onClick={() => handleFinanceAfterSale(a)} disabled={savingAfterSale || (Number(financeAmount || 0) > 0 && !financeMethod)} className="px-4 py-2 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: '#5C4B73' }}>
+                        <button onClick={() => handleFinanceAfterSale(a)} disabled={savingAfterSale || !financeMethod} className="px-4 py-2 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: '#5C4B73' }}>
                           {savingAfterSale ? '处理中...' : '确认财务处理'}
                         </button>
                       </div>

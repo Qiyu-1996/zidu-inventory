@@ -221,7 +221,7 @@ export default function Finance() {
 
   const paymentRows = useMemo(() => {
     const rows = [];
-    validOrders.forEach(o => {
+    orders.forEach(o => {
       const c = cust(o.customerId);
       (o.payments || []).forEach((p, idx) => {
         const paymentDate = day(p.createdAt);
@@ -247,7 +247,7 @@ export default function Finance() {
       });
     });
     return rows.sort((a, b) => (b.paymentTime || '').localeCompare(a.paymentTime || ''));
-  }, [validOrders, cust, userName, from, to, method]);
+  }, [orders, cust, userName, from, to, method]);
 
   const salesUsers = useMemo(() => (
     users
