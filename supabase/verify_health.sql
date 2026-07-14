@@ -12,7 +12,7 @@ WITH expected(tbl) AS (VALUES
   ('pricing_tiers'),('scenario_packages'),('scenario_package_items'),
   ('config_options'),('product_batches'),('suppliers'),('sales_tasks'),
   ('sales_targets'),('audit_logs'),('shipment_notifications'),('app_settings'),
-  ('after_sales'),('deleted_orders')
+  ('after_sales'),('deleted_orders'),('batch_stock_movements')
 )
 SELECT
   e.tbl AS table_name,
@@ -83,7 +83,7 @@ WITH expected(function_name) AS (VALUES
   ('zidu_create_inventory_batch'),
   ('zidu_create_purchase_order'),('zidu_update_purchase_order'),
   ('zidu_delete_purchase_order'),('zidu_receive_purchase_order'),
-  ('zidu_adjust_inventory'),('zidu_adjust_raw_inventory'),
+  ('zidu_adjust_inventory'),('zidu_adjust_raw_inventory'),('zidu_fifo_consume_batches'),
   ('zidu_spec_mass_kg'),('zidu_sync_mass_spec_stock')
 )
 SELECT

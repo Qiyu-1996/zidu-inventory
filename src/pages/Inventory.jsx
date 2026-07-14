@@ -83,6 +83,8 @@ export default function Inventory({ nav }) {
     });
   const belongsToStockKind = product => stockKind === 'RAW' ? isRawProduct(product) : !isRawProduct(product);
   const visibleBatches = batchList.filter(b => belongsToStockKind(products.find(p => p.id === b.productId)));
+  const orderedVisibleBatches = [...visibleBatches].sort((a, b) =>
+    String(a.receivedDate || '').localeCompare(String(b.receivedDate || '')) || Number(a.id) - Number(b.id));
   const visibleStockLog = stockLog.filter(l => belongsToStockKind(products.find(p => p.id === l.product_id)));
   const activeSuppliers = suppliers.filter(s => s.isActive !== false);
   const purchaseOrderFor = id => purchaseOrders.find(po => po.id === id);
@@ -90,6 +92,68 @@ export default function Inventory({ nav }) {
   const batchSupplier = batch => batch?.supplier || purchaseOrderFor(batch?.purchaseOrderId)?.supplier || '';
   const stockLogBatch = log => batchList.find(b => b.id === log.batch_id) || {
     batchNo: log.batch?.batch_no || '', supplier: log.batch?.supplier || '', purchaseOrderId: null
+  };
+  const panoramaRows = useMemo(() => {
+    const currentDay = today();
+    const rows = [];
+    products.forEach(product => {
+      if (stockKind === 'RAW' ? !isRawProduct(product) : isRawProduct(product)) return;
+      const buildRow = (spec, systemQty, unit) => {
+        const batches = batchList.filter(batch =>
+          Number(batch.remainingQty || 0) > 0
+          && (isRawProduct(product) ? batch.productId === product.id : batch.specId === spec.id));
+        const ordered = [...batches].sort((a, b) =>
+          String(a.receivedDate || '').localeCompare(String(b.receivedDate || ''))
+          || String(a.expiryDate || '9999-12-31').localeCompare(String(b.expiryDate || '9999-12-31'))
+          || Number(a.id) - Number(b.id));
+        const batchQty = batches.reduce((sum, batch) => sum + Number(batch.remainingQty || 0), 0);
+        const expiredQty = batches
+          .filter(batch => batch.expiryDate && batch.expiryDate < currentDay)
+          .reduce((sum, batch) => sum + Number(batch.remainingQty || 0), 0);
+        const validBatches = ordered.filter(batch => !batch.expiryDate || batch.expiryDate >= currentDay);
+        rows.push({
+          key: isRawProduct(product) ? `p-${product.id}` : `s-${spec.id}`,
+          product,
+          spec,
+          unit,
+          systemQty: Number(systemQty || 0),
+          batchQty,
+          expiredQty,
+          sellableQty: Math.max(0, Number(systemQty || 0) - expiredQty),
+          unbatchedQty: Math.max(0, Number(systemQty || 0) - batchQty),
+          excessBatchQty: Math.max(0, batchQty - Number(systemQty || 0)),
+          batchCount: batches.length,
+          nextBatch: validBatches[0] || null
+        });
+      };
+      if (isRawProduct(product)) buildRow(product.specs[0] || null, product.baseStockKg, 'kg');
+      else product.specs.forEach(spec => buildRow(spec, spec.stock, '瓶 / 个'));
+    });
+    return rows;
+  }, [products, batchList, stockKind]);
+  const visiblePanoramaRows = panoramaRows.filter(row => {
+    if (search && !`${row.product.code} ${row.product.name} ${row.spec?.spec || ''}`.toLowerCase().includes(search.toLowerCase())) return false;
+    return matchesProductCategory(row.product.series, sf);
+  });
+  const panoramaStats = useMemo(() => panoramaRows.reduce((stats, row) => ({
+    systemQty: stats.systemQty + row.systemQty,
+    batchQty: stats.batchQty + row.batchQty,
+    expiredQty: stats.expiredQty + row.expiredQty,
+    unbatchedQty: stats.unbatchedQty + row.unbatchedQty,
+    issues: stats.issues + Number(row.expiredQty > 0 || row.excessBatchQty > 0)
+  }), { systemQty: 0, batchQty: 0, expiredQty: 0, unbatchedQty: 0, issues: 0 }), [panoramaRows]);
+  const fifoRankForBatch = batch => {
+    const product = products.find(item => item.id === batch.productId);
+    if (Number(batch.remainingQty || 0) <= 0 || (batch.expiryDate && batch.expiryDate < today())) return null;
+    const queue = batchList.filter(item =>
+      Number(item.remainingQty || 0) > 0
+      && (!item.expiryDate || item.expiryDate >= today())
+      && (isRawProduct(product) ? item.productId === batch.productId : item.specId === batch.specId)
+    ).sort((a, b) => String(a.receivedDate || '').localeCompare(String(b.receivedDate || ''))
+      || String(a.expiryDate || '9999-12-31').localeCompare(String(b.expiryDate || '9999-12-31'))
+      || Number(a.id) - Number(b.id));
+    const index = queue.findIndex(item => item.id === batch.id);
+    return index >= 0 ? index + 1 : null;
   };
   const changedRawProducts = products.filter(p =>
     isRawProduct(p)
@@ -275,7 +339,8 @@ export default function Inventory({ nav }) {
         densityGml: isRawProduct(batchFor.product) ? defaultDensityForProduct(batchFor.product) : null
       });
       setBatchFor(null); alert('入库成功');
-      if (tab === 'batches') { const fresh = await api.fetchBatches(); setBatchList(fresh); }
+      const fresh = await api.fetchBatches();
+      setBatchList(fresh);
     } catch (e) { alert('入库失败: ' + e.message); } finally { setSavingBatch(false); }
   };
   const handleDeleteBatch = async (b) => {
@@ -350,7 +415,7 @@ export default function Inventory({ nav }) {
           <div className="zidu-section-sub mt-1">原料按 kg · 成品按瓶 / 个 · 批次与出入库全程追溯</div>
         </div>
         <div className="flex items-center gap-2 overflow-x-auto max-w-full pb-1"><div className="zidu-segment">
-        {[['list', '库存概览'], ['batches', '批次 / GC-MS 追溯'], ['log', '出入库记录']].map(([k, l]) => (
+        {[['list', '库存概览'], ['panorama', '库存全景'], ['batches', '批次 / GC-MS 追溯'], ['log', '出入库记录']].map(([k, l]) => (
           <button key={k} onClick={() => { setTab(k); if (k !== 'list') cancelRawStockEdit(); }} className={tab === k ? 'active' : ''}>{l}</button>
         ))}
         </div>{canAdjust && <button onClick={() => nav?.('purchase')} className="h-10 px-3 rounded-lg border border-purple-200 text-purple-700 bg-white text-xs flex items-center gap-1.5 hover:bg-purple-50 shrink-0 whitespace-nowrap"><ClipboardList size={14} />采购管理</button>}</div>
@@ -522,10 +587,64 @@ export default function Inventory({ nav }) {
         </>
       )}
 
+      {tab === 'panorama' && (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <Card className="p-4"><div className="text-xs text-gray-500">系统总库存</div><div className="text-xl font-medium mt-1 tabular-nums">{stockKind === 'RAW' ? panoramaStats.systemQty.toFixed(3) : panoramaStats.systemQty.toLocaleString()} <span className="text-xs text-gray-400">{stockKind === 'RAW' ? 'kg' : '瓶 / 个'}</span></div></Card>
+            <Card className="p-4"><div className="text-xs text-gray-500">批次剩余合计</div><div className="text-xl font-medium mt-1 tabular-nums text-purple-700">{stockKind === 'RAW' ? panoramaStats.batchQty.toFixed(3) : panoramaStats.batchQty.toLocaleString()}</div></Card>
+            <Card className={panoramaStats.unbatchedQty > 0 ? 'p-4 border-amber-200' : 'p-4'}><div className="text-xs text-gray-500">历史 / 无批次库存</div><div className="text-xl font-medium mt-1 tabular-nums">{stockKind === 'RAW' ? panoramaStats.unbatchedQty.toFixed(3) : panoramaStats.unbatchedQty.toLocaleString()}</div></Card>
+            <Card className={panoramaStats.expiredQty > 0 ? 'p-4 border-red-200' : 'p-4'}><div className="text-xs text-gray-500">过期批次库存</div><div className={`text-xl font-medium mt-1 tabular-nums ${panoramaStats.expiredQty > 0 ? 'text-red-600' : ''}`}>{stockKind === 'RAW' ? panoramaStats.expiredQty.toFixed(3) : panoramaStats.expiredQty.toLocaleString()}</div></Card>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+            <div className="relative flex-1 sm:max-w-xs">
+              <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
+              <input placeholder="搜索产品 / 编码 / 规格" value={search} onChange={e => setSearch(e.target.value)} className="pl-9 pr-3 py-2 text-sm border rounded-lg w-full bg-white" />
+            </div>
+            <select value={sf} onChange={e => setSf(e.target.value)} className="border rounded-lg px-3 py-2 text-sm bg-white">
+              {PRODUCT_CATEGORY_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </div>
+          <Card>
+            <div className="overflow-x-auto">
+              <table className="zidu-table w-full text-sm">
+                <thead><tr className="border-b">
+                  <th className="text-left py-2.5 px-3 text-xs text-gray-500 font-medium">编号</th>
+                  <th className="text-left py-2.5 px-3 text-xs text-gray-500 font-medium">产品 / 规格</th>
+                  <th className="text-right py-2.5 px-3 text-xs text-gray-500 font-medium">系统库存</th>
+                  <th className="text-right py-2.5 px-3 text-xs text-gray-500 font-medium">可售库存</th>
+                  <th className="text-right py-2.5 px-3 text-xs text-gray-500 font-medium">批次剩余</th>
+                  <th className="text-right py-2.5 px-3 text-xs text-gray-500 font-medium">过期</th>
+                  <th className="text-right py-2.5 px-3 text-xs text-gray-500 font-medium">无批次</th>
+                  <th className="text-left py-2.5 px-3 text-xs text-gray-500 font-medium">下一个出库批次</th>
+                  <th className="text-left py-2.5 px-3 text-xs text-gray-500 font-medium">核对状态</th>
+                </tr></thead>
+                <tbody>
+                  {visiblePanoramaRows.map(row => {
+                    const qty = value => row.unit === 'kg' ? Number(value).toFixed(3) : Number(value).toLocaleString();
+                    return <tr key={row.key} className="border-b last:border-0">
+                      <td className="py-2.5 px-3 font-mono text-xs text-gray-500">{row.product.code}</td>
+                      <td className="py-2.5 px-3"><div className="text-gray-800">{row.product.name}</div><div className="text-xs text-gray-400">{row.unit === 'kg' ? '原料重量库存' : row.spec?.spec || '—'}</div></td>
+                      <td className="py-2.5 px-3 text-right font-medium tabular-nums">{qty(row.systemQty)} <span className="text-[10px] text-gray-400">{row.unit}</span></td>
+                      <td className="py-2.5 px-3 text-right font-medium tabular-nums text-green-700">{qty(row.sellableQty)}</td>
+                      <td className="py-2.5 px-3 text-right tabular-nums">{qty(row.batchQty)}<div className="text-[10px] text-gray-400">{row.batchCount} 批</div></td>
+                      <td className={`py-2.5 px-3 text-right tabular-nums ${row.expiredQty > 0 ? 'text-red-600 font-medium' : 'text-gray-300'}`}>{qty(row.expiredQty)}</td>
+                      <td className={`py-2.5 px-3 text-right tabular-nums ${row.unbatchedQty > 0 ? 'text-amber-700' : 'text-gray-300'}`}>{qty(row.unbatchedQty)}</td>
+                      <td className="py-2.5 px-3 text-xs">{row.nextBatch ? <><div className="font-mono text-purple-700">{row.nextBatch.batchNo}</div><div className="text-gray-400 mt-0.5">{row.nextBatch.receivedDate} · 剩 {qty(row.nextBatch.remainingQty)}</div></> : <span className="text-gray-300">—</span>}</td>
+                      <td className="py-2.5 px-3 text-xs">{row.excessBatchQty > 0 ? <span className="text-red-600">批次大于总库存</span> : row.expiredQty > 0 ? <span className="text-red-600">含过期库存</span> : row.unbatchedQty > 0 ? <span className="text-amber-700">含无批次库存</span> : <span className="text-green-700">账批一致</span>}</td>
+                    </tr>;
+                  })}
+                  {visiblePanoramaRows.length === 0 && <tr><td colSpan="9" className="text-center py-12 text-gray-400 text-sm">暂无库存数据</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </>
+      )}
+
       {tab === 'batches' && (
         <>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div><div className="text-sm text-gray-600">共 {visibleBatches.length} 个{stockKind === 'RAW' ? '原料' : '成品'}批次</div><div className="text-[11px] text-gray-400 mt-0.5">按入库日期降序 · 批次删除会同步回退对应剩余库存</div></div>
+            <div><div className="text-sm text-gray-600">共 {visibleBatches.length} 个{stockKind === 'RAW' ? '原料' : '成品'}批次</div><div className="text-[11px] text-gray-400 mt-0.5">按入库日期从早到晚 · 有效批次依次出库</div></div>
             <div className="flex items-center gap-3 text-xs"><span className="text-amber-700">临期 {viewStats.expiring}</span><span className="text-red-600">过期 {viewStats.expired}</span></div>
           </div>
           <Card>
@@ -537,19 +656,21 @@ export default function Inventory({ nav }) {
                   <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">GC-MS</th>
                   <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">入库日期</th>
                   <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">保质期</th>
+                  <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">出库顺序</th>
                   <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">入库/剩余</th>
                   <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">来源</th>
                   <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">供应商</th>
                   {canAdjust && <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">操作</th>}
                 </tr></thead>
                 <tbody>
-                  {loadingBatches && <tr><td colSpan={canAdjust ? 9 : 8} className="text-center py-12 text-gray-400 text-sm">加载中...</td></tr>}
-                  {!loadingBatches && visibleBatches.map(b => {
+                  {loadingBatches && <tr><td colSpan={canAdjust ? 10 : 9} className="text-center py-12 text-gray-400 text-sm">加载中...</td></tr>}
+                  {!loadingBatches && orderedVisibleBatches.map(b => {
                     const product = products.find(p => p.id === b.productId);
                     const spec = product?.specs.find(s => s.id === b.specId);
                     const expiryTime = b.expiryDate ? new Date(b.expiryDate).getTime() : null;
                     const expired = expiryTime && expiryTime < Date.now() && Number(b.remainingQty || 0) > 0;
                     const expiringSoon = expiryTime && !expired && expiryTime - Date.now() < 90 * 86400000;
+                    const fifoRank = fifoRankForBatch(b);
                     const unit = product?.inventoryMode === 'MASS' || product?.channel === 'RAW' ? ' kg' : '';
                     return (
                       <tr key={b.id} className="border-b last:border-0">
@@ -558,6 +679,7 @@ export default function Inventory({ nav }) {
                         <td className="py-2 px-3 text-xs font-mono text-gray-600">{b.gcmsNo || '—'}</td>
                         <td className="py-2 px-3 text-xs text-gray-600">{b.receivedDate}</td>
                         <td className="py-2 px-3 text-xs"><span className={expired ? 'text-red-600 font-medium' : expiringSoon ? 'text-amber-700 font-medium' : 'text-gray-600'}>{b.expiryDate || '—'}</span>{expired && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-600">已过期</span>}{expiringSoon && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">临期</span>}</td>
+                        <td className="py-2 px-3 text-xs">{fifoRank ? <span className={fifoRank === 1 ? 'text-purple-700 font-medium' : 'text-gray-500'}>FIFO {fifoRank}</span> : Number(b.remainingQty || 0) <= 0 ? <span className="text-gray-300">已用完</span> : <span className="text-red-600">不可出库</span>}</td>
                         <td className="py-2 px-3 text-right tabular-nums">{b.initialQty}{unit} / <span className={Number(b.remainingQty) === 0 ? 'text-gray-400' : 'font-medium'}>{b.remainingQty}{unit}</span></td>
                         <td className="py-2 px-3 text-xs text-gray-500">{b.purchaseOrderId ? <span className="font-mono text-purple-700">{purchaseOrderNo(b.purchaseOrderId) || `采购单 #${b.purchaseOrderId}`}</span> : '手工入库'}</td>
                         <td className="py-2 px-3 text-xs text-gray-700">{batchSupplier(b) || '—'}</td>
@@ -565,7 +687,7 @@ export default function Inventory({ nav }) {
                       </tr>
                     );
                   })}
-                  {!loadingBatches && visibleBatches.length === 0 && <tr><td colSpan={canAdjust ? 9 : 8} className="text-center py-12 text-gray-400 text-sm">当前分类暂无批次记录，请在「库存概览」发起批次入库。</td></tr>}
+                  {!loadingBatches && visibleBatches.length === 0 && <tr><td colSpan={canAdjust ? 10 : 9} className="text-center py-12 text-gray-400 text-sm">当前分类暂无批次记录，请在「库存概览」发起批次入库。</td></tr>}
                 </tbody>
               </table>
             </div>

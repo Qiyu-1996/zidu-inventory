@@ -11,7 +11,9 @@ SELECT
   to_regprocedure('public.zidu_process_after_sale_warehouse_atomic(integer,jsonb)') IS NOT NULL AS warehouse_ready,
   to_regprocedure('public.zidu_complete_after_sale_finance_atomic(integer,jsonb)') IS NOT NULL AS finance_ready,
   to_regprocedure('public.zidu_cancel_after_sale(integer,text,text)') IS NOT NULL AS after_sale_cancel_ready,
-  to_regprocedure('public.zidu_delete_order_atomic(integer,boolean,text)') IS NOT NULL AS delete_ready;
+  to_regprocedure('public.zidu_delete_order_atomic(integer,boolean,text)') IS NOT NULL AS delete_ready,
+  to_regclass('public.batch_stock_movements') IS NOT NULL AS batch_movements_ready,
+  to_regprocedure('public.zidu_fifo_consume_batches(integer,integer,numeric,text)') IS NOT NULL AS fifo_ready;
 
 WITH payment_totals AS (
   SELECT order_id, round(coalesce(sum(amount), 0), 2) AS actual_paid
@@ -59,6 +61,28 @@ SELECT p.id, p.code, p.name, s.stock::NUMERIC
 FROM public.products p
 JOIN public.product_specs s ON s.product_id = p.id
 WHERE coalesce(s.stock, 0) < 0;
+
+WITH batch_totals AS (
+  SELECT product_id, spec_id, sum(remaining_qty) AS batch_qty
+  FROM public.product_batches
+  WHERE remaining_qty > 0
+  GROUP BY product_id, spec_id
+)
+SELECT p.id AS product_id, p.code, p.name, NULL::INTEGER AS spec_id,
+       p.base_stock_kg AS system_qty, coalesce(sum(b.batch_qty), 0) AS batch_qty, 'KG' AS unit
+FROM public.products p
+LEFT JOIN batch_totals b ON b.product_id = p.id
+WHERE p.inventory_mode = 'MASS'
+GROUP BY p.id, p.code, p.name, p.base_stock_kg
+HAVING coalesce(sum(b.batch_qty), 0) > p.base_stock_kg + 0.000001
+UNION ALL
+SELECT p.id, p.code, p.name, s.id,
+       s.stock::NUMERIC, coalesce(b.batch_qty, 0), 'SPEC'
+FROM public.products p
+JOIN public.product_specs s ON s.product_id = p.id
+LEFT JOIN batch_totals b ON b.spec_id = s.id
+WHERE p.inventory_mode <> 'MASS'
+  AND coalesce(b.batch_qty, 0) > s.stock + 0.000001;
 
 SELECT
   schemaname,

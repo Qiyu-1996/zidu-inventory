@@ -2,6 +2,8 @@
 -- 依赖：migration_v19_mass_inventory.sql、migration_v27_payment_methods.sql、
 --       migration_v31_unpaid_shipping_approval.sql、migration_v32_no_backorder_atomic_orders.sql。
 -- 可重复运行；不会删除或改写已有订单。
+-- 执行前请暂时关闭网页后台和小程序预览，避免自动刷新占用表锁。
+SET lock_timeout = '30s';
 
 -- 同一订单同一时间只允许一张待处理售后单。使用事务锁，
 -- 避免两个终端同时提交时产生重复退款或重复入库。
@@ -26,11 +28,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
-DROP TRIGGER IF EXISTS trg_zidu_single_open_after_sale ON public.after_sales;
-CREATE TRIGGER trg_zidu_single_open_after_sale
-BEFORE INSERT OR UPDATE OF order_id, status ON public.after_sales
-FOR EACH ROW EXECUTE FUNCTION public.zidu_guard_single_open_after_sale();
 
 -- 取消订单与恢复库存在一个事务中完成。
 CREATE OR REPLACE FUNCTION public.zidu_cancel_order(
@@ -957,6 +954,13 @@ BEGIN
 END;
 $$;
 
+-- 最后才锁 after_sales。网页读取顺序是 orders -> after_sales，
+-- 迁移保持相同锁顺序可避免自动刷新与 DDL 形成环形等待。
+DROP TRIGGER IF EXISTS trg_zidu_single_open_after_sale ON public.after_sales;
+CREATE TRIGGER trg_zidu_single_open_after_sale
+BEFORE INSERT OR UPDATE OF order_id, status ON public.after_sales
+FOR EACH ROW EXECUTE FUNCTION public.zidu_guard_single_open_after_sale();
+
 REVOKE ALL ON FUNCTION public.zidu_cancel_order(INTEGER, TEXT, TEXT) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.zidu_update_order_status_atomic(INTEGER, TEXT, JSONB, JSONB) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.zidu_record_payment_atomic(INTEGER, NUMERIC, TEXT, TEXT, TEXT, NUMERIC) FROM PUBLIC;
@@ -978,6 +982,7 @@ GRANT EXECUTE ON FUNCTION public.zidu_cancel_after_sale(INTEGER, TEXT, TEXT) TO 
 GRANT EXECUTE ON FUNCTION public.zidu_delete_order_atomic(INTEGER, BOOLEAN, TEXT) TO anon, authenticated;
 
 NOTIFY pgrst, 'reload schema';
+RESET lock_timeout;
 
 SELECT
   to_regprocedure('public.zidu_cancel_order(integer,text,text)') IS NOT NULL AS cancel_ready,
