@@ -366,7 +366,7 @@ function mapOrder(o) {
     discountResponsibilityUpdatedBy: o.discount_responsibility_updated_by || '',
     discountResponsibilityUpdatedAt: o.discount_responsibility_updated_at || null,
     businessType: o.business_type || '院线',
-    source: o.source || 'b2b',
+    source: !o.source || o.source === 'b2b' ? 'sales_miniprogram' : o.source,
     channelMeta: o.channel_meta || null,
     createdAt: o.created_at,
     paymentStatus: o.payment_status || 'UNPAID',

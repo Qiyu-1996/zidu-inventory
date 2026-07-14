@@ -36,11 +36,16 @@ function inRange(date, from, to) {
 function entrySourceLabel(order) {
   if (order.source === 'wechat_2c') return '微信商城';
   if (order.source === 'web_admin') return '后台下单';
-  if (order.source === 'sales_miniprogram') return '销售小程序';
-  return 'B2B平台';
+  return '销售小程序';
 }
 
 function productSourceLabel(order) {
+  const metaSource = order.channelMeta?.productSource;
+  if (metaSource === 'RAW') return '原料';
+  if (metaSource === 'FINISHED') return '成品';
+  if (metaSource === 'MIXED') return '原料+成品';
+  if (metaSource === 'BRAND_CUSTOM') return '品牌定制';
+  if (metaSource === 'PRIVATE_CUSTOM') return '私人定制';
   const no = order.orderNo || '';
   if (no.startsWith('ZDR')) return '原料';
   if (no.startsWith('ZDF')) return '成品';
@@ -49,7 +54,7 @@ function productSourceLabel(order) {
   if (no.startsWith('ZDP')) return '私人定制';
   if (no.startsWith('OEM')) return '品牌定制';
   if (no.startsWith('ODM')) return '私人定制';
-  return 'B2B平台';
+  return '未分类';
 }
 
 function businessTypeLabel(type) {
@@ -157,7 +162,7 @@ export default function Finance() {
         let productType = orderProductType;
         if (product?.channel === 'RAW') productType = '原料';
         else if (product?.channel === 'FINISHED') productType = '成品';
-        else if (product?.channel === 'BOTH' && orderProductType === 'B2B平台') productType = '原料+成品';
+        else if (product?.channel === 'BOTH' && orderProductType === '未分类') productType = '原料+成品';
         rows.push({
           key: `${o.id}-${it.id || idx}`,
           brand: o.channelMeta?.brandName || o.channelMeta?.brand || '紫都',

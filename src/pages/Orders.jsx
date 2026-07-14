@@ -11,14 +11,13 @@ import * as api from '../lib/api';
 const SOURCE_MAP = {
   wechat_2c: { label: '微信商城', cls: 'bg-green-100 text-green-700' },
   web_admin: { label: '后台下单', cls: 'bg-blue-100 text-blue-700' },
-  sales_miniprogram: { label: '销售小程序', cls: 'bg-purple-100 text-purple-700' },
-  b2b: { label: 'B2B平台', cls: 'bg-purple-100 text-purple-700' }
+  sales_miniprogram: { label: '销售小程序', cls: 'bg-purple-100 text-purple-700' }
 };
 function sourceLabel(source) {
-  return (SOURCE_MAP[source] || SOURCE_MAP.b2b).label;
+  return (SOURCE_MAP[source] || SOURCE_MAP.sales_miniprogram).label;
 }
 function SourceBadge({ source }) {
-  const s = SOURCE_MAP[source] || SOURCE_MAP.b2b;
+  const s = SOURCE_MAP[source] || SOURCE_MAP.sales_miniprogram;
   return <span className={`text-xs px-2 py-0.5 rounded-full ${s.cls}`}>{s.label}</span>;
 }
 
@@ -124,7 +123,7 @@ export function OrderList({ nav }) {
   const filtered = myOrders.filter(o => {
     if (sf !== 'ALL' && o.status !== sf) return false;
     if (pf !== 'ALL' && o.paymentStatus !== pf) return false;
-    if (cf !== 'ALL' && (o.source || 'b2b') !== cf) return false;
+    if (cf !== 'ALL' && (o.source || 'sales_miniprogram') !== cf) return false;
     if (search) {
       const c = customers.find(c => c.id === o.customerId);
       if (!`${o.orderNo} ${c?.name || ''}`.toLowerCase().includes(search.toLowerCase())) return false;
@@ -247,7 +246,6 @@ export function OrderList({ nav }) {
             <option value="web_admin">后台下单</option>
             <option value="sales_miniprogram">销售小程序</option>
             <option value="wechat_2c">微信商城</option>
-            <option value="b2b">B2B平台</option>
           </select>
         </div>
         <div className="flex gap-2">
