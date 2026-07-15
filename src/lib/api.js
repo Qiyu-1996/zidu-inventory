@@ -2,11 +2,81 @@ import { supabase } from './supabase';
 import { requirePaymentMethod } from './payment';
 
 // ═══ AUTH ═══
-export async function login(phone, password) {
-  const { data, error } = await supabase.rpc('login', { p_phone: phone, p_password: password });
+export function normalizeAuthPhone(value) {
+  const original = String(value || '').trim();
+  const digits = original.replace(/\D/g, '');
+  if (digits.length < 8 || digits.length > 15) throw new Error('请输入有效手机号');
+  if (original.startsWith('+')) return `+${digits}`;
+  if (/^1[3-9]\d{9}$/.test(digits)) return `+86${digits}`;
+  if (/^86[1-9]\d{10}$/.test(digits)) return `+${digits}`;
+  return `+${digits}`;
+}
+
+function authEmailForPhone(value) {
+  const digits = normalizeAuthPhone(value).replace(/\D/g, '');
+  return `phone.${digits}@eylrztkwmpgaawdvdcjj.supabase.co`;
+}
+
+export function normalizeUserAccess(user) {
+  if (!user) return user;
+  const accessRole = user.accessRole || user.role;
+  const isSuperAdmin = accessRole === 'SUPER_ADMIN';
+  const role = isSuperAdmin ? 'ADMIN' : accessRole;
+  const labels = { ADMIN: '管理员', SALES: '销售', WAREHOUSE: '仓库', FINANCE: '财务' };
+  return {
+    ...user,
+    role,
+    accessRole,
+    isSuperAdmin,
+    roleLabel: isSuperAdmin ? '超级管理员' : (labels[role] || role)
+  };
+}
+
+async function fetchCurrentProfile() {
+  const { data, error } = await supabase.rpc('zidu_current_profile');
   if (error) throw new Error(error.message);
-  if (data?.error) throw new Error(data.error);
-  return data;
+  if (!data || data.error) throw new Error(data?.error || '账号未关联');
+  return normalizeUserAccess(data);
+}
+
+export async function login(phone, password) {
+  const authPhone = normalizeAuthPhone(phone);
+  const authEmail = authEmailForPhone(authPhone);
+  let result = await supabase.auth.signInWithPassword({ email: authEmail, password });
+
+  if (result.error) {
+    const { data: upgraded, error: upgradeError } = await supabase.functions.invoke('auth-bootstrap', {
+      body: { phone: String(phone).trim(), password }
+    });
+    if (upgradeError || upgraded?.error) {
+      throw new Error(upgraded?.error || upgradeError?.message || '账号或密码错误');
+    }
+    result = await supabase.auth.signInWithPassword({ email: upgraded.email || authEmail, password });
+  }
+
+  if (result.error || !result.data.session) throw new Error(result.error?.message || '登录失败');
+  try {
+    return await fetchCurrentProfile();
+  } catch (error) {
+    await supabase.auth.signOut();
+    throw error;
+  }
+}
+
+export async function restoreSession() {
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data.session) return null;
+  try {
+    return await fetchCurrentProfile();
+  } catch {
+    await supabase.auth.signOut();
+    return null;
+  }
+}
+
+export async function logout() {
+  const { error } = await supabase.auth.signOut();
+  if (error) throw new Error(error.message);
 }
 
 export async function createUser(name, phone, password, role) {
@@ -15,13 +85,13 @@ export async function createUser(name, phone, password, role) {
   });
   if (error) throw new Error(/gen_salt|crypt\(/i.test(error.message || '') ? '请先在 Supabase 运行 migration_v26_admin_user_management.sql' : error.message);
   if (data?.error) throw new Error(data.error);
-  return data;
+  return normalizeUserAccess(data);
 }
 
 export async function fetchUsers() {
   const { data, error } = await supabase.from('users_safe').select('*').order('id');
   if (error) throw new Error(error.message);
-  return data;
+  return (data || []).map(normalizeUserAccess);
 }
 
 export async function adminResetPassword(adminId, targetUserId, newPassword) {
@@ -115,7 +185,7 @@ function isMissingMassInventoryRpc(error) {
 }
 
 async function adjustInventoryValue(specId, type, quantity, quantityUnit = 'SPEC') {
-  const { data, error } = await supabase.rpc('zidu_adjust_inventory', {
+  const { data, error } = await supabase.rpc('zidu_adjust_inventory_authorized', {
     p_spec_id: specId,
     p_type: type,
     p_quantity: Number(quantity || 0),
@@ -1358,11 +1428,9 @@ export async function upsertSalesTarget(target) {
 
 // ═══ APP SETTINGS (API Key 配置) ═══
 export async function fetchAppSettings() {
-  const { data, error } = await supabase.from('app_settings').select('*');
+  const { data, error } = await supabase.rpc('zidu_get_client_settings');
   if (error) throw new Error(error.message);
-  const map = {};
-  (data || []).forEach(s => { map[s.key] = s.value; });
-  return map;
+  return data || {};
 }
 
 export async function updateAppSetting(key, value) {
@@ -1385,7 +1453,7 @@ export async function backfillSpecCost() {
 }
 // 库存估值（按系列）
 export async function fetchInventoryValuation() {
-  const { data, error } = await supabase.from('inventory_valuation').select('*');
+  const { data, error } = await supabase.rpc('zidu_inventory_valuation');
   if (error) throw new Error(error.message);
   return (data || []).map(r => ({
     series: r.series, skuCount: r.sku_count, totalUnits: Number(r.total_units || 0),

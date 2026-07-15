@@ -63,9 +63,12 @@ function UserMgmt() {
   const [newPw, setNewPw] = useState('');
   const [roleForUser, setRoleForUser] = useState(null);
   const [roleDraft, setRoleDraft] = useState('SALES');
+  const canCreateAccounts = currentUser?.isSuperAdmin === true;
 
   const handleCreate = async () => {
+    if (!canCreateAccounts) { setError('只有超级管理员可以创建账号'); return; }
     if (!name.trim() || !phone.trim() || !pw.trim()) return;
+    if (pw.length < 8) { setError('密码至少需要8位'); return; }
     setSaving(true); setError('');
     try {
       await addUser(name.trim(), phone.trim(), pw, role);
@@ -75,6 +78,7 @@ function UserMgmt() {
 
   const handleReset = async () => {
     if (!newPw.trim() || !resetForUser) return;
+    if (newPw.length < 8) { alert('密码至少需要8位'); return; }
     try {
       await resetUserPassword(resetForUser.id, newPw);
       alert(`已重置 ${resetForUser.name} 的密码`);
@@ -90,7 +94,7 @@ function UserMgmt() {
   };
 
   const handleRoleChange = async () => {
-    if (!roleForUser || roleDraft === roleForUser.role) { setRoleForUser(null); return; }
+    if (!roleForUser || roleDraft === (roleForUser.accessRole || roleForUser.role)) { setRoleForUser(null); return; }
     try {
       await updateUserRole(roleForUser.id, roleDraft);
       setRoleForUser(null);
@@ -107,20 +111,24 @@ function UserMgmt() {
     <Card className="p-4">
       <div className="flex items-center justify-between mb-3">
         <div className="text-sm font-semibold text-gray-700">人员管理</div>
-        <button onClick={() => setShow(!show)} className="flex items-center gap-1 text-sm font-medium text-purple-700"><UserPlus size={16} />创建账号</button>
+        {canCreateAccounts ? (
+          <button onClick={() => setShow(!show)} className="flex items-center gap-1 text-sm font-medium text-purple-700"><UserPlus size={16} />创建账号</button>
+        ) : (
+          <span className="text-xs text-gray-400">账号创建由超级管理员操作</span>
+        )}
       </div>
 
-      {show && (
+      {show && canCreateAccounts && (
         <div className="bg-purple-50 rounded-lg p-4 mb-4 space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div><label className="block text-xs text-gray-500 mb-1">姓名 *</label><input value={name} onChange={e => setName(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
             <div><label className="block text-xs text-gray-500 mb-1">手机号 *</label><input value={phone} onChange={e => setPhone(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="block text-xs text-gray-500 mb-1">密码 *</label><input type="password" value={pw} onChange={e => setPw(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+            <div><label className="block text-xs text-gray-500 mb-1">密码 *（至少8位）</label><input type="password" value={pw} onChange={e => setPw(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
             <div><label className="block text-xs text-gray-500 mb-1">角色</label>
               <select value={role} onChange={e => setRole(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
-                <option value="SALES">销售</option><option value="WAREHOUSE">仓库</option><option value="FINANCE">财务</option><option value="ADMIN">管理员</option>
+                <option value="SALES">销售</option><option value="WAREHOUSE">仓库</option><option value="FINANCE">财务</option><option value="ADMIN">管理员</option><option value="SUPER_ADMIN">超级管理员</option>
               </select>
             </div>
           </div>
@@ -137,10 +145,10 @@ function UserMgmt() {
       {resetForUser && (
         <div className="bg-yellow-50 rounded-lg p-4 mb-4 space-y-3 border border-yellow-200">
           <div className="text-sm font-medium">重置 {resetForUser.name} 的密码</div>
-          <input type="text" value={newPw} onChange={e => setNewPw(e.target.value)} placeholder="输入新密码" className="w-full border rounded-lg px-3 py-2 text-sm" />
+          <input type="password" value={newPw} onChange={e => setNewPw(e.target.value)} placeholder="输入至少8位新密码" className="w-full border rounded-lg px-3 py-2 text-sm" />
           <div className="flex gap-2">
             <button onClick={() => { setResetForUser(null); setNewPw(''); }} className="px-3 py-1.5 text-sm border rounded-lg">取消</button>
-            <button onClick={handleReset} disabled={!newPw.trim()} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>确认重置</button>
+            <button onClick={handleReset} disabled={newPw.length < 8} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>确认重置</button>
           </div>
         </div>
       )}
@@ -150,6 +158,7 @@ function UserMgmt() {
           <div className="text-sm font-medium">修改 {roleForUser.name} 的角色</div>
           <select value={roleDraft} onChange={e => setRoleDraft(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
             <option value="SALES">销售</option><option value="WAREHOUSE">仓库</option><option value="FINANCE">财务</option><option value="ADMIN">管理员</option>
+            {currentUser?.isSuperAdmin && <option value="SUPER_ADMIN">超级管理员</option>}
           </select>
           <div className="flex gap-2">
             <button onClick={() => setRoleForUser(null)} className="px-3 py-1.5 text-sm border rounded-lg">取消</button>
@@ -172,16 +181,16 @@ function UserMgmt() {
             <td className="py-2.5 px-4 font-mono text-xs text-gray-600">{u.phone}</td>
             <td className="py-2.5 px-4">
               <span className={`text-xs px-2 py-0.5 rounded-full ${u.role === "ADMIN" ? "bg-purple-100 text-purple-700" : u.role === "SALES" ? "bg-blue-100 text-blue-700" : u.role === "FINANCE" ? "bg-amber-100 text-amber-700" : "bg-green-100 text-green-700"}`}>
-                {{ ADMIN: "管理员", SALES: "销售", WAREHOUSE: "仓库", FINANCE: "财务" }[u.role]}
+                {u.roleLabel || { ADMIN: "管理员", SALES: "销售", WAREHOUSE: "仓库", FINANCE: "财务" }[u.role]}
               </span>
             </td>
             <td className="py-2.5 px-4 text-center text-xs">
               {u.status === 'disabled' ? <span className="text-red-500">已禁用</span> : <span className="text-green-600">启用</span>}
             </td>
             <td className="py-2.5 px-4 text-right space-x-2">
-              <button onClick={() => setResetForUser(u)} title="重置密码" className="text-gray-500 hover:text-purple-600"><Key size={14} /></button>
-              <button onClick={() => { setRoleForUser(u); setRoleDraft(u.role); }} title="修改角色" className="text-gray-500 hover:text-purple-600"><Edit2 size={14} /></button>
-              {u.id !== currentUser.id && (
+              {(currentUser.isSuperAdmin || !u.isSuperAdmin) && <button onClick={() => setResetForUser(u)} title="重置密码" className="text-gray-500 hover:text-purple-600"><Key size={14} /></button>}
+              {u.id !== currentUser.id && (currentUser.isSuperAdmin || !u.isSuperAdmin) && <button onClick={() => { setRoleForUser(u); setRoleDraft(u.accessRole || u.role); }} title="修改角色" className="text-gray-500 hover:text-purple-600"><Edit2 size={14} /></button>}
+              {u.id !== currentUser.id && (currentUser.isSuperAdmin || !u.isSuperAdmin) && (
                 <>
                   <button onClick={() => handleToggle(u)} title={u.status === 'active' ? '禁用' : '启用'} className={u.status === 'active' ? 'text-gray-500 hover:text-red-500' : 'text-gray-500 hover:text-green-600'}>
                     {u.status === 'active' ? <UserX size={14} /> : <UserCheck size={14} />}

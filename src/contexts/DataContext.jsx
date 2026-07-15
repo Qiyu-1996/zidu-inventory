@@ -172,7 +172,9 @@ export function DataProvider({ children }) {
   }, [user]);
   const updateUserRole = useCallback(async (targetId, newRole) => {
     await api.updateUserRole(user.id, targetId, newRole);
-    setUsers(p => p.map(u => u.id === targetId ? { ...u, role: newRole } : u));
+    setUsers(p => p.map(u => u.id === targetId
+      ? api.normalizeUserAccess({ ...u, role: newRole, accessRole: newRole })
+      : u));
   }, [user]);
   const archiveUser = useCallback(async (targetId) => {
     await api.archiveUser(user.id, targetId);

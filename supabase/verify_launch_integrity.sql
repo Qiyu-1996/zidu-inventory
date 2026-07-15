@@ -1,5 +1,5 @@
 -- ZIDU 上线前数据完整性检查（只读，不修改任何数据）。
--- 请在 migration_v34 至 migration_v37 全部成功后运行。
+-- 请在 migration_v34 至 migration_v42 全部成功后运行。
 
 SELECT
   to_regprocedure('public.zidu_create_order_atomic(jsonb)') IS NOT NULL AS create_order_ready,
@@ -19,6 +19,38 @@ SELECT
   to_regprocedure('public.zidu_delete_purchase_order(integer,text)') IS NOT NULL AS purchase_recycle_ready,
   to_regprocedure('public.zidu_close_purchase_order(integer,text,text)') IS NOT NULL AS purchase_close_ready,
   to_regprocedure('public.zidu_reverse_purchase_receipt(integer,text,text)') IS NOT NULL AS purchase_reverse_ready;
+
+SELECT
+  to_regprocedure('public.zidu_current_profile()') IS NOT NULL AS auth_profile_ready,
+  to_regprocedure('public.zidu_create_order_atomic_impl(jsonb)') IS NOT NULL AS secure_order_impl_ready,
+  to_regprocedure('public.zidu_adjust_inventory_authorized(integer,text,numeric,text)') IS NOT NULL AS secure_inventory_ready,
+  to_regprocedure('public.zidu_get_client_settings()') IS NOT NULL AS safe_settings_ready,
+  NOT has_table_privilege('anon', 'public.orders', 'SELECT') AS anon_orders_blocked,
+  NOT has_table_privilege('anon', 'public.products', 'SELECT') AS anon_products_blocked,
+  NOT has_function_privilege('anon', 'public.zidu_create_order_atomic(jsonb)', 'EXECUTE') AS anon_order_rpc_blocked,
+  NOT has_function_privilege('anon', 'public.zidu_adjust_inventory(integer,text,numeric,text)', 'EXECUTE') AS anon_inventory_rpc_blocked,
+  has_function_privilege('authenticated', 'public.zidu_create_order_atomic(jsonb)', 'EXECUTE') AS signed_in_order_rpc_ready,
+  EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.users'::regclass
+      AND conname = 'users_role_check'
+      AND pg_get_constraintdef(oid) LIKE '%SUPER_ADMIN%'
+  ) AS super_admin_role_ready,
+  EXISTS (
+    SELECT 1 FROM public.users
+    WHERE role = 'SUPER_ADMIN' AND status = 'active'
+  ) AS active_super_admin_ready;
+
+SELECT id, name, phone, role, status
+FROM public.users
+WHERE status = 'active' AND auth_user_id IS NULL;
+
+SELECT EXISTS (
+  SELECT 1 FROM pg_trigger
+  WHERE tgrelid = 'public.orders'::regclass
+    AND tgname = 'trg_zidu_guard_direct_order_status_update'
+    AND NOT tgisinternal
+) AS direct_order_status_guard_ready;
 
 WITH payment_totals AS (
   SELECT order_id, round(coalesce(sum(amount), 0), 2) AS actual_paid
@@ -130,6 +162,6 @@ WHERE schemaname = 'public'
 ORDER BY tablename, policyname;
 
 -- 判读方法：
--- 1. 第一个结果的 ready 应全部为 true。
--- 2. 中间所有异常明细结果应为 0 行。
--- 3. 最后的宽松 RLS 策略列表当前会有数据，这是 Auth + RLS 权限改造待办，不要直接改成 false 导致系统停摆。
+-- 1. 前两个 ready/blocked 结果应全部为 true。
+-- 2. 未关联在职账号、数据异常明细、宽松 RLS 策略均应为 0 行。
+-- 3. users 表上 Block direct user ... 策略已由 v41 替换，不要手工把 false 改成 true。

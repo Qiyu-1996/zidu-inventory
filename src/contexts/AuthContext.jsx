@@ -1,24 +1,31 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import * as api from '../lib/api';
+import { supabase } from '../lib/supabase';
 
 const AuthContext = createContext(null);
 
-const SESSION_KEY = 'zidu_user';
-
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => {
-    try {
-      const saved = localStorage.getItem(SESSION_KEY);
-      return saved ? JSON.parse(saved) : null;
-    } catch { return null; }
-  });
+  const [user, setUser] = useState(null);
+  const [initializing, setInitializing] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (user) localStorage.setItem(SESSION_KEY, JSON.stringify(user));
-    else localStorage.removeItem(SESSION_KEY);
-  }, [user]);
+    let active = true;
+    api.restoreSession().then(profile => {
+      if (active) setUser(profile);
+    }).finally(() => {
+      if (active) setInitializing(false);
+    });
+
+    const { data } = supabase.auth.onAuthStateChange(event => {
+      if (event === 'SIGNED_OUT' && active) setUser(null);
+    });
+    return () => {
+      active = false;
+      data.subscription.unsubscribe();
+    };
+  }, []);
 
   const login = useCallback(async (phone, password) => {
     setLoading(true);
@@ -35,12 +42,15 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    setLoading(true);
+    try { await api.logout(); } catch { /* local logout must still complete */ }
     setUser(null);
+    setLoading(false);
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, error, login, logout, setError }}>
+    <AuthContext.Provider value={{ user, loading: loading || initializing, error, login, logout, setError }}>
       {children}
     </AuthContext.Provider>
   );

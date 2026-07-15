@@ -26,7 +26,7 @@ const PAGE_TITLE = {
 };
 
 export default function App() {
-  const { user, logout } = useAuth();
+  const { user, logout, loading: authLoading } = useAuth();
   const { loading, addCustomer, addOrder, orders, purchaseOrders, reload } = useData();
 
   const [page, setPage] = useState("dashboard");
@@ -87,6 +87,7 @@ export default function App() {
   }, []);
   const removeFromCart = useCallback(key => setCart(p => p.filter(c => c.key !== key)), []);
 
+  if (authLoading) return <LoadingScreen />;
   if (!user) return <LoginScreen />;
   if (loading) return <LoadingScreen />;
 
@@ -156,7 +157,7 @@ export default function App() {
             <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ background: "#5C4B73" }}>{user.name[0]}</div>
             <div className="flex-1 min-w-0">
               <div className="text-sm text-white truncate">{user.name}</div>
-              <div className="text-xs text-purple-300/50">{ROLE_LABEL[user.role] || user.role}</div>
+              <div className="text-xs text-purple-300/50">{user.roleLabel || ROLE_LABEL[user.role] || user.role}</div>
             </div>
             <button onClick={() => { logout(); setCart([]); }} className="text-purple-300/40 hover:text-red-400"><LogOut size={16} /></button>
           </div>
@@ -194,7 +195,7 @@ export default function App() {
           <button onClick={refreshNow} disabled={refreshing} className="zidu-icon-button" title="刷新云端数据"><RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /></button>
           <div className="text-sm text-gray-500 hidden sm:flex items-center gap-2 pl-2 border-l border-gray-200">
             <span>{user.name}</span>
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">{ROLE_LABEL[user.role] || user.role}</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">{user.roleLabel || ROLE_LABEL[user.role] || user.role}</span>
           </div>
           {canOrder && (
             <button onClick={() => nav("shop")} className="relative p-2 rounded-lg hover:bg-gray-100">
