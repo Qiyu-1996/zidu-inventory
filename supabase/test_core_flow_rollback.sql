@@ -63,7 +63,14 @@ BEGIN
   WHERE coalesce(type, '') NOT IN ('展会', '线下')
   ORDER BY id
   LIMIT 1;
-  IF v_customer.id IS NULL THEN RAISE EXCEPTION '没有普通客户，无法测试标准发货链路'; END IF;
+  IF v_customer.id IS NULL THEN
+    INSERT INTO public.customers(
+      name, contact, phone, address, type
+    ) VALUES (
+      '流程回滚测试客户', '', '', '', '其他'
+    )
+    RETURNING * INTO v_customer;
+  END IF;
 
   SELECT * INTO v_user
   FROM public.users

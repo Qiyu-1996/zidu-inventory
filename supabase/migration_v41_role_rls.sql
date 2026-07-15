@@ -5,7 +5,8 @@
 -- 1. 已运行 migration_v39_auth_foundation.sql。
 -- 2. 网页和小程序已用 Supabase Auth 登录。
 -- 3. 已运行 migration_v40_secure_rpc.sql。
--- 4. 文件末尾的 pending_auth_users = 0。
+-- 4. auth-bootstrap Edge Function 已部署；尚未关联的在职账号会在
+--    第一次成功登录时自动创建并关联 Supabase Auth 身份。
 --
 -- 本迁移会删除所有 Allow all 策略，禁止 anon 直连业务数据。
 -- ============================================================
@@ -16,7 +17,7 @@ BEGIN
     SELECT 1 FROM public.users
     WHERE status = 'active' AND auth_user_id IS NULL
   ) THEN
-    RAISE EXCEPTION '仍有在职账号未关联 Supabase Auth，请先让所有在职用户登录一次';
+    RAISE NOTICE '仍有在职账号待关联；将由 auth-bootstrap 在其首次登录时自动完成';
   END IF;
 END $$;
 
