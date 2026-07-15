@@ -48,7 +48,9 @@ BEGIN
   WHERE coalesce(s.stock, 0) >= 1
     AND coalesce(s.price, 0) > 0
     AND (p.inventory_mode <> 'MASS' OR coalesce(p.base_stock_kg, 0) > 0)
-  ORDER BY CASE WHEN p.channel IN ('RAW', 'BOTH') THEN 0 ELSE 1 END, p.id
+  ORDER BY CASE WHEN p.inventory_mode = 'MASS' THEN 0 ELSE 1 END,
+    CASE WHEN p.channel IN ('RAW', 'BOTH') THEN 0 ELSE 1 END,
+    p.id
   LIMIT 1;
   IF v_product.id IS NULL THEN RAISE EXCEPTION '没有可用于测试的库存，请先录入至少 1 件库存'; END IF;
 

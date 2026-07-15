@@ -1,8 +1,6 @@
 @import "tailwindcss";
 
-/* ═══ Soft Wellness 色板覆盖 ═══
-   紫色 → 深紫 #5C4B73 家族；灰色 → 暖米 greige 家族
-   一处定义，所有 purple-xxx / gray-xxx 类自动变暖 */
+/* ZIDU admin tokens: restrained plum, neutral canvas, herb and amber status accents. */
 @theme {
   --color-purple-50:  #F1EEF6;
   --color-purple-100: #E8E6F0;
@@ -15,130 +13,182 @@
   --color-purple-800: #3F3650;
   --color-purple-900: #322A40;
 
-  --color-gray-50:  #F4EFE6;
-  --color-gray-100: #ECE4D6;
-  --color-gray-200: #E0D7C8;
-  --color-gray-300: #CFC4B0;
-  --color-gray-400: #B3A99A;
-  --color-gray-500: #8A8178;
-  --color-gray-600: #746B62;
-  --color-gray-700: #5C5349;
-  --color-gray-800: #433D35;
-  --color-gray-900: #3F3650;
+  --color-gray-50:  #F6F6F3;
+  --color-gray-100: #EFEFEB;
+  --color-gray-200: #DFDED8;
+  --color-gray-300: #CBC8BF;
+  --color-gray-400: #A5A095;
+  --color-gray-500: #7C756B;
+  --color-gray-600: #625C54;
+  --color-gray-700: #48433D;
+  --color-gray-800: #302D29;
+  --color-gray-900: #252229;
 }
 
 body {
-  background: #EFEAE2;
-  color: #3F3650;
+  background: #F3F4F1;
+  color: #302D35;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
 html, body, #root { min-height: 100%; }
+* { box-sizing: border-box; }
 
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", sans-serif;
 }
 
-button, input, select, textarea { letter-spacing: 0; }
-button { transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, opacity 150ms ease; }
+button, input, select, textarea { letter-spacing: 0 !important; }
+button {
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, opacity 150ms ease, box-shadow 150ms ease;
+}
+button:disabled { cursor: not-allowed; }
 input, select, textarea {
-  border-color: #E0D7C8;
-  color: #3F3650;
+  border-color: #DCD9D1;
+  color: #302D35;
+  background-color: #FFFFFF;
+}
+input:not([type="checkbox"]):not([type="radio"]), select {
+  min-height: 38px;
+}
+textarea {
+  min-height: 76px;
+  resize: vertical;
 }
 input:focus, select:focus, textarea:focus {
   outline: none;
-  border-color: #8D7AA6;
-  box-shadow: 0 0 0 3px rgba(141, 122, 166, 0.12);
+  border-color: #78668E;
+  box-shadow: 0 0 0 3px rgba(92, 75, 115, 0.11);
 }
+button:focus-visible { outline: 2px solid rgba(92, 75, 115, 0.45); outline-offset: 2px; }
+::selection { background: #D8CFE0; color: #30283F; }
 
-.zidu-shell { background: #EFEAE2; }
+.zidu-shell { background: #F3F4F1; }
 .zidu-sidebar {
-  background: #30283F;
+  background: #2D2638;
   border-right: 1px solid rgba(255,255,255,0.06);
+  box-shadow: 8px 0 28px rgba(45, 38, 56, 0.06);
+}
+.zidu-brand {
+  min-height: 88px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 .zidu-nav-item {
   width: calc(100% - 20px);
-  min-height: 42px;
-  margin: 2px 10px;
-  padding: 0 12px;
-  border-radius: 8px;
+  min-height: 44px;
+  margin: 3px 10px;
+  padding: 0 13px;
+  border-radius: 7px;
   color: rgba(232, 220, 240, 0.68);
 }
-.zidu-nav-item:hover { background: rgba(255,255,255,0.06); color: #fff; }
+.zidu-nav-item:hover { background: rgba(255,255,255,0.055); color: #fff; }
 .zidu-nav-item.active {
-  background: rgba(161, 132, 216, 0.18);
+  background: rgba(177, 157, 210, 0.20);
   color: #fff;
   box-shadow: inset 3px 0 0 #F3BD5B;
 }
 .zidu-topbar {
-  min-height: 64px;
-  background: rgba(255,255,255,0.94);
-  border-bottom: 1px solid #E8E0D3;
+  min-height: 68px;
+  background: rgba(255,255,255,0.97);
+  border-bottom: 1px solid #E5E3DD;
+  box-shadow: 0 1px 0 rgba(45, 39, 51, 0.02);
 }
-.zidu-page { width: 100%; max-width: 1600px; margin: 0 auto; }
-.zidu-eyebrow { color: #A89D8E; font-size: 11px; line-height: 1.2; }
-.zidu-page-title { color: #3F3650; font-size: 18px; line-height: 1.3; font-weight: 500; }
+.zidu-main { background: #F3F4F1; }
+.zidu-page { width: 100%; max-width: 1640px; margin: 0 auto; }
+.zidu-eyebrow { color: #928B81; font-size: 10px; line-height: 1.2; }
+.zidu-page-title { color: #342E3D; font-size: 19px; line-height: 1.3; font-weight: 600; }
+.zidu-user-meta { min-height: 34px; }
 .zidu-icon-button {
   width: 34px;
   height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #E6DECF;
-  border-radius: 8px;
-  color: #746B62;
-  background: #FBF8F2;
+  border: 1px solid #DDDAD2;
+  border-radius: 7px;
+  color: #6A645C;
+  background: #FFFFFF;
 }
-.zidu-icon-button:hover { border-color: #B7A6D6; color: #5C4B73; background: #F1EEF6; }
+.zidu-icon-button:hover { border-color: #B7A6D6; color: #5C4B73; background: #F5F2F8; }
 .zidu-icon-button:disabled { opacity: 0.45; }
 
-.zidu-section-title { color: #3F3650; font-size: 14px; font-weight: 500; }
-.zidu-section-sub { color: #A89D8E; font-size: 11px; }
+.zidu-card { transition: border-color 150ms ease, box-shadow 150ms ease; }
+.zidu-section-title { color: #342E3D; font-size: 14px; font-weight: 600; }
+.zidu-section-sub { color: #928B81; font-size: 11px; }
 .zidu-segment {
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
   padding: 3px;
-  border: 1px solid #E4DBCD;
-  border-radius: 9px;
-  background: #F4EFE6;
+  border: 1px solid #E0DED7;
+  border-radius: 8px;
+  background: #ECEDE9;
 }
 .zidu-segment button {
-  min-height: 32px;
+  min-height: 33px;
   padding: 0 13px;
   border-radius: 6px;
-  color: #746B62;
+  color: #625C54;
   font-size: 13px;
   white-space: nowrap;
 }
 .zidu-segment button.active {
   background: #fff;
   color: #5C4B73;
-  box-shadow: 0 1px 4px rgba(63,54,80,0.10);
+  box-shadow: 0 1px 3px rgba(45,39,51,0.10);
 }
 
-.zidu-table thead { background: #F8F4ED; }
-.zidu-table th { color: #8A8178; font-weight: 500; white-space: nowrap; }
-.zidu-table tbody tr:hover { background: #FBF8F2; }
-.zidu-table td, .zidu-table th { border-color: #EEE6D9; }
-.zidu-table tr { border-color: #EEE6D9; }
+.zidu-table,
+.zidu-card table { border-collapse: separate; border-spacing: 0; }
+.zidu-table thead,
+.zidu-card table thead { background: #F6F6F3; }
+.zidu-table th,
+.zidu-card table th { color: #7C756B; font-weight: 600; white-space: nowrap; }
+.zidu-table tbody tr:hover,
+.zidu-card table tbody tr:hover { background: #FAFAF8; }
+.zidu-table td, .zidu-table th,
+.zidu-table tr,
+.zidu-card table td, .zidu-card table th,
+.zidu-card table tr { border-color: #E9E7E1 !important; }
+
+.zidu-login { background: #F2F3F0; }
+.zidu-login::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 4px;
+  background: linear-gradient(90deg, #5C4B73 0 34%, #D0A64E 34% 67%, #6E8060 67%);
+}
+.zidu-login-card {
+  background: #FFFFFF;
+  border: 1px solid #E1DED7;
+  box-shadow: 0 18px 50px rgba(45, 39, 51, 0.09);
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #C9C6BE; border: 3px solid transparent; border-radius: 999px; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: #AFAAA0; border: 3px solid transparent; background-clip: padding-box; }
 
 @media (max-width: 767px) {
-  .zidu-topbar { min-height: 58px; padding-left: 16px; padding-right: 16px; }
+  .zidu-topbar { min-height: 60px; padding-left: 16px; padding-right: 16px; }
   .zidu-page { padding-bottom: 24px; }
   .zidu-segment button { padding-left: 11px; padding-right: 11px; font-size: 12px; }
+  input:not([type="checkbox"]):not([type="radio"]), select { min-height: 40px; }
 }
 
-/* Soft Wellness 字重收敛：禁 700，重字统一落到 500，保持温暖疗愈感 */
+/* Keep compact operational pages readable without oversized display weights. */
 .font-bold,
 .font-extrabold,
 .font-semibold {
-  font-weight: 500;
+  font-weight: 600;
 }
 
-/* 主按钮 token：圆角 12px、深紫主色、轻柔暖紫阴影 */
 .btn-primary {
   display: inline-flex;
   align-items: center;
@@ -149,14 +199,13 @@ input:focus, select:focus, textarea:focus {
   color: #fff;
   font-weight: 500;
   padding: 9px 16px;
-  box-shadow: 0 5px 16px rgba(92, 75, 115, 0.14);
+  box-shadow: 0 4px 12px rgba(92, 75, 115, 0.14);
   transition: background 0.15s ease, opacity 0.15s ease;
 }
 .btn-primary:hover { background: #4E4063; }
 .btn-primary:active { opacity: 0.9; }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* 进度条柔和：高 7px、全圆角、暖底槽、蜂蜜黄填充 */
 .progress-track {
   height: 7px;
   border-radius: 999px;

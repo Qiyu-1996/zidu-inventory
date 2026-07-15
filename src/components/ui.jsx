@@ -81,20 +81,20 @@ export function Badge({ status }) {
 }
 
 export function Card({ children, className = "", ...p }) {
-  return <div className={`bg-white rounded-xl border border-[#EFE8DB] shadow-[0_5px_18px_rgba(92,75,115,0.055)] ${className}`} {...p}>{children}</div>;
+  return <div className={`zidu-card bg-white rounded-lg border border-[#E7E5DF] shadow-[0_1px_2px_rgba(45,39,51,0.035),0_8px_24px_rgba(45,39,51,0.035)] ${className}`} {...p}>{children}</div>;
 }
 
 export function StatCard({ label, value, sub, icon: Icon, color = "#5C4B73" }) {
   return (
-    <Card className="p-4 overflow-hidden relative">
-      <div className="absolute left-0 right-0 top-0 h-[3px]" style={{ background: color }} />
+    <Card className="p-5 overflow-hidden relative">
+      <div className="absolute left-0 right-0 top-0 h-[2px]" style={{ background: color }} />
       <div className="flex items-start justify-between">
         <div>
-          <div className="text-xs text-gray-500 mb-1.5">{label}</div>
-          <div className="text-2xl font-medium text-gray-900 tabular-nums">{value}</div>
-          {sub && <div className="text-xs text-gray-400 mt-1">{sub}</div>}
+          <div className="text-xs text-gray-500 mb-2">{label}</div>
+          <div className="text-2xl font-semibold text-gray-900 tabular-nums">{value}</div>
+          {sub && <div className="text-xs text-gray-400 mt-1.5">{sub}</div>}
         </div>
-        <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: color + "15" }}>
+        <div className="w-9 h-9 rounded-md flex items-center justify-center" style={{ background: color + "12" }}>
           <Icon size={18} style={{ color }} />
         </div>
       </div>
@@ -141,7 +141,7 @@ export function POBadge({ status }) {
 
 export function LoadingScreen() {
   return (
-    <div className="flex items-center justify-center h-screen" style={{ background: "#EFEAE2" }}>
+    <div className="flex items-center justify-center h-screen" style={{ background: "#F3F4F1" }}>
       <div className="text-center">
         <div className="w-12 h-12 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mx-auto mb-4" />
         <div className="text-gray-500 text-sm">加载中...</div>

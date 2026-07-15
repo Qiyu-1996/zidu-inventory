@@ -237,6 +237,12 @@ BEGIN
   SET inventory_mode = CASE WHEN channel = 'RAW' THEN 'MASS' ELSE 'SKU' END,
       base_stock_kg = CASE WHEN channel = 'RAW' THEN 100 ELSE 0 END;
 
+  -- 即使原料原本已经是 MASS / 100kg，也强制重算各销售规格的可售件数。
+  -- 否则“先把规格归零”后，产品值没有变化时不会触发自动同步。
+  PERFORM public.zidu_sync_mass_spec_stock(p.id)
+  FROM public.products p
+  WHERE p.channel = 'RAW';
+
   -- 成品与包材按每个独立销售规格 100瓶/个初始化。
   UPDATE public.product_specs s
   SET stock = 100

@@ -17,7 +17,7 @@ import Tasks from './pages/Tasks';
 import Finance from './pages/Finance';
 import ziduLogo from './assets/zidu-logo.png';
 
-const ROLE_LABEL = { ADMIN: "管理员", SALES: "销售", WAREHOUSE: "仓库", FINANCE: "财务" };
+const ROLE_LABEL = { SUPER_ADMIN: "超级管理员", ADMIN: "管理员", SALES: "销售", WAREHOUSE: "仓库", FINANCE: "财务" };
 const PAGE_TITLE = {
   dashboard: '工作台', shop: '销售下单', orders: '订单管理', orderDetail: '订单详情',
   customers: '客户管理', customerDetail: '客户详情', tasks: '跟进任务', inventory: '库存管理',
@@ -140,7 +140,7 @@ export default function App() {
     <div className="zidu-shell flex h-screen">
       {/* Desktop sidebar */}
       <aside className="zidu-sidebar hidden md:flex flex-col w-60 shrink-0">
-        <div className="px-5 py-5 border-b border-white/10">
+        <div className="zidu-brand px-5 py-5 border-b border-white/10">
           <img src={ziduLogo} alt="紫都 ZIDU" style={{ height: 25, filter: 'brightness(0) invert(1)', opacity: 0.96 }} />
           <div className="text-[11px] text-purple-300/55 mt-2">销售 · 客户 · 库存管理</div>
         </div>
@@ -157,7 +157,9 @@ export default function App() {
             <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ background: "#5C4B73" }}>{user.name[0]}</div>
             <div className="flex-1 min-w-0">
               <div className="text-sm text-white truncate">{user.name}</div>
-              <div className="text-xs text-purple-300/50">{user.roleLabel || ROLE_LABEL[user.role] || user.role}</div>
+              {(user.roleLabel || ROLE_LABEL[user.role] || user.role) !== user.name && (
+                <div className="text-xs text-purple-300/50">{user.roleLabel || ROLE_LABEL[user.role] || user.role}</div>
+              )}
             </div>
             <button onClick={() => { logout(); setCart([]); }} className="text-purple-300/40 hover:text-red-400"><LogOut size={16} /></button>
           </div>
@@ -193,8 +195,8 @@ export default function App() {
           </div>
           <div className="hidden lg:block text-xs text-gray-400">{new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}</div>
           <button onClick={refreshNow} disabled={refreshing} className="zidu-icon-button" title="刷新云端数据"><RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /></button>
-          <div className="text-sm text-gray-500 hidden sm:flex items-center gap-2 pl-2 border-l border-gray-200">
-            <span>{user.name}</span>
+          <div className="zidu-user-meta text-sm text-gray-500 hidden sm:flex items-center gap-2 pl-2 border-l border-gray-200">
+            {user.name !== (user.roleLabel || ROLE_LABEL[user.role] || user.role) && <span>{user.name}</span>}
             <span className="text-[11px] px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">{user.roleLabel || ROLE_LABEL[user.role] || user.role}</span>
           </div>
           {canOrder && (
@@ -204,7 +206,7 @@ export default function App() {
             </button>
           )}
         </header>
-        <main className="flex-1 overflow-y-auto p-4 md:p-6"><div className="zidu-page">
+        <main className="zidu-main flex-1 overflow-y-auto p-4 md:p-6"><div className="zidu-page">
           {page === "dashboard" && <Dashboard nav={nav} />}
           {page === "shop" && !subView && <ShopCatalog cart={cart} addToCart={addToCart} updateCartQty={updateCartQty} removeFromCart={removeFromCart} onCheckout={() => { setCheckoutCustomerId(null); setSubView("checkout"); }} onCustom={() => setSubView("custom")} />}
           {page === "shop" && subView === "checkout" && <Checkout cart={cart} removeFromCart={removeFromCart} initialCustomerId={checkoutCustomerId} onBack={() => setSubView(null)} onPlaceOrder={handlePlaceOrder} onNewCustomer={() => setSubView("newcust")} />}
