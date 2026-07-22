@@ -30,3 +30,9 @@ supabase/.temp/
 # WeChat 开发者工具配置（误入，属于小程序项目）
 project.config.json
 project.private.config.json
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
