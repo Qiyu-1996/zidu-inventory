@@ -106,6 +106,7 @@ function stripAfterSaleNotePrefix(note) {
 export function OrderList({ nav }) {
   const { user } = useAuth();
   const { orders, customers, reload } = useData();
+  const isWarehouse = user.role === 'WAREHOUSE';
   const [search, setSearch] = useState('');
   const [sf, setSf] = useState('ALL');
   const [pf, setPf] = useState('ALL');
@@ -254,9 +255,9 @@ export function OrderList({ nav }) {
               <Trash2 size={13} />删除订单库
             </button>
           )}
-          <button onClick={exportAll} className="flex items-center gap-1 text-xs text-purple-700 px-3 py-2 rounded border border-purple-200 hover:bg-purple-50">
+          {!isWarehouse && <button onClick={exportAll} className="flex items-center gap-1 text-xs text-purple-700 px-3 py-2 rounded border border-purple-200 hover:bg-purple-50">
             <Download size={13} />导出
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -278,12 +279,12 @@ export function OrderList({ nav }) {
                   <div className="text-sm text-gray-800">{c?.name || (o.source === 'wechat_2c' ? '微信零售' : '—')}</div>
                   <div className="text-xs text-gray-400 mt-0.5">{o.createdAt} · {o.items.length} 项商品</div>
                 </div>
-                <div className="text-right">
+                {!isWarehouse && <div className="text-right">
 	                  <div className="text-lg font-bold" style={{ color: "#5C4B73" }}>{fmtY(o.total)}</div>
 	                  {o.discountAmount > 0 && <div className="text-xs text-orange-500">优惠 {fmtY(o.discountAmount)}</div>}
 	                  {shippingFee > 0 && <div className="text-xs text-green-700">含运费 {fmtY(shippingFee)}</div>}
 	                  {o.paymentStatus === 'PARTIAL' && <div className="text-xs text-yellow-600">已付 {fmtY(o.paidAmount)}</div>}
-                </div>
+                </div>}
               </div>
             </Card>
           );
@@ -297,6 +298,7 @@ export function OrderList({ nav }) {
 // ═══ ORDER DETAIL ═══
 export function OrderDetail({ orderId, onBack, onShipping }) {
   const { user } = useAuth();
+  const isWarehouse = user.role === 'WAREHOUSE';
   const {
     orders, customers, users, updateOrderStatus, requestUnpaidShipping, reviewUnpaidShipping, removeOrder, editOrderItems, recordPayment,
     createAfterSale, processAfterSaleWarehouse, completeAfterSaleFinance, cancelAfterSale
@@ -710,20 +712,20 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
           </div>
           <div className="text-right">
             <div className="flex items-center gap-2 justify-end">
-              <button onClick={() => printOrder(order, customer, seller)} title="打印订单" className="p-2 rounded hover:bg-gray-100 text-gray-500"><Printer size={16} /></button>
+              {!isWarehouse && <button onClick={() => printOrder(order, customer, seller)} title="打印订单" className="p-2 rounded hover:bg-gray-100 text-gray-500"><Printer size={16} /></button>}
               {canDelete && (
                 <button onClick={handleDelete} title="删除订单" className="p-2 rounded hover:bg-red-50 text-red-500"><Trash2 size={16} /></button>
               )}
             </div>
-            <div className="text-2xl font-bold" style={{ color: "#5C4B73" }}>{fmtY(order.total)}</div>
-            {order.discountAmount > 0 && (
+            {!isWarehouse && <div className="text-2xl font-bold" style={{ color: "#5C4B73" }}>{fmtY(order.total)}</div>}
+            {!isWarehouse && order.discountAmount > 0 && (
               <div className="text-xs text-orange-500">
                 折扣 {fmtY(order.discountAmount)} ({order.discountPercent}%) · {order.discountResponsibility === 'SALES' ? '销售承担' : '公司承担'}
                 {order.discountReason && <div className="text-gray-400">{order.discountReason}</div>}
               </div>
             )}
-            {shippingFee > 0 && <div className="text-xs text-green-700">运费 {fmtY(shippingFee)}</div>}
-            {order.paidAmount > 0 && order.paymentStatus !== 'PAID' && <div className="text-xs text-yellow-600">已付 {fmtY(order.paidAmount)} / 剩 {fmtY(remaining)}</div>}
+            {!isWarehouse && shippingFee > 0 && <div className="text-xs text-green-700">运费 {fmtY(shippingFee)}</div>}
+            {!isWarehouse && order.paidAmount > 0 && order.paymentStatus !== 'PAID' && <div className="text-xs text-yellow-600">已付 {fmtY(order.paidAmount)} / 剩 {fmtY(remaining)}</div>}
           </div>
         </div>
 
@@ -814,20 +816,20 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
             <thead><tr className="border-b bg-gray-50/80">
               <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">产品</th>
               <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">规格</th>
-              <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">单价</th>
+              {!isWarehouse && <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">单价</th>}
               <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">数量</th>
-              <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">小计</th>
+              {!isWarehouse && <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">小计</th>}
             </tr></thead>
             <tbody>{order.items.map((it, i) => (
               <tr key={i} className="border-b last:border-0">
                 <td className="py-2 px-3"><div className="text-gray-800">{it.productName}</div><div className="text-xs text-gray-400">{it.productCode}</div></td>
                 <td className="py-2 px-3 text-gray-600">
                   <div>{it.spec}</div>
-                  {(it.unitPriceHint || unitPriceHint(it.spec, it.unitPrice)) && <div className="text-xs text-amber-700 font-medium mt-0.5">{it.unitPriceHint || unitPriceHint(it.spec, it.unitPrice)}</div>}
+                  {!isWarehouse && (it.unitPriceHint || unitPriceHint(it.spec, it.unitPrice)) && <div className="text-xs text-amber-700 font-medium mt-0.5">{it.unitPriceHint || unitPriceHint(it.spec, it.unitPrice)}</div>}
                 </td>
-                <td className="py-2 px-3 text-right text-gray-600">{fmtY(it.unitPrice)}</td>
+                {!isWarehouse && <td className="py-2 px-3 text-right text-gray-600">{fmtY(it.unitPrice)}</td>}
                 <td className="py-2 px-3 text-right">{it.quantity}</td>
-                <td className="py-2 px-3 text-right font-medium" style={{ color: "#5C4B73" }}>{fmtY(it.subtotal)}</td>
+                {!isWarehouse && <td className="py-2 px-3 text-right font-medium" style={{ color: "#5C4B73" }}>{fmtY(it.subtotal)}</td>}
               </tr>
             ))}</tbody>
           </table>
@@ -865,7 +867,7 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
       </Card>
 
       {/* Payment */}
-      <Card className="p-4">
+      {!isWarehouse && <Card className="p-4">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <DollarSign size={16} className="text-purple-600" />
@@ -920,7 +922,7 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
             </button>
           </div>
         )}
-      </Card>
+      </Card>}
 
       {canAfterSale && (
         <Card className="p-4">
@@ -960,12 +962,12 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
                         </div>
                         <div className="text-xs text-gray-400 mt-1">{a.createdBy} · {a.createdAt?.slice(0, 16).replace('T', ' ')}</div>
                       </div>
-                      {a.requestedAmount > 0 && <div className="text-xs text-purple-700 shrink-0">退款 {fmtY(a.requestedAmount)}</div>}
+                      {!isWarehouse && a.requestedAmount > 0 && <div className="text-xs text-purple-700 shrink-0">退款 {fmtY(a.requestedAmount)}</div>}
                     </div>
                     {itemsText && <div className="text-xs text-gray-600 mt-2">{itemsText}</div>}
                     {requestNoteText && <div className="text-xs text-gray-500 mt-1">原因：{requestNoteText}</div>}
                     {a.warehouseBy && <div className="text-xs text-gray-500 mt-1">仓库：{a.restockReturned ? '退回入库' : '退回不入库'}{a.type === 'EXCHANGE' ? ` · ${a.deductReplacement ? '补发扣库存' : '补发不扣库存'}` : ''}{a.warehouseNote ? ` · ${a.warehouseNote}` : ''}</div>}
-                    {a.financeBy && <div className="text-xs text-gray-500 mt-1">财务：{a.financeAmount < 0 ? '退款' : a.financeAmount > 0 ? '补款' : '无款项'} {fmtY(Math.abs(a.financeAmount))}{a.financeNote ? ` · ${a.financeNote}` : ''}</div>}
+                    {!isWarehouse && a.financeBy && <div className="text-xs text-gray-500 mt-1">财务：{a.financeAmount < 0 ? '退款' : a.financeAmount > 0 ? '补款' : '无款项'} {fmtY(Math.abs(a.financeAmount))}{a.financeNote ? ` · ${a.financeNote}` : ''}</div>}
 
                     {user.role === 'ADMIN' && (a.status === 'WAREHOUSE_PENDING' || (a.status === 'FINANCE_PENDING' && !a.warehouseAt)) && (
                       <div className="flex justify-end mt-2">

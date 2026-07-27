@@ -216,32 +216,42 @@ function ProductMgmt() {
   const [name, setName] = useState('');
   const [series, setSeries] = useState('');
   const [origin, setOrigin] = useState('');
+  const [extractionMethod, setExtractionMethod] = useState('');
+  const [onSale2c, setOnSale2c] = useState(false);
+  const [oilId, setOilId] = useState('');
+  const [cat2c, setCat2c] = useState('单方精油');
   const [channel, setChannel] = useState('FINISHED');
   const [inventoryMode, setInventoryMode] = useState('SKU');
   const [baseStockKg, setBaseStockKg] = useState('');
   const [safeStockKg, setSafeStockKg] = useState('');
   const [densityGml, setDensityGml] = useState('');
-  const [specs, setSpecs] = useState([{ spec: '10ml', price: '', cost: '', stock: '', safeStock: 10 }]);
+  const [specs, setSpecs] = useState([{ sku: '', spec: '10ml', price: '', cost: '', stock: '', safeStock: 10, onSale2c: true }]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   const reset = () => {
     setShow(false); setEditingId(null); setCode(''); setName(''); setSeries(''); setOrigin('');
+    setExtractionMethod(''); setOnSale2c(false); setOilId(''); setCat2c('单方精油');
     setChannel('FINISHED');
     setInventoryMode('SKU'); setBaseStockKg(''); setSafeStockKg(''); setDensityGml('');
-    setSpecs([{ spec: '10ml', price: '', cost: '', stock: '', safeStock: 10 }]);
+    setSpecs([{ sku: '', spec: '10ml', price: '', cost: '', stock: '', safeStock: 10, onSale2c: true }]);
   };
 
   const startEdit = (p) => {
     setEditingId(p.id); setCode(p.code); setName(p.name); setSeries(p.series); setOrigin(p.origin);
+    setExtractionMethod(p.extractionMethod || ''); setOnSale2c(Boolean(p.onSale2c));
+    setOilId(p.oilId || ''); setCat2c(p.cat2c || '单方精油');
     setChannel(p.channel || 'BOTH');
     setInventoryMode(p.channel === 'RAW' ? 'MASS' : (p.inventoryMode || 'SKU')); setBaseStockKg(p.baseStockKg || '');
     setSafeStockKg(p.safeStockKg || ''); setDensityGml(p.densityGml || '');
-    setSpecs(p.specs.map(s => ({ id: s.id, spec: s.spec, price: s.price, cost: s.cost ?? '', stock: s.stock, safeStock: s.safeStock })));
+    setSpecs(p.specs.map(s => ({
+      id: s.id, sku: s.sku || '', spec: s.spec, price: s.price, cost: s.cost ?? '', stock: s.stock,
+      safeStock: s.safeStock, onSale2c: s.onSale2c !== false
+    })));
     setShow(true);
   };
 
-  const addSpec = () => setSpecs(p => [...p, { spec: '', price: '', cost: '', stock: '', safeStock: 10 }]);
+  const addSpec = () => setSpecs(p => [...p, { sku: '', spec: '', price: '', cost: '', stock: '', safeStock: 10, onSale2c: true }]);
   const updateSpec = (i, f, v) => setSpecs(p => p.map((s, idx) => idx === i ? { ...s, [f]: v } : s));
   const removeSpec = i => setSpecs(p => p.filter((_, idx) => idx !== i));
   const usesWeightInventory = channel === 'RAW' || inventoryMode === 'MASS';
@@ -253,13 +263,19 @@ function ProductMgmt() {
     try {
       const payload = {
         code: code.trim(), name: name.trim(), series, origin: origin.trim() || '中国', channel,
+        extractionMethod: extractionMethod.trim(), onSale2c, oilId: oilId.trim(), cat2c: onSale2c ? (cat2c || '单方精油') : '',
         inventoryMode: channel === 'RAW' ? 'MASS' : inventoryMode,
         baseStockKg: Number(baseStockKg) || 0, safeStockKg: Number(safeStockKg) || 0,
         densityGml: effectiveDensity,
         densityTemperatureC: 20,
         densitySource: usesWeightInventory ? '系统按产品编号带入的常用密度，可由管理员修改' : '',
         densityStatus: usesWeightInventory ? 'REFERENCE' : 'UNSET',
-        specs: specs.map(s => ({ id: s.id, spec: s.spec, price: Number(s.price), cost: Number(s.cost) || 0, stock: Number(s.stock) || 0, safeStock: Number(s.safeStock) || 10 }))
+        specs: specs.map(s => ({
+          id: s.id,
+          sku: s.sku || (onSale2c ? `${code.trim()}-${String(s.spec).replace(/\s+/g, '').toUpperCase()}` : ''),
+          spec: s.spec, price: Number(s.price), cost: Number(s.cost) || 0, stock: Number(s.stock) || 0,
+          safeStock: Number(s.safeStock) || 10, onSale2c: s.onSale2c !== false
+        }))
       };
       if (editingId) await editProduct({ ...payload, id: editingId });
       else await addProduct(payload);
@@ -301,6 +317,23 @@ function ProductMgmt() {
                 {CHANNEL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
+          </div>
+          <div className="border border-gray-200 bg-white rounded-lg p-3 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-medium text-gray-700">小程序商城</div>
+              <button
+                type="button"
+                onClick={() => setOnSale2c(value => !value)}
+                className={`px-3 py-1.5 text-xs rounded-md border ${onSale2c ? 'bg-green-50 border-green-300 text-green-700' : 'bg-gray-50 border-gray-200 text-gray-500'}`}
+              >{onSale2c ? '已上架' : '未上架'}</button>
+            </div>
+            {onSale2c && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div><label className="block text-xs text-gray-500 mb-1">精油 ID</label><input value={oilId} onChange={e => setOilId(e.target.value)} placeholder="orange" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+                <div><label className="block text-xs text-gray-500 mb-1">小程序分类</label><input value={cat2c} onChange={e => setCat2c(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+                <div><label className="block text-xs text-gray-500 mb-1">萃取方式</label><input value={extractionMethod} onChange={e => setExtractionMethod(e.target.value)} placeholder="蒸馏" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+              </div>
+            )}
           </div>
           {(channel === 'RAW' || channel === 'BOTH') && (
             <div className="border border-purple-200 bg-white rounded-lg p-3 space-y-3">
@@ -374,7 +407,9 @@ function ProductMgmt() {
         <tbody>{products.map(p => (
           <tr key={p.id} className="border-b last:border-0 hover:bg-gray-50 align-top">
             <td className="py-2 px-3 font-mono text-xs text-gray-500">{p.code}</td>
-            <td className="py-2 px-3 text-gray-800">{p.name}</td>
+            <td className="py-2 px-3 text-gray-800">
+              <div className="flex items-center gap-2 flex-wrap"><span>{p.name}</span>{p.onSale2c && <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-50 text-green-700">小程序</span>}</div>
+            </td>
             <td className="py-2 px-3 text-xs text-gray-500 hidden md:table-cell">{p.series}</td>
             <td className="py-2 px-3 text-xs text-gray-500 hidden lg:table-cell">{channelLabel(p.channel)}</td>
             <td className="py-2 px-3">

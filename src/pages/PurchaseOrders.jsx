@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, ArrowLeft, Search, X, CheckCircle, Truck, Edit2, Trash2, FlaskConical, Package, Lightbulb, ClipboardList, PackageCheck, History, Users, Archive, RotateCcw, CalendarClock, Undo2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
@@ -26,6 +26,7 @@ function formatDate(value) {
 // ═══ PO LIST ═══
 export function PurchaseOrderList({ nav }) {
   const { user } = useAuth();
+  const isWarehouse = user.role === 'WAREHOUSE';
   const { purchaseOrders, products, orders, removePurchaseOrder, reversePurchaseReceipt, reload } = useData();
   const [tab, setTab] = useState('suggestions');
   const [sf, setSf] = useState('ALL');
@@ -92,17 +93,17 @@ export function PurchaseOrderList({ nav }) {
       .sort((a, b) => urgencyOrder[a.urgency] - urgencyOrder[b.urgency] || b.suggestedQty - a.suggestedQty);
   }, [products, orders, inTransitBySpec]);
 
-  const loadReceipts = async () => {
+  const loadReceipts = useCallback(async () => {
     setReceiptLoading(true);
     setReceiptError('');
-    try { setReceipts(await api.fetchPurchaseReceipts()); }
+    try { setReceipts(await api.fetchPurchaseReceipts(isWarehouse)); }
     catch (error) { setReceiptError(error.message); }
     finally { setReceiptLoading(false); }
-  };
+  }, [isWarehouse]);
 
   useEffect(() => {
     if (tab === 'receipts') loadReceipts();
-  }, [tab]);
+  }, [tab, loadReceipts]);
 
   const loadRecycle = async () => {
     setRecycleLoading(true);
@@ -158,7 +159,7 @@ export function PurchaseOrderList({ nav }) {
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <div><div className="zidu-section-title">采购工作台</div><div className="zidu-section-sub mt-1">从补货建议、采购下单到批次入库统一追踪</div></div>
-        <button onClick={() => nav('purchaseCreate')} className="btn-primary text-sm"><Plus size={16} />新建采购单</button>
+        {!isWarehouse && <button onClick={() => nav('purchaseCreate')} className="btn-primary text-sm"><Plus size={16} />新建采购单</button>}
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[['草稿', draftCount, '#8A8178'], ['待收货', orderedCount, '#5F7689'], ['部分收货', receivingCount, '#F3BD5B'], ['已收货', receivedCount, '#7B8F67']].map(([label, value, color]) => <Card key={label} className="p-3.5 relative overflow-hidden"><div className="absolute top-0 left-0 right-0 h-[3px]" style={{ background: color }} /><div className="text-xs text-gray-500">{label}</div><div className="text-xl font-medium mt-1 tabular-nums">{value}</div></Card>)}
@@ -182,7 +183,7 @@ export function PurchaseOrderList({ nav }) {
               <td className="p-3 text-right tabular-nums">{item.recent30 || 0} {item.unit || '件'}</td>
               <td className="p-3 text-right tabular-nums text-blue-700">{item.inTransit || 0} {item.unit || '件'}</td>
               <td className="p-3 text-right"><div className="font-semibold text-purple-800 tabular-nums">{item.suggestedQty} {item.unit || '件'}</div><span className={`inline-block mt-1 px-1.5 py-0.5 rounded border text-[10px] ${urgencyClass[item.urgency]}`}>{urgencyLabel[item.urgency]}</span></td>
-              <td className="p-3 text-right"><button onClick={() => nav('purchaseCreate', { suggestion: item })} className="px-3 py-1.5 rounded-lg border border-purple-200 text-purple-700 text-xs">生成采购单</button></td>
+              <td className="p-3 text-right">{!isWarehouse && <button onClick={() => nav('purchaseCreate', { suggestion: item })} className="px-3 py-1.5 rounded-lg border border-purple-200 text-purple-700 text-xs">生成采购单</button>}</td>
             </tr>)}{restockSuggestions.length === 0 && <tr><td colSpan="8" className="text-center py-12 text-gray-400">当前没有需要补货的产品</td></tr>}</tbody>
           </table></div>
         </Card>
@@ -199,7 +200,7 @@ export function PurchaseOrderList({ nav }) {
         {showRecycle && user.role === 'ADMIN' && <Card className="p-4 border-dashed"><div className="flex items-center justify-between mb-3"><div><div className="text-sm font-semibold">采购单回收站</div><div className="text-xs text-gray-400 mt-0.5">保留 30 天；只有从未收货的采购单才能进入回收站</div></div><button onClick={() => setShowRecycle(false)} className="zidu-icon-button"><X size={15} /></button></div>{recycleLoading ? <div className="py-8 text-center text-gray-400">读取中...</div> : <div className="space-y-2">{deletedOrders.map(po => <div key={po.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border rounded-lg p-3"><div><span className="font-mono text-sm">{po.poNo}</span><span className="text-xs text-gray-400 ml-2">{po.supplier} · 删除于 {formatDate(po.deletedAt)}</span></div><div className="flex gap-2"><button onClick={() => restoreOrder(po)} className="px-3 py-1.5 border rounded-lg text-xs text-purple-700"><RotateCcw size={13} className="inline mr-1" />恢复</button><button onClick={() => permanentlyDelete(po)} className="px-3 py-1.5 border border-red-200 rounded-lg text-xs text-red-600">彻底删除</button></div></div>)}{deletedOrders.length === 0 && <div className="py-8 text-center text-gray-400">回收站为空</div>}</div>}</Card>}
         <div className="space-y-2">{filtered.map(po => (
           <Card key={po.id} className="p-4 cursor-pointer hover:shadow-md" onClick={() => nav('purchaseDetail', po.id)}>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2"><div><div className="flex items-center gap-2 mb-1"><span className="font-mono text-sm text-gray-600">{po.poNo}</span><POBadge status={po.status} /></div><div className="text-sm text-gray-800">供应商：{po.supplier}</div><div className="text-xs text-gray-400 mt-0.5">{formatDate(po.createdAt)} · {po.items.length} 项{po.expectedDate ? ` · 预计 ${formatDate(po.expectedDate)} 到货` : ''}</div></div><div className="flex items-center justify-end gap-2"><div className="text-lg font-bold" style={{ color: '#5C4B73' }}>{fmtY(po.total)}</div>{user.role === 'ADMIN' && po.items.every(item => Number(item.receivedQty || 0) === 0) && <button onClick={event => deleteFromList(event, po)} title="移入回收站" className="zidu-icon-button !w-8 !h-8 hover:!text-red-500"><Trash2 size={14} /></button>}</div></div>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2"><div><div className="flex items-center gap-2 mb-1"><span className="font-mono text-sm text-gray-600">{po.poNo}</span><POBadge status={po.status} /></div><div className="text-sm text-gray-800">供应商：{po.supplier}</div><div className="text-xs text-gray-400 mt-0.5">{formatDate(po.createdAt)} · {po.items.length} 项{po.expectedDate ? ` · 预计 ${formatDate(po.expectedDate)} 到货` : ''}</div></div><div className="flex items-center justify-end gap-2">{!isWarehouse && <div className="text-lg font-bold" style={{ color: '#5C4B73' }}>{fmtY(po.total)}</div>}{user.role === 'ADMIN' && po.items.every(item => Number(item.receivedQty || 0) === 0) && <button onClick={event => deleteFromList(event, po)} title="移入回收站" className="zidu-icon-button !w-8 !h-8 hover:!text-red-500"><Trash2 size={14} /></button>}</div></div>
           </Card>
         ))}{filtered.length === 0 && <div className="text-center py-12 text-gray-400">暂无采购单</div>}</div>
       </>}
@@ -242,6 +243,10 @@ export function PurchaseOrderCreate({ onBack, editPo = null, initialSuggestion =
     unitCost: 0
   }] : [{ productId: '', specId: '', productName: '', spec: '', quantity: 1, unitCost: 0 }]);
   const [saving, setSaving] = useState(false);
+
+  if (user.role !== 'ADMIN') {
+    return <div className="text-center py-12 text-gray-400">当前账号没有新建或编辑采购单的权限</div>;
+  }
 
   const addItem = () => setItems(p => [...p, { productId: '', specId: '', productName: '', spec: '', quantity: 1, unitCost: 0 }]);
   const removeItem = (i) => setItems(p => p.filter((_, idx) => idx !== i));
@@ -369,6 +374,7 @@ export function PurchaseOrderCreate({ onBack, editPo = null, initialSuggestion =
 // ═══ PO DETAIL ═══
 export function PurchaseOrderDetail({ poId, onBack, onEdit }) {
   const { user } = useAuth();
+  const isWarehouse = user.role === 'WAREHOUSE';
   const { purchaseOrders, products, updatePOStatus, receivePOItems, removePurchaseOrder, closePurchaseOrder } = useData();
   const po = purchaseOrders.find(p => p.id === poId);
   const [receiving, setReceiving] = useState(false);
@@ -467,9 +473,9 @@ export function PurchaseOrderDetail({ poId, onBack, onEdit }) {
             </div>
             <div className="text-sm text-gray-500 mt-1">{po.createdAt} · {po.createdByName}</div>
           </div>
-          <div className="text-right">
+          {!isWarehouse && <div className="text-right">
             <div className="text-2xl font-bold" style={{ color: '#5C4B73' }}>{fmtY(po.total)}</div>
-          </div>
+          </div>}
         </div>
 
         <div className="grid grid-cols-2 gap-3 mb-4">
@@ -483,10 +489,10 @@ export function PurchaseOrderDetail({ poId, onBack, onEdit }) {
         <div className="flex gap-2 pt-3 border-t border-[#EEE6D9] flex-wrap">
           {canEdit && <button onClick={onEdit} className="px-4 py-2 border border-purple-200 text-purple-700 rounded-lg text-sm"><Edit2 size={14} className="inline mr-1" />编辑</button>}
           {canDelete && <button onClick={handleDelete} className="px-4 py-2 border border-red-200 text-red-600 rounded-lg text-sm"><Trash2 size={14} className="inline mr-1" />删除</button>}
-          {po.status === 'DRAFT' && <button onClick={() => handleStatusChange('ORDERED')} className="px-4 py-2 text-white rounded-lg text-sm" style={{ background: '#5C4B73' }}>标记已下单</button>}
+          {user.role === 'ADMIN' && po.status === 'DRAFT' && <button onClick={() => handleStatusChange('ORDERED')} className="px-4 py-2 text-white rounded-lg text-sm" style={{ background: '#5C4B73' }}>标记已下单</button>}
           {(po.status === 'ORDERED' || po.status === 'PARTIAL_RECEIVED') && <button onClick={startReceive} className="px-4 py-2 text-white rounded-lg text-sm bg-green-600"><Truck size={14} className="inline mr-1" />{rawItemCount ? '原料按 kg 收货入库' : '收货入库'}</button>}
           {po.status === 'PARTIAL_RECEIVED' && user.role === 'ADMIN' && <button onClick={handleCloseRemaining} className="px-4 py-2 border border-amber-200 text-amber-700 rounded-lg text-sm">关闭剩余采购</button>}
-          {['DRAFT', 'ORDERED'].includes(po.status) && !hasReceived && <button onClick={() => handleStatusChange('CANCELLED')} className="px-4 py-2 border border-red-200 text-red-600 rounded-lg text-sm">取消</button>}
+          {user.role === 'ADMIN' && ['DRAFT', 'ORDERED'].includes(po.status) && !hasReceived && <button onClick={() => handleStatusChange('CANCELLED')} className="px-4 py-2 border border-red-200 text-red-600 rounded-lg text-sm">取消</button>}
         </div>
       </Card>
 
@@ -499,8 +505,8 @@ export function PurchaseOrderDetail({ poId, onBack, onEdit }) {
             <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">规格</th>
             <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">数量</th>
             <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">已收</th>
-            <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">单价</th>
-            <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">小计</th>
+            {!isWarehouse && <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">单价</th>}
+            {!isWarehouse && <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">小计</th>}
           </tr></thead>
           <tbody>{po.items.map(it => {
             const product = products.find(p => p.id === it.productId);
@@ -511,8 +517,8 @@ export function PurchaseOrderDetail({ poId, onBack, onEdit }) {
                 <td className="py-2 px-3 text-gray-600">{isRaw ? '原料重量' : it.spec}</td>
                 <td className="py-2 px-3 text-right">{it.quantity} {isRaw ? 'kg' : '瓶 / 个'}</td>
                 <td className="py-2 px-3 text-right text-green-600">{it.receivedQty || 0} {isRaw ? 'kg' : '瓶 / 个'}</td>
-                <td className="py-2 px-3 text-right text-gray-600">{fmtY(it.unitCost)}<span className="text-[10px] text-gray-400 ml-1">/{isRaw ? 'kg' : '件'}</span></td>
-                <td className="py-2 px-3 text-right font-medium" style={{ color: '#5C4B73' }}>{fmtY(it.subtotal)}</td>
+                {!isWarehouse && <td className="py-2 px-3 text-right text-gray-600">{fmtY(it.unitCost)}<span className="text-[10px] text-gray-400 ml-1">/{isRaw ? 'kg' : '件'}</span></td>}
+                {!isWarehouse && <td className="py-2 px-3 text-right font-medium" style={{ color: '#5C4B73' }}>{fmtY(it.subtotal)}</td>}
               </tr>
             );
           })}</tbody>

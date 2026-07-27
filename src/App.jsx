@@ -18,6 +18,7 @@ import Finance from './pages/Finance';
 import ziduLogo from './assets/zidu-logo.png';
 
 const ROLE_LABEL = { SUPER_ADMIN: "超级管理员", ADMIN: "管理员", SALES: "销售", WAREHOUSE: "仓库", FINANCE: "财务" };
+const WAREHOUSE_PAGES = new Set(['dashboard', 'orders', 'orderDetail', 'inventory', 'purchase', 'purchaseDetail', 'shipping']);
 const PAGE_TITLE = {
   dashboard: '工作台', shop: '销售下单', orders: '订单管理', orderDetail: '订单详情',
   customers: '客户管理', customerDetail: '客户详情', tasks: '跟进任务', inventory: '库存管理',
@@ -42,6 +43,13 @@ export default function App() {
     const t = setInterval(() => { reload(); }, 30000);
     return () => clearInterval(t);
   }, [user, reload]);
+
+  useEffect(() => {
+    if (user?.role !== 'WAREHOUSE' || WAREHOUSE_PAGES.has(page)) return;
+    setPage('dashboard');
+    setSubView(null);
+    setCart([]);
+  }, [user?.role, page]);
 
   // 当进入订单/发货页时，标记已读
   useEffect(() => {
@@ -92,6 +100,7 @@ export default function App() {
   if (loading) return <LoadingScreen />;
 
   const isFinance = user.role === "FINANCE";
+  const visiblePage = user.role === 'WAREHOUSE' && !WAREHOUSE_PAGES.has(page) ? 'dashboard' : page;
   const canOrder = user.role === "ADMIN" || user.role === "SALES";
   const canShip = ['ADMIN', 'SALES', 'WAREHOUSE'].includes(user.role);
   const menuItems = isFinance ? [
@@ -146,7 +155,7 @@ export default function App() {
         </div>
         <nav className="flex-1 py-3 overflow-y-auto">
           {menuItems.map(m => (
-            <button key={m.key} onClick={() => nav(m.key)} className={`zidu-nav-item ${page === m.key ? 'active' : ''} flex items-center gap-3 text-sm`}>
+            <button key={m.key} onClick={() => nav(m.key)} className={`zidu-nav-item ${visiblePage === m.key ? 'active' : ''} flex items-center gap-3 text-sm`}>
               <m.icon size={18} />{m.label}
               {m.badge && <span className="ml-auto bg-purple-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">{m.badge}</span>}
             </button>
@@ -176,7 +185,7 @@ export default function App() {
           </div>
           <nav className="flex-1 py-2">
             {menuItems.map(m => (
-              <button key={m.key} onClick={() => nav(m.key)} className={`w-full flex items-center gap-3 px-4 py-3 text-sm ${page === m.key ? "bg-purple-500/20 text-white" : "text-purple-200/70"}`}>
+              <button key={m.key} onClick={() => nav(m.key)} className={`w-full flex items-center gap-3 px-4 py-3 text-sm ${visiblePage === m.key ? "bg-purple-500/20 text-white" : "text-purple-200/70"}`}>
                 <m.icon size={18} />{m.label}
               </button>
             ))}
@@ -191,7 +200,7 @@ export default function App() {
           <button className="md:hidden" onClick={() => setSideOpen(true)}><Menu size={22} className="text-gray-600" /></button>
           <div className="flex-1 min-w-0">
             <div className="zidu-eyebrow hidden sm:block">ZIDU BUSINESS</div>
-            <h1 className="zidu-page-title truncate">{PAGE_TITLE[page] || menuItems.find(m => m.key === page)?.label || '详情'}</h1>
+            <h1 className="zidu-page-title truncate">{PAGE_TITLE[visiblePage] || menuItems.find(m => m.key === visiblePage)?.label || '详情'}</h1>
           </div>
           <div className="hidden lg:block text-xs text-gray-400">{new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}</div>
           <button onClick={refreshNow} disabled={refreshing} className="zidu-icon-button" title="刷新云端数据"><RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /></button>
@@ -207,26 +216,26 @@ export default function App() {
           )}
         </header>
         <main className="zidu-main flex-1 overflow-y-auto p-4 md:p-6"><div className="zidu-page">
-          {page === "dashboard" && <Dashboard nav={nav} />}
-          {page === "shop" && !subView && <ShopCatalog cart={cart} addToCart={addToCart} updateCartQty={updateCartQty} removeFromCart={removeFromCart} onCheckout={() => { setCheckoutCustomerId(null); setSubView("checkout"); }} onCustom={() => setSubView("custom")} />}
-          {page === "shop" && subView === "checkout" && <Checkout cart={cart} removeFromCart={removeFromCart} initialCustomerId={checkoutCustomerId} onBack={() => setSubView(null)} onPlaceOrder={handlePlaceOrder} onNewCustomer={() => setSubView("newcust")} />}
-          {page === "shop" && subView === "custom" && <CustomOrder onBack={() => setSubView(null)} onPlaceOrder={handlePlaceCustomOrder} />}
-          {page === "shop" && subView === "newcust" && <CustomerCreate onSave={handleNewCustomerFromShop} onCancel={() => setSubView("checkout")} />}
-          {page === "orders" && !subView && <OrderList nav={nav} />}
-          {page === "orderDetail" && <OrderDetail orderId={subView} onBack={() => nav("orders")} onShipping={() => nav("shipping")} />}
-          {page === "customers" && !subView && <CustomerList nav={nav} onNew={(dealerMode) => setSubView(dealerMode ? "newdealer" : "newcust")} />}
-          {page === "customers" && (subView === "newcust" || subView === "newdealer") && <CustomerCreate dealerMode={subView === "newdealer"} onSave={handleNewCustomerFromList} onCancel={() => setSubView(null)} />}
-          {page === "customerDetail" && <CustomerDetail customerId={subView} onBack={() => nav("customers")} />}
-          {page === "tasks" && <Tasks />}
-          {page === "inventory" && <Inventory nav={nav} />}
-          {page === "purchase" && !subView && <PurchaseOrderList nav={nav} />}
-          {page === "purchaseCreate" && <PurchaseOrderCreate initialSuggestion={subView?.suggestion || null} onBack={() => nav('purchase')} />}
-          {page === "purchaseEdit" && <PurchaseOrderCreate editPo={purchaseOrders.find(po => po.id === subView)} onBack={() => nav('purchaseDetail', subView)} />}
-          {page === "purchaseDetail" && <PurchaseOrderDetail poId={subView} onBack={() => nav('purchase')} onEdit={() => nav('purchaseEdit', subView)} />}
-          {page === "shipping" && canShip && <ShippingWorkbench />}
-          {page === "analytics" && <Analytics />}
-          {page === "finance" && <Finance />}
-          {page === "settings" && <SettingsPage />}
+          {visiblePage === "dashboard" && <Dashboard nav={nav} />}
+          {visiblePage === "shop" && !subView && <ShopCatalog cart={cart} addToCart={addToCart} updateCartQty={updateCartQty} removeFromCart={removeFromCart} onCheckout={() => { setCheckoutCustomerId(null); setSubView("checkout"); }} onCustom={() => setSubView("custom")} />}
+          {visiblePage === "shop" && subView === "checkout" && <Checkout cart={cart} removeFromCart={removeFromCart} initialCustomerId={checkoutCustomerId} onBack={() => setSubView(null)} onPlaceOrder={handlePlaceOrder} onNewCustomer={() => setSubView("newcust")} />}
+          {visiblePage === "shop" && subView === "custom" && <CustomOrder onBack={() => setSubView(null)} onPlaceOrder={handlePlaceCustomOrder} />}
+          {visiblePage === "shop" && subView === "newcust" && <CustomerCreate onSave={handleNewCustomerFromShop} onCancel={() => setSubView("checkout")} />}
+          {visiblePage === "orders" && !subView && <OrderList nav={nav} />}
+          {visiblePage === "orderDetail" && <OrderDetail orderId={subView} onBack={() => nav("orders")} onShipping={() => nav("shipping")} />}
+          {visiblePage === "customers" && !subView && <CustomerList nav={nav} onNew={(dealerMode) => setSubView(dealerMode ? "newdealer" : "newcust")} />}
+          {visiblePage === "customers" && (subView === "newcust" || subView === "newdealer") && <CustomerCreate dealerMode={subView === "newdealer"} onSave={handleNewCustomerFromList} onCancel={() => setSubView(null)} />}
+          {visiblePage === "customerDetail" && <CustomerDetail customerId={subView} onBack={() => nav("customers")} />}
+          {visiblePage === "tasks" && <Tasks />}
+          {visiblePage === "inventory" && <Inventory nav={nav} />}
+          {visiblePage === "purchase" && !subView && <PurchaseOrderList nav={nav} />}
+          {visiblePage === "purchaseCreate" && <PurchaseOrderCreate initialSuggestion={subView?.suggestion || null} onBack={() => nav('purchase')} />}
+          {visiblePage === "purchaseEdit" && <PurchaseOrderCreate editPo={purchaseOrders.find(po => po.id === subView)} onBack={() => nav('purchaseDetail', subView)} />}
+          {visiblePage === "purchaseDetail" && <PurchaseOrderDetail poId={subView} onBack={() => nav('purchase')} onEdit={() => nav('purchaseEdit', subView)} />}
+          {visiblePage === "shipping" && canShip && <ShippingWorkbench />}
+          {visiblePage === "analytics" && <Analytics />}
+          {visiblePage === "finance" && <Finance />}
+          {visiblePage === "settings" && <SettingsPage />}
         </div></main>
       </div>
     </div>

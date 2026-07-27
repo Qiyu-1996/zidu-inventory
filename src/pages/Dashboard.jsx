@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { ShoppingCart, AlertTriangle, Clock, ClipboardCheck, RefreshCw, Target, UserPlus, ArrowUpRight } from 'lucide-react';
+import { ShoppingCart, AlertTriangle, Clock, ClipboardCheck, RefreshCw, Target, UserPlus, ArrowUpRight, Truck } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, StatCard, Badge, fmtY, STATUS_MAP } from '../components/ui';
@@ -10,8 +10,12 @@ export default function Dashboard({ nav }) {
   const { user } = useAuth();
   const { orders, customers, products, salesTasks, salesTargets } = useData();
 
+  const isWarehouse = user.role === "WAREHOUSE";
   const canViewAllBusiness = user.role === "ADMIN" || user.role === "FINANCE";
-  const myOrders = canViewAllBusiness ? orders : user.role === "SALES" ? orders.filter(o => o.salesId === user.id) : orders.filter(o => ["CONFIRMED","PREPARING","SHIPPED","DELIVERED"].includes(o.status));
+  const warehouseOrders = orders.filter(o =>
+    (["CONFIRMED", "PREPARING"].includes(o.status) && (o.paymentStatus === 'PAID' || o.unpaidShippingStatus === 'APPROVED'))
+    || ["SHIPPED", "DELIVERED"].includes(o.status));
+  const myOrders = canViewAllBusiness ? orders : user.role === "SALES" ? orders.filter(o => o.salesId === user.id) : warehouseOrders;
   const myCustomers = canViewAllBusiness ? customers : customers.filter(c => c.salesId === user.id);
   const myTasks = useMemo(() => {
     if (user.role === "ADMIN") return salesTasks || [];
@@ -60,6 +64,11 @@ export default function Dashboard({ nav }) {
   const revenueGrowth = previousMonthRevenue > 0 ? Math.round((monthRevenue - previousMonthRevenue) / previousMonthRevenue * 100) : null;
   const pendingOrders = myOrders.filter(o => ["DRAFT","SUBMITTED","CONFIRMED","PREPARING"].includes(o.status)).length;
   const newCustomersThisMonth = myCustomers.filter(c => c.createdAt?.startsWith(monthKey)).length;
+  const warehousePendingShip = warehouseOrders.filter(o => ["CONFIRMED", "PREPARING"].includes(o.status)).length;
+  const warehouseConfirmed = warehouseOrders.filter(o => o.status === "CONFIRMED").length;
+  const warehousePreparing = warehouseOrders.filter(o => o.status === "PREPARING").length;
+  const warehouseInTransit = warehouseOrders.filter(o => ["SHIPPED", "DELIVERED"].includes(o.status)).length;
+  const warehouseAfterSalePending = orders.reduce((count, order) => count + (order.afterSales || []).filter(a => a.status === 'WAREHOUSE_PENDING').length, 0);
 
   const lowStock = useMemo(() => {
     const items = [];
@@ -79,24 +88,45 @@ export default function Dashboard({ nav }) {
 
   return (
     <div className="space-y-5">
-      <div className="grid lg:grid-cols-[1.2fr_1.8fr] gap-3">
-        <div className="rounded-xl p-5 md:p-6 text-[#F4ECDC] overflow-hidden relative shadow-[0_12px_28px_rgba(92,75,115,0.18)]" style={{ background: '#5C4B73' }}>
-          <div className="relative z-10">
-            <div className="text-xs text-[#D6CCE0]">本月销售额</div>
-            <div className="text-3xl md:text-4xl font-medium mt-2 tabular-nums">{fmtY(monthRevenue)}</div>
-            <div className="flex items-center gap-2 mt-3 text-xs flex-wrap">
-              <span className="px-2 py-1 rounded-md text-[#5A4318] bg-[#F3BD5B]">{monthOrders.length} 笔订单</span>
-              {revenueGrowth !== null && <span className={revenueGrowth >= 0 ? 'text-[#DCE8D7]' : 'text-[#F0D8D4]'}>{revenueGrowth >= 0 ? '较上月增长' : '较上月下降'} {Math.abs(revenueGrowth)}%</span>}
+      {isWarehouse ? (
+        <div className="grid lg:grid-cols-[1.2fr_1.8fr] gap-3">
+          <button type="button" onClick={() => nav('shipping')} className="rounded-xl p-5 md:p-6 text-left text-[#F4ECDC] overflow-hidden relative shadow-[0_12px_28px_rgba(92,75,115,0.18)]" style={{ background: '#5C4B73' }}>
+            <div className="relative z-10">
+              <div className="text-xs text-[#D6CCE0]">待发货订单</div>
+              <div className="text-3xl md:text-4xl font-medium mt-2 tabular-nums">{warehousePendingShip}</div>
+              <div className="flex items-center gap-2 mt-3 text-xs flex-wrap">
+                <span className="px-2 py-1 rounded-md text-[#5A4318] bg-[#F3BD5B]">待核对 {warehouseConfirmed}</span>
+                <span className="text-[#DCE8D7]">备货中 {warehousePreparing}</span>
+              </div>
             </div>
+            <ArrowUpRight size={110} strokeWidth={0.8} className="absolute -right-5 -bottom-5 text-white/10" />
+          </button>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <StatCard label="待仓库处理售后" value={warehouseAfterSalePending} sub="退回核对与入库" icon={ClipboardCheck} color="#8D5F5B" />
+            <StatCard label="已发货待完成" value={warehouseInTransit} sub="跟进签收与完结" icon={Truck} color="#7B8F67" />
+            <StatCard label="库存预警" value={lowStock.length} sub="需要盘点或补货" icon={AlertTriangle} color="#D5A23A" />
           </div>
-          <ArrowUpRight size={110} strokeWidth={0.8} className="absolute -right-5 -bottom-5 text-white/10" />
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <StatCard label="本月全部订单" value={monthOrders.length} sub={`上月 ${previousMonthOrders.length} 笔`} icon={ShoppingCart} color="#F3BD5B" />
-          <StatCard label="全部待处理订单" value={pendingOrders} sub="待确认与备货" icon={Clock} color="#8D5F5B" />
-          <StatCard label="本月新增客户" value={newCustomersThisMonth} sub={`客户总数 ${myCustomers.length}`} icon={UserPlus} color="#7B8F67" />
+      ) : (
+        <div className="grid lg:grid-cols-[1.2fr_1.8fr] gap-3">
+          <div className="rounded-xl p-5 md:p-6 text-[#F4ECDC] overflow-hidden relative shadow-[0_12px_28px_rgba(92,75,115,0.18)]" style={{ background: '#5C4B73' }}>
+            <div className="relative z-10">
+              <div className="text-xs text-[#D6CCE0]">本月销售额</div>
+              <div className="text-3xl md:text-4xl font-medium mt-2 tabular-nums">{fmtY(monthRevenue)}</div>
+              <div className="flex items-center gap-2 mt-3 text-xs flex-wrap">
+                <span className="px-2 py-1 rounded-md text-[#5A4318] bg-[#F3BD5B]">{monthOrders.length} 笔订单</span>
+                {revenueGrowth !== null && <span className={revenueGrowth >= 0 ? 'text-[#DCE8D7]' : 'text-[#F0D8D4]'}>{revenueGrowth >= 0 ? '较上月增长' : '较上月下降'} {Math.abs(revenueGrowth)}%</span>}
+              </div>
+            </div>
+            <ArrowUpRight size={110} strokeWidth={0.8} className="absolute -right-5 -bottom-5 text-white/10" />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <StatCard label="本月全部订单" value={monthOrders.length} sub={`上月 ${previousMonthOrders.length} 笔`} icon={ShoppingCart} color="#F3BD5B" />
+            <StatCard label="全部待处理订单" value={pendingOrders} sub="待确认与备货" icon={Clock} color="#8D5F5B" />
+            <StatCard label="本月新增客户" value={newCustomersThisMonth} sub={`客户总数 ${myCustomers.length}`} icon={UserPlus} color="#7B8F67" />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Sales target progress (for SALES) */}
       {targetProgress && (
@@ -176,7 +206,7 @@ export default function Dashboard({ nav }) {
         {/* Recent orders */}
         <Card className="p-4">
           <div className="flex items-center justify-between mb-3">
-            <div className="text-sm font-semibold text-gray-700">最近订单</div>
+            <div className="text-sm font-semibold text-gray-700">{isWarehouse ? '最近仓储订单' : '最近订单'}</div>
             <button onClick={() => nav("orders")} className="text-xs text-purple-600 hover:underline">查看全部</button>
           </div>
           <div className="space-y-2">
@@ -190,7 +220,7 @@ export default function Dashboard({ nav }) {
                     <span className="text-gray-700">{c?.name || '—'}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="font-semibold" style={{ color: "#5C4B73" }}>{fmtY(o.total)}</span>
+                    {!isWarehouse && <span className="font-semibold" style={{ color: "#5C4B73" }}>{fmtY(o.total)}</span>}
                     <Badge status={o.status} />
                   </div>
                 </div>

@@ -23,7 +23,7 @@ export function productCategoryOf(series) {
 export function matchesProductCategory(series, category) {
   return category === 'ALL' || productCategoryOf(series) === category;
 }
-export const CUSTOMER_TYPES = ["工厂","品牌","美容院","养生馆","医疗机构","SPA馆","头疗馆","足浴店","瑜伽馆","个人","零售店","其他"];
+export const CUSTOMER_TYPES = ["工厂","品牌","公司","美容院","养生馆","医疗机构","SPA馆","头疗馆","足浴店","瑜伽馆","个人","零售店","其他"];
 export const PROVINCES = ["北京","天津","河北","山西","内蒙古","辽宁","吉林","黑龙江","上海","江苏","浙江","安徽","福建","江西","山东","河南","湖北","湖南","广东","广西","海南","重庆","四川","贵州","云南","西藏","陕西","甘肃","青海","宁夏","新疆","香港","澳门","台湾"];
 // 经销商等级沿用数据库 distributor_level：1=一级(5折)，2=二级(6.5折)。
 export const DISTRIBUTOR_LEVELS = [{ value: 0, label: "非经销商" }, { value: 1, label: "一级经销商（5折）" }, { value: 2, label: "二级经销商（6.5折）" }];
@@ -37,7 +37,7 @@ export function customerTier(totalAmount, distributorLevel) {
   if (totalAmount >= 10000) return "中客户";
   return "小客户";
 }
-export const DEFAULT_SPEC_OPTIONS = ["2ml","5ml","10ml","15ml","30ml","50ml","100ml","500ml","1L","100g","500g","1kg","5kg"];
+export const DEFAULT_SPEC_OPTIONS = ["2ml","5ml","10ml","15ml","30ml","50ml","100ml","500ml","1000ml","5000ml","1L","100g","500g","1kg","5kg"];
 
 export const STATUS_MAP = {
   DRAFT: { label: "草稿", cls: "bg-gray-100 text-gray-600" },

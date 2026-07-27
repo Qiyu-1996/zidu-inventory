@@ -17,6 +17,7 @@ export default function SupplierManager() {
   const [form, setForm] = useState(EMPTY_SUPPLIER);
   const [saving, setSaving] = useState(false);
   const canManage = user.role === 'ADMIN';
+  const isWarehouse = user.role === 'WAREHOUSE';
 
   const reset = () => {
     setShowForm(false);
@@ -60,7 +61,7 @@ export default function SupplierManager() {
           <Truck size={16} className="text-purple-600 shrink-0" />
           <div>
             <div className="text-sm font-semibold text-gray-700">供应商档案（{suppliers.length}）</div>
-            <div className="text-xs text-gray-400 mt-0.5">联系人、品类、付款条款与历史采购统一维护</div>
+            <div className="text-xs text-gray-400 mt-0.5">{isWarehouse ? '联系人、品类与收货信息' : '联系人、品类、付款条款与历史采购统一维护'}</div>
           </div>
         </div>
         {canManage && (
@@ -96,7 +97,7 @@ export default function SupplierManager() {
             <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">供应商</th>
             <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">供应品类</th>
             <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">联系人</th>
-            <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">付款条款</th>
+            {!isWarehouse && <th className="text-left py-2 px-3 text-xs text-gray-500 font-medium">付款条款</th>}
             {canManage && <th className="text-right py-2 px-3 text-xs text-gray-500 font-medium">操作</th>}
           </tr></thead>
           <tbody>{suppliers.map(supplier => (
@@ -104,10 +105,10 @@ export default function SupplierManager() {
               <td className="py-2.5 px-3"><div className="font-medium">{supplier.name}</div><div className="text-xs text-gray-400 mt-0.5">{supplier.address || '未填写地址'}</div></td>
               <td className="py-2.5 px-3 text-xs text-gray-600">{supplier.category || '未分类'}</td>
               <td className="py-2.5 px-3 text-xs"><div>{supplier.contact || '未填写'}</div><div className="text-gray-400 mt-0.5">{supplier.phone}</div></td>
-              <td className="py-2.5 px-3 text-xs text-gray-600">{supplier.paymentTerms || '未填写'}</td>
+              {!isWarehouse && <td className="py-2.5 px-3 text-xs text-gray-600">{supplier.paymentTerms || '未填写'}</td>}
               {canManage && <td className="py-2.5 px-3"><div className="flex justify-end gap-1"><button onClick={() => startEdit(supplier)} title="编辑供应商" className="zidu-icon-button !w-8 !h-8"><Edit2 size={14} /></button><button onClick={() => handleDelete(supplier)} title="删除供应商" className="zidu-icon-button !w-8 !h-8 hover:!text-red-500"><Trash2 size={14} /></button></div></td>}
             </tr>
-          ))}{suppliers.length === 0 && <tr><td colSpan={canManage ? 5 : 4} className="text-center py-12 text-gray-400 text-sm">暂无供应商</td></tr>}</tbody>
+          ))}{suppliers.length === 0 && <tr><td colSpan={canManage ? 5 : isWarehouse ? 3 : 4} className="text-center py-12 text-gray-400 text-sm">暂无供应商</td></tr>}</tbody>
         </table>
       </div>
     </Card>

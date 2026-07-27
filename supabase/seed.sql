@@ -146,22 +146,22 @@ INSERT INTO product_specs (product_id, spec, price, stock, safe_stock) VALUES
 INSERT INTO products (code, name, series, origin) VALUES ('CA-ALM-01', '甜杏仁油（德国）', '基础油系列', '德国');
 INSERT INTO product_specs (product_id, spec, price, stock, safe_stock) VALUES
   (currval('products_id_seq'), '100ml', 98, 250, 40),
-  (currval('products_id_seq'), '500g', 380, 60, 10),
-  (currval('products_id_seq'), '1kg', 680, 30, 5),
-  (currval('products_id_seq'), '5kg', 2800, 8, 2);
+  (currval('products_id_seq'), '500ml', 380, 60, 10),
+  (currval('products_id_seq'), '1000ml', 680, 30, 5),
+  (currval('products_id_seq'), '5000ml', 2800, 8, 2);
 
 -- 24. 荷荷巴油（金黄色）
 INSERT INTO products (code, name, series, origin) VALUES ('CA-JOJ-01', '荷荷巴油（金黄色）', '基础油系列', '阿根廷');
 INSERT INTO product_specs (product_id, spec, price, stock, safe_stock) VALUES
   (currval('products_id_seq'), '100ml', 128, 180, 30),
-  (currval('products_id_seq'), '500g', 520, 40, 8),
-  (currval('products_id_seq'), '1kg', 950, 15, 3);
+  (currval('products_id_seq'), '500ml', 520, 40, 8),
+  (currval('products_id_seq'), '1000ml', 950, 15, 3);
 
 -- 25. 椰子油（清爽）
 INSERT INTO products (code, name, series, origin) VALUES ('CA-COC-01', '椰子油（清爽）', '基础油系列', '中国');
 INSERT INTO product_specs (product_id, spec, price, stock, safe_stock) VALUES
   (currval('products_id_seq'), '100ml', 68, 300, 50),
-  (currval('products_id_seq'), '1kg', 480, 40, 8);
+  (currval('products_id_seq'), '1000ml', 480, 40, 8);
 
 -- 26. 玫瑰果油（波兰）
 INSERT INTO products (code, name, series, origin) VALUES ('CA-RHP-01', '玫瑰果油（波兰）', '基础油系列', '波兰');

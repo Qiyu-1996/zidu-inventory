@@ -161,7 +161,14 @@ function productRow(product, includeChannel = true, includeMassInventory = true)
     code: product.code,
     name: product.name,
     series: product.series,
-    origin: product.origin || '中国'
+    origin: product.origin || '中国',
+    extraction_method: product.extractionMethod || '',
+    on_sale_2c: Boolean(product.onSale2c),
+    oil_id: product.oilId || '',
+    cat_2c: product.cat2c || '',
+    copy_2c: product.copy2c || '',
+    image_url: product.imageUrl || '',
+    gallery: Array.isArray(product.gallery) ? product.gallery : []
   };
   if (includeMassInventory) Object.assign(row, {
     inventory_mode: product.inventoryMode || 'SKU',
@@ -230,6 +237,13 @@ function customerRow(customer, includeMeta = true) {
 function mapProduct(p) {
   return {
     id: p.id, code: p.code, name: p.name, series: p.series, origin: p.origin, channel: p.channel || 'BOTH',
+    extractionMethod: p.extraction_method || '',
+    onSale2c: Boolean(p.on_sale_2c),
+    oilId: p.oil_id || '',
+    cat2c: p.cat_2c || '',
+    copy2c: p.copy_2c || '',
+    imageUrl: p.image_url || '',
+    gallery: Array.isArray(p.gallery) ? p.gallery : [],
     inventoryMode: p.inventory_mode || 'SKU',
     baseStockKg: Number(p.base_stock_kg || 0),
     safeStockKg: Number(p.safe_stock_kg || 0),
@@ -238,12 +252,35 @@ function mapProduct(p) {
     densitySource: p.density_source || '',
     densityStatus: p.density_status || 'UNSET',
     specs: (p.specs || []).map(s => ({
-      id: s.id, spec: s.spec, price: Number(s.price), cost: Number(s.cost || 0), stock: s.stock, safeStock: s.safe_stock
+      id: s.id, sku: s.sku || '', spec: s.spec, price: Number(s.price), cost: Number(s.cost || 0), stock: s.stock,
+      safeStock: s.safe_stock, onSale2c: Boolean(s.on_sale_2c)
     })).sort(compareSpecs)
   };
 }
 
-export async function fetchProducts() {
+function warehousePrivacyRpcMissing(error) {
+  return /zidu_warehouse_(products|orders|purchase_orders|batches|suppliers)|schema cache|could not find the function/i.test(error?.message || '');
+}
+
+function warehouseRpcRows(data) {
+  if (Array.isArray(data)) return data;
+  if (typeof data === 'string') {
+    try {
+      const parsed = JSON.parse(data);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+export async function fetchProducts(warehouseSafe = false) {
+  if (warehouseSafe) {
+    const { data, error } = await supabase.rpc('zidu_warehouse_products');
+    if (!error) return warehouseRpcRows(data).map(mapProduct);
+    if (!warehousePrivacyRpcMissing(error)) throw new Error(error.message);
+  }
   const { data, error } = await supabase.from('products').select('*, specs:product_specs(*)').order('id');
   if (error) throw new Error(error.message);
   return data.map(mapProduct);
@@ -268,7 +305,10 @@ export async function createProduct(product) {
   if (pe) throw new Error(pe.message);
 
   const { data: specs, error: se } = await supabase.from('product_specs')
-    .insert(product.specs.map(s => ({ product_id: p.id, spec: s.spec, price: s.price, cost: s.cost || 0, stock: s.stock || 0, safe_stock: s.safeStock || 10 })))
+    .insert(product.specs.map(s => ({
+      product_id: p.id, sku: s.sku || null, spec: s.spec, price: s.price, cost: s.cost || 0,
+      stock: s.stock || 0, safe_stock: s.safeStock || 10, on_sale_2c: Boolean(product.onSale2c && s.onSale2c !== false)
+    })))
     .select();
   if (se) throw new Error(se.message);
 
@@ -305,11 +345,17 @@ export async function updateProduct(product) {
   // Update existing / insert new specs
   for (const s of product.specs) {
     if (s.id && existingIds.has(s.id)) {
-      const specUpdate = { spec: s.spec, price: s.price, cost: s.cost || 0, safe_stock: s.safeStock };
+      const specUpdate = {
+        sku: s.sku || null, spec: s.spec, price: s.price, cost: s.cost || 0, safe_stock: s.safeStock,
+        on_sale_2c: Boolean(product.onSale2c && s.onSale2c !== false)
+      };
       if ((product.inventoryMode || 'SKU') !== 'MASS') specUpdate.stock = s.stock;
       await supabase.from('product_specs').update(specUpdate).eq('id', s.id);
     } else {
-      await supabase.from('product_specs').insert({ product_id: product.id, spec: s.spec, price: s.price, cost: s.cost || 0, stock: s.stock || 0, safe_stock: s.safeStock || 10 });
+      await supabase.from('product_specs').insert({
+        product_id: product.id, sku: s.sku || null, spec: s.spec, price: s.price, cost: s.cost || 0,
+        stock: s.stock || 0, safe_stock: s.safeStock || 10, on_sale_2c: Boolean(product.onSale2c && s.onSale2c !== false)
+      });
     }
   }
 
@@ -493,7 +539,12 @@ function mapAfterSale(r) {
   };
 }
 
-export async function fetchOrders() {
+export async function fetchOrders(warehouseSafe = false) {
+  if (warehouseSafe) {
+    const { data, error } = await supabase.rpc('zidu_warehouse_orders');
+    if (!error) return warehouseRpcRows(data).map(mapOrder);
+    if (!warehousePrivacyRpcMissing(error)) throw new Error(error.message);
+  }
   let { data, error } = await supabase.from('orders')
     .select('*, items:order_items(*), logs:order_logs(*), shipment:shipments(*), payments:payment_records(*), afterSales:after_sales(*)')
     .order('id', { ascending: false });
@@ -1038,7 +1089,12 @@ function mapPurchaseOrder(po) {
   };
 }
 
-export async function fetchPurchaseOrders() {
+export async function fetchPurchaseOrders(warehouseSafe = false) {
+  if (warehouseSafe) {
+    const { data, error } = await supabase.rpc('zidu_warehouse_purchase_orders');
+    if (!error) return warehouseRpcRows(data).map(mapPurchaseOrder).filter(po => !po.deletedAt);
+    if (!warehousePrivacyRpcMissing(error)) throw new Error(error.message);
+  }
   const { data, error } = await supabase.from('purchase_orders')
     .select('*, items:purchase_order_items(*)').order('id', { ascending: false });
   if (error) throw new Error(error.message);
@@ -1204,19 +1260,34 @@ function mapBatch(b) {
   };
 }
 
-export async function fetchBatches(specId) {
+export async function fetchBatches(specId, warehouseSafe = false) {
+  if (warehouseSafe) {
+    const { data, error } = await supabase.rpc('zidu_warehouse_batches');
+    if (!error) {
+      return warehouseRpcRows(data).map(mapBatch)
+        .filter(batch => !batch.receiptReversedAt && (!specId || batch.specId === specId));
+    }
+    if (!warehousePrivacyRpcMissing(error)) throw new Error(error.message);
+  }
   let query = supabase.from('product_batches').select('*').order('received_date', { ascending: false });
   if (specId) query = query.eq('spec_id', specId);
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  return data.map(mapBatch).filter(batch => !batch.receiptReversedAt);
+  return data.map(mapBatch)
+    .filter(batch => !batch.receiptReversedAt)
+    .map(batch => warehouseSafe ? { ...batch, unitCost: null } : batch);
 }
 
-export async function fetchPurchaseReceipts() {
-  const { data, error } = await supabase.from('product_batches').select('*')
-    .not('purchase_order_id', 'is', null).order('received_date', { ascending: false });
-  if (error) throw new Error(error.message);
-  const batches = data.map(mapBatch);
+export async function fetchPurchaseReceipts(warehouseSafe = false) {
+  let batches;
+  if (warehouseSafe) {
+    batches = (await fetchBatches(undefined, true)).filter(batch => batch.purchaseOrderId != null);
+  } else {
+    const { data, error } = await supabase.from('product_batches').select('*')
+      .not('purchase_order_id', 'is', null).order('received_date', { ascending: false });
+    if (error) throw new Error(error.message);
+    batches = data.map(mapBatch);
+  }
   if (!batches.length) return [];
   const { data: adjustments, error: adjustmentError } = await supabase.from('stock_adjustments')
     .select('batch_id,operator_name,created_at').in('batch_id', batches.map(batch => batch.id))
@@ -1318,10 +1389,15 @@ function mapSupplier(s) {
   };
 }
 
-export async function fetchSuppliers() {
+export async function fetchSuppliers(warehouseSafe = false) {
+  if (warehouseSafe) {
+    const { data, error } = await supabase.rpc('zidu_warehouse_suppliers');
+    if (!error) return warehouseRpcRows(data).map(mapSupplier);
+    if (!warehousePrivacyRpcMissing(error)) throw new Error(error.message);
+  }
   const { data, error } = await supabase.from('suppliers').select('*').order('id');
   if (error) throw new Error(error.message);
-  return data.map(mapSupplier);
+  return data.map(mapSupplier).map(supplier => warehouseSafe ? { ...supplier, paymentTerms: '', note: '' } : supplier);
 }
 
 export async function createSupplier(s) {

@@ -219,7 +219,8 @@ def parse_base_oil(products: dict[str, Product]) -> None:
       channel="RAW",
       source="紫都精油报价/基础油",
     )
-    add_spec(product, "1kg", row.get(3))
+    # 基础油销售规格统一使用体积单位，价格数值沿用报价表。
+    add_spec(product, "1000ml", row.get(3))
     add_spec(product, "500ml", row.get(4))
     add_spec(product, "100ml", row.get(5))
     add_product(products, product)

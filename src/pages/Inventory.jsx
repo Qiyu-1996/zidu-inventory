@@ -33,6 +33,7 @@ export default function Inventory({ nav }) {
   const { user } = useAuth();
   const { products, purchaseOrders, suppliers, stockLog, loadStockLog, adjustStock, adjustRawStock, adjustStockFromBatch, editProductDensity, addBatch, removeBatch, reload } = useData();
   const isAdmin = user.role === 'ADMIN';
+  const isWarehouse = user.role === 'WAREHOUSE';
   const canAdjust = user.role === 'ADMIN' || user.role === 'WAREHOUSE';
 
   const [tab, setTab] = useState('list');
@@ -66,8 +67,10 @@ export default function Inventory({ nav }) {
   useEffect(() => { if (tab === 'log') loadStockLog(); }, [tab, loadStockLog]);
   useEffect(() => {
     setLoadingBatches(true);
-    api.fetchBatches().then(setBatchList).finally(() => setLoadingBatches(false));
-  }, []);
+    api.fetchBatches(undefined, isWarehouse)
+      .then(rows => setBatchList(isWarehouse ? rows.map(batch => ({ ...batch, unitCost: null })) : rows))
+      .finally(() => setLoadingBatches(false));
+  }, [isWarehouse]);
 
   const filtered = products
     .filter(p => {
@@ -263,8 +266,8 @@ export default function Inventory({ nav }) {
       } else {
         await adjustStock(adjustFor.spec.id, adjustFor.product.id, adjType, adjReason, qty, adjNote);
       }
-      const fresh = await api.fetchBatches();
-      setBatchList(fresh);
+      const fresh = await api.fetchBatches(undefined, isWarehouse);
+      setBatchList(isWarehouse ? fresh.map(batch => ({ ...batch, unitCost: null })) : fresh);
       setAdjustFor(null);
       if (tab === 'log') await loadStockLog();
     } catch (e) { alert('调整失败: ' + e.message); } finally { setAdjusting(false); }
@@ -378,13 +381,17 @@ export default function Inventory({ nav }) {
         densityGml: isRawProduct(batchFor.product) ? defaultDensityForProduct(batchFor.product) : null
       });
       setBatchFor(null); alert('入库成功');
-      const fresh = await api.fetchBatches();
-      setBatchList(fresh);
+      const fresh = await api.fetchBatches(undefined, isWarehouse);
+      setBatchList(isWarehouse ? fresh.map(batch => ({ ...batch, unitCost: null })) : fresh);
     } catch (e) { alert('入库失败: ' + e.message); } finally { setSavingBatch(false); }
   };
   const handleDeleteBatch = async (b) => {
     if (!confirm(`确定删除批次 ${b.batchNo}？剩余库存 ${b.remainingQty} 将被扣除。`)) return;
-    try { await removeBatch(b.id, b.productId, b.specId, b.remainingQty); const fresh = await api.fetchBatches(); setBatchList(fresh); }
+    try {
+      await removeBatch(b.id, b.productId, b.specId, b.remainingQty);
+      const fresh = await api.fetchBatches(undefined, isWarehouse);
+      setBatchList(isWarehouse ? fresh.map(batch => ({ ...batch, unitCost: null })) : fresh);
+    }
     catch (e) { alert(e.message); }
   };
 
@@ -408,7 +415,7 @@ export default function Inventory({ nav }) {
         <div><label className="block text-xs text-gray-500 mb-1">{isRawProduct(batchFor.product) ? '入库重量 kg *' : '入库数量 *'}</label><input type="number" min={isRawProduct(batchFor.product) ? '0.001' : '1'} step={isRawProduct(batchFor.product) ? '0.001' : '1'} value={batchData.quantity} onChange={e => setBatchData({ ...batchData, quantity: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
         <div><label className="block text-xs text-gray-500 mb-1">入库日期 *</label><input type="date" value={batchData.receivedDate} onChange={e => setBatchData({ ...batchData, receivedDate: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
         <div><label className="block text-xs text-gray-500 mb-1">保质期至</label><input type="date" value={batchData.expiryDate} onChange={e => setBatchData({ ...batchData, expiryDate: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-        <div><label className="block text-xs text-gray-500 mb-1">单位成本</label><input type="number" min="0" step="0.01" value={batchData.unitCost} onChange={e => setBatchData({ ...batchData, unitCost: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+        {isAdmin && <div><label className="block text-xs text-gray-500 mb-1">单位成本</label><input type="number" min="0" step="0.01" value={batchData.unitCost} onChange={e => setBatchData({ ...batchData, unitCost: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>}
         <div><label className="block text-xs text-gray-500 mb-1">供应商 *</label><input list="inventory-supplier-options" value={batchData.supplier} onChange={e => setBatchData({ ...batchData, supplier: e.target.value })} placeholder="选择或输入供应商" className="w-full border rounded-lg px-3 py-2 text-sm" /><datalist id="inventory-supplier-options">{activeSuppliers.map(s => <option key={s.id} value={s.name}>{s.contact || s.phone ? [s.contact, s.phone].filter(Boolean).join(' · ') : ''}</option>)}</datalist></div>
         <div className="col-span-2"><label className="block text-xs text-gray-500 mb-1">备注</label><input value={batchData.note} onChange={e => setBatchData({ ...batchData, note: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
       </div>
@@ -540,7 +547,7 @@ export default function Inventory({ nav }) {
                 <thead><tr className="border-b">
                   <th className="text-left py-3 px-4 text-xs text-gray-500 font-medium">编号</th>
                   <th className="text-left py-3 px-4 text-xs text-gray-500 font-medium">产品</th>
-                  <th className="text-left py-3 px-4 text-xs text-gray-500 font-medium">{stockKind === 'RAW' ? (showDensityTools ? '库存与换算密度（kg / g/ml）' : '库存管理（kg）') : `库存管理（瓶 / 个） · 价格${isAdmin ? ' / 成本' : ''}`}</th>
+                  <th className="text-left py-3 px-4 text-xs text-gray-500 font-medium">{stockKind === 'RAW' ? (showDensityTools ? '库存与换算密度（kg / g/ml）' : '库存管理（kg）') : `库存管理（瓶 / 个）${isAdmin ? ' · 价格 / 成本' : ''}`}</th>
                 </tr></thead>
                 <tbody>{filtered.map(p => (
                   <Fragment key={p.id}>
@@ -626,7 +633,7 @@ export default function Inventory({ nav }) {
                           {p.specs.map(s => (
                             <div key={s.id} className="border border-[#E9E2D8] rounded-md bg-[#FCFBF8] p-2">
                               <div className="flex items-center justify-between gap-3 text-xs">
-                                <div className="min-w-0"><span className="font-medium text-gray-800">{s.spec}</span>{user.role !== 'SALES' && <span className="text-gray-500"> · {fmtY(s.price)}</span>}{isAdmin && <span className="text-gray-400"> / {s.cost ? fmtY(s.cost) : '未录'}</span>}</div>
+                                <div className="min-w-0"><span className="font-medium text-gray-800">{s.spec}</span>{!isWarehouse && user.role !== 'SALES' && <span className="text-gray-500"> · {fmtY(s.price)}</span>}{isAdmin && <span className="text-gray-400"> / {s.cost ? fmtY(s.cost) : '未录'}</span>}</div>
                                 <span className={`shrink-0 px-2 py-0.5 rounded-md tabular-nums ${STOCK_PILL[level(s.stock, s.safeStock)]}`}>{s.stock} 瓶 / 个</span>
                               </div>
                               {canAdjust && (
