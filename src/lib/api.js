@@ -474,7 +474,15 @@ function latestShipment(rows) {
   return rows.reduce((latest, row) => Number(row.id || 0) > Number(latest.id || 0) ? row : latest, rows[0]);
 }
 
+function withoutCustomFormula(meta) {
+  const channelMeta = { ...(meta || {}) };
+  delete channelMeta.customFormula;
+  delete channelMeta.customFormulaVersion;
+  return channelMeta;
+}
+
 function mapOrder(o) {
+  const channelMeta = withoutCustomFormula(o.channel_meta);
   return {
     id: o.id, orderNo: o.order_no, customerId: o.customer_id, salesId: o.sales_id,
     status: o.status, subtotal: Number(o.subtotal), discountPercent: Number(o.discount_percent),
@@ -485,7 +493,7 @@ function mapOrder(o) {
     discountResponsibilityUpdatedAt: o.discount_responsibility_updated_at || null,
     businessType: o.business_type || '院线',
     source: !o.source || o.source === 'b2b' ? 'sales_miniprogram' : o.source,
-    channelMeta: o.channel_meta || null,
+    channelMeta,
     createdAt: o.created_at,
     paymentStatus: o.payment_status || 'UNPAID',
     paidAmount: Number(o.paid_amount || 0),
@@ -658,6 +666,18 @@ export async function createOrder(order) {
   return Number(data?.id || 0);
 }
 
+export async function ensureCustomFormulaInventoryReady() {
+  const { data, error } = await supabase.rpc('zidu_custom_formula_inventory_ready');
+  if (error) {
+    if (/zidu_custom_formula_inventory_ready|schema cache|could not find the function/i.test(error.message || '')) {
+      throw new Error('请先在 Supabase 运行 supabase/migration_v50_custom_formula_inventory.sql');
+    }
+    throw new Error(error.message);
+  }
+  if (data !== true) throw new Error('定制配方库存功能未完整启用，请重新运行 migration_v50');
+  return true;
+}
+
 export async function updateOrderDiscountResponsibility(orderId, responsibility, reason, updatedBy = '') {
   const normalized = responsibility === 'SALES' ? 'SALES' : 'COMPANY';
   const updatedAt = new Date().toISOString();
@@ -700,7 +720,16 @@ export async function updateOrderItems(orderId, changes, totals, logEntry) {
 }
 
 function mapDeletedOrder(row) {
-  const snapshot = row.snapshot || {};
+  const rawSnapshot = row.snapshot || {};
+  const rawOrder = rawSnapshot.order || {};
+  const snapshot = {
+    ...rawSnapshot,
+    order: {
+      ...rawOrder,
+      channel_meta: withoutCustomFormula(rawOrder.channel_meta),
+      channelMeta: withoutCustomFormula(rawOrder.channelMeta)
+    }
+  };
   return {
     id: row.id,
     originalOrderId: row.original_order_id,

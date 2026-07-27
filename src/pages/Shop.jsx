@@ -563,8 +563,12 @@ export function Checkout({ cart, removeFromCart, initialCustomerId = null, onBac
   );
 }
 
+function blankCustomIngredient() {
+  return { productId: '', productCode: '', productName: '', search: '', quantityMl: '' };
+}
+
 function blankCustomItem() {
-  return { name: '', quantity: '', specMl: '' };
+  return { name: '', quantity: '', specMl: '', ingredients: [blankCustomIngredient()] };
 }
 
 function roundMoney(value) {
@@ -574,7 +578,7 @@ function roundMoney(value) {
 // ═══ CUSTOM ORDER ═══
 export function CustomOrder({ onBack, onPlaceOrder }) {
   const { user } = useAuth();
-  const { customers, users } = useData();
+  const { customers, users, products } = useData();
   const customerPool = user.role === 'ADMIN' ? customers : customers.filter(c => c.salesId === user.id);
   const [customType, setCustomType] = useState('品牌定制');
   const [customerId, setCustomerId] = useState('');
@@ -585,6 +589,10 @@ export function CustomOrder({ onBack, onPlaceOrder }) {
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [orderSalesId, setOrderSalesId] = useState(String(user.id));
+
+  const rawProducts = useMemo(() => products
+    .filter(product => product.inventoryMode === 'MASS' && ['RAW', 'BOTH'].includes(product.channel || 'BOTH'))
+    .sort((a, b) => `${a.code} ${a.name}`.localeCompare(`${b.code} ${b.name}`, 'zh-CN')), [products]);
 
   const selectedCustomer = customers.find(c => c.id === Number(customerId));
   const filteredCustomers = customerSearch
@@ -604,6 +612,19 @@ export function CustomOrder({ onBack, onPlaceOrder }) {
   };
   const updateItem = (index, field, value) => setItems(current => current.map((item, i) => i === index ? { ...item, [field]: value } : item));
   const removeItem = index => setItems(current => current.length > 1 ? current.filter((_, i) => i !== index) : current);
+  const updateIngredient = (itemIndex, ingredientIndex, patch) => setItems(current => current.map((item, i) => i === itemIndex ? {
+    ...item,
+    ingredients: (item.ingredients || []).map((ingredient, j) => j === ingredientIndex ? { ...ingredient, ...patch } : ingredient)
+  } : item));
+  const addIngredient = itemIndex => setItems(current => current.map((item, i) => i === itemIndex ? {
+    ...item,
+    ingredients: [...(item.ingredients || []), blankCustomIngredient()]
+  } : item));
+  const removeIngredient = (itemIndex, ingredientIndex) => setItems(current => current.map((item, i) => {
+    if (i !== itemIndex) return item;
+    const ingredients = item.ingredients || [];
+    return { ...item, ingredients: ingredients.length > 1 ? ingredients.filter((_, j) => j !== ingredientIndex) : [blankCustomIngredient()] };
+  }));
 
   const submitCustomOrder = async () => {
     if (!selectedCustomer || !orderSalesId || submitting) return;
@@ -613,19 +634,66 @@ export function CustomOrder({ onBack, onPlaceOrder }) {
       const name = item.name.trim();
       const quantity = Math.floor(Number(item.quantity) || 0);
       const specMl = Number(item.specMl) || 0;
-      if (!name && !quantity && !specMl) continue;
+      const hasIngredientInput = (item.ingredients || []).some(ingredient => (
+        ingredient.productId || ingredient.search.trim() || Number(ingredient.quantityMl)
+      ));
+      if (!name && !quantity && !specMl && !hasIngredientInput) continue;
       if (!name || quantity <= 0 || specMl <= 0) {
         alert(`请完整填写第 ${i + 1} 行的产品名称、数量和规格`);
         return;
       }
-      normalizedItems.push({ name, quantity, quantityUnit: '个/瓶', specMl, spec: `${specMl}ml` });
+      const ingredients = [];
+      for (let j = 0; j < (item.ingredients || []).length; j += 1) {
+        const ingredient = item.ingredients[j];
+        const quantityMl = Number(ingredient.quantityMl) || 0;
+        const hasInput = Boolean(ingredient.productId || ingredient.search.trim() || quantityMl);
+        if (!hasInput) continue;
+        const product = rawProducts.find(raw => Number(raw.id) === Number(ingredient.productId));
+        if (!product) {
+          alert(`请从库存中选择第 ${i + 1} 个定制产品的第 ${j + 1} 种原料`);
+          return;
+        }
+        if (quantityMl <= 0) {
+          alert(`请填写 ${product.name} 的本单使用量`);
+          return;
+        }
+        if (Number(product.densityGml || 0) <= 0) {
+          alert(`${product.name} 没有有效密度，请先在库存管理中设置`);
+          return;
+        }
+        ingredients.push({
+          productId: Number(product.id),
+          productCode: product.code,
+          productName: product.name,
+          quantityMl
+        });
+      }
+      if (!ingredients.length) {
+        alert(`请为第 ${i + 1} 个定制产品添加原料成分`);
+        return;
+      }
+      normalizedItems.push({ name, quantity, quantityUnit: '个/瓶', specMl, spec: `${specMl}ml`, ingredients });
     }
     const totalAmount = roundMoney(amount);
     if (!normalizedItems.length) { alert('请至少填写一项定制产品'); return; }
     if (totalAmount <= 0) { alert('请填写有效的订单总金额'); return; }
 
+    const usageByProduct = new Map();
+    normalizedItems.forEach(item => item.ingredients.forEach(ingredient => {
+      usageByProduct.set(ingredient.productId, (usageByProduct.get(ingredient.productId) || 0) + ingredient.quantityMl);
+    }));
+    for (const [productId, quantityMl] of usageByProduct.entries()) {
+      const product = rawProducts.find(raw => Number(raw.id) === Number(productId));
+      const requiredKg = quantityMl * Number(product?.densityGml || 0) / 1000;
+      if (!product || requiredKg > Number(product.baseStockKg || 0) + 0.000001) {
+        alert(`${product?.name || '原料'} 库存不足：本单需 ${quantityMl}ml，当前约 ${Number(product?.baseStockKg || 0).toFixed(3)}kg`);
+        return;
+      }
+    }
+
     setSubmitting(true);
     try {
+      await api.ensureCustomFormulaInventoryReady();
       const now = new Date();
       const productSource = customType === '私人定制' ? 'PRIVATE_CUSTOM' : 'BRAND_CUSTOM';
       const quantitySum = normalizedItems.reduce((sum, item) => sum + item.quantity, 0);
@@ -654,7 +722,19 @@ export function CustomOrder({ onBack, onPlaceOrder }) {
         channelMeta: {
           productSource,
           customType,
-          customItems: normalizedItems,
+          customItems: normalizedItems.map(item => ({
+            name: item.name,
+            quantity: item.quantity,
+            quantityUnit: item.quantityUnit,
+            specMl: item.specMl,
+            spec: item.spec
+          })),
+          customFormulaVersion: 1,
+          customFormula: normalizedItems.map((item, index) => ({
+            customItemIndex: index,
+            customProductName: item.name,
+            ingredients: item.ingredients
+          })),
           enteredBy: { id: user.id, name: user.name, role: user.role }
         },
         businessType: customType,
@@ -714,11 +794,72 @@ export function CustomOrder({ onBack, onPlaceOrder }) {
 
           <div>
             <div className="flex items-center justify-between gap-3 mb-2"><label className="text-xs text-gray-500">定制产品 *</label><button type="button" onClick={() => setItems(current => [...current, blankCustomItem()])} className="text-sm text-purple-700 inline-flex items-center gap-1"><Plus size={14} />添加产品</button></div>
-            <div className="overflow-x-auto">
-              <div className="min-w-[620px]">
-                <div className="grid grid-cols-[minmax(220px,1fr)_130px_130px_34px] gap-2 mb-1.5 px-0.5 text-xs text-gray-500"><span>产品名称</span><span>数量（瓶 / 个）</span><span>规格（ml）</span><span /></div>
-                {items.map((item, index) => <div key={index} className="grid grid-cols-[minmax(220px,1fr)_130px_130px_34px] gap-2 items-center mb-2"><input value={item.name} onChange={e => updateItem(index, 'name', e.target.value)} placeholder="定制产品名称" className="w-full border rounded-lg px-3 py-2 text-sm" /><input type="number" min="1" step="1" value={item.quantity} onChange={e => updateItem(index, 'quantity', e.target.value)} placeholder="数量" className="w-full border rounded-lg px-3 py-2 text-sm" /><input type="number" min="0.01" step="0.01" value={item.specMl} onChange={e => updateItem(index, 'specMl', e.target.value)} placeholder="ml" className="w-full border rounded-lg px-3 py-2 text-sm" />{items.length > 1 ? <button type="button" onClick={() => removeItem(index)} title="删除此行" className="zidu-icon-button !w-8 !h-8 text-gray-400 hover:text-red-500"><Trash2 size={13} /></button> : <span />}</div>)}
-              </div>
+            <div className="space-y-3">
+              {items.map((item, index) => (
+                <div key={index} className="border border-gray-200 rounded-lg p-3 bg-gray-50/40">
+                  <div className="grid grid-cols-1 sm:grid-cols-[minmax(220px,1fr)_120px_120px_34px] gap-2 items-center">
+                    <input value={item.name} onChange={e => updateItem(index, 'name', e.target.value)} placeholder="定制产品名称" className="w-full border rounded-lg px-3 py-2 text-sm bg-white" />
+                    <div className="relative"><input type="number" min="1" step="1" value={item.quantity} onChange={e => updateItem(index, 'quantity', e.target.value)} placeholder="数量" className="w-full border rounded-lg px-3 py-2 pr-10 text-sm bg-white" /><span className="absolute right-3 top-2.5 text-xs text-gray-400">瓶/个</span></div>
+                    <div className="relative"><input type="number" min="0.01" step="0.01" value={item.specMl} onChange={e => updateItem(index, 'specMl', e.target.value)} placeholder="规格" className="w-full border rounded-lg px-3 py-2 pr-8 text-sm bg-white" /><span className="absolute right-3 top-2.5 text-xs text-gray-400">ml</span></div>
+                    {items.length > 1 ? <button type="button" onClick={() => removeItem(index)} title="删除此产品" className="zidu-icon-button !w-8 !h-8 text-gray-400 hover:text-red-500"><Trash2 size={13} /></button> : <span />}
+                  </div>
+
+                  <div className="mt-3 pt-3 border-t border-gray-200">
+                    <div className="flex items-center justify-between gap-3 mb-2">
+                      <span className="text-xs font-medium text-gray-600">原料成分 *</span>
+                      <button type="button" onClick={() => addIngredient(index)} className="inline-flex items-center gap-1 text-xs text-purple-700"><Plus size={12} />添加原料</button>
+                    </div>
+                    <div className="space-y-2">
+                      {(item.ingredients || []).map((ingredient, ingredientIndex) => {
+                        const query = ingredient.search.trim().toLowerCase();
+                        const selectedProduct = rawProducts.find(product => Number(product.id) === Number(ingredient.productId));
+                        const matches = query && !ingredient.productId
+                          ? rawProducts.filter(product => `${product.code} ${product.name}`.toLowerCase().includes(query)).slice(0, 8)
+                          : [];
+                        return (
+                          <div key={ingredientIndex} className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_150px_34px] gap-2 items-start">
+                            <div className="relative">
+                              <Search size={14} className="absolute left-3 top-3 text-gray-400" />
+                              <input
+                                value={ingredient.search}
+                                onChange={e => updateIngredient(index, ingredientIndex, { search: e.target.value, productId: '', productCode: '', productName: '' })}
+                                placeholder="搜索原料名称或编号"
+                                className="w-full border rounded-lg pl-9 pr-3 py-2.5 text-sm bg-white"
+                              />
+                              {matches.length > 0 && (
+                                <div className="absolute left-0 right-0 top-full mt-1 z-30 max-h-52 overflow-y-auto rounded-lg border bg-white shadow-lg">
+                                  {matches.map(product => (
+                                    <button
+                                      type="button"
+                                      key={product.id}
+                                      onClick={() => updateIngredient(index, ingredientIndex, {
+                                        productId: product.id,
+                                        productCode: product.code,
+                                        productName: product.name,
+                                        search: `${product.code} ${product.name}`
+                                      })}
+                                      className="w-full px-3 py-2 text-left border-b last:border-0 hover:bg-purple-50"
+                                    >
+                                      <span className="block text-sm text-gray-800">{product.name}</span>
+                                      <span className="block text-xs text-gray-400">{product.code} · 库存 {Number(product.baseStockKg || 0).toFixed(3)}kg</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                              {selectedProduct && <div className="mt-1 text-[11px] text-gray-400">当前库存 {Number(selectedProduct.baseStockKg || 0).toFixed(3)}kg</div>}
+                            </div>
+                            <div className="relative">
+                              <input type="number" min="0.01" step="0.01" value={ingredient.quantityMl} onChange={e => updateIngredient(index, ingredientIndex, { quantityMl: e.target.value })} placeholder="本单总用量" className="w-full border rounded-lg px-3 py-2.5 pr-9 text-sm bg-white" />
+                              <span className="absolute right-3 top-3 text-xs text-gray-400">ml</span>
+                            </div>
+                            <button type="button" onClick={() => removeIngredient(index, ingredientIndex)} title="删除此原料" className="zidu-icon-button !w-8 !h-8 text-gray-400 hover:text-red-500"><Trash2 size={13} /></button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 

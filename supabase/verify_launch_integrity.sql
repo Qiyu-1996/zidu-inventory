@@ -1,5 +1,5 @@
 -- ZIDU 上线前数据完整性检查（只读，不修改任何数据）。
--- 请在 migration_v34 至 migration_v42 全部成功后运行。
+-- 请在 migration_v34 至 migration_v50 全部成功后运行。
 
 SELECT
   to_regprocedure('public.zidu_create_order_atomic(jsonb)') IS NOT NULL AS create_order_ready,
@@ -12,6 +12,7 @@ SELECT
   to_regprocedure('public.zidu_complete_after_sale_finance_atomic(integer,jsonb)') IS NOT NULL AS finance_ready,
   to_regprocedure('public.zidu_cancel_after_sale(integer,text,text)') IS NOT NULL AS after_sale_cancel_ready,
   to_regprocedure('public.zidu_delete_order_atomic(integer,boolean,text)') IS NOT NULL AS delete_ready,
+  public.zidu_custom_formula_inventory_ready() AS custom_formula_inventory_ready,
   to_regclass('public.batch_stock_movements') IS NOT NULL AS batch_movements_ready,
   to_regprocedure('public.zidu_fifo_consume_batches(integer,integer,numeric,text)') IS NOT NULL AS fifo_ready,
   to_regprocedure('public.zidu_adjust_inventory_from_batch(integer,integer,numeric,text,text,text)') IS NOT NULL AS manual_batch_out_ready,
@@ -27,6 +28,8 @@ SELECT
   to_regprocedure('public.zidu_get_client_settings()') IS NOT NULL AS safe_settings_ready,
   NOT has_table_privilege('anon', 'public.orders', 'SELECT') AS anon_orders_blocked,
   NOT has_table_privilege('anon', 'public.products', 'SELECT') AS anon_products_blocked,
+  NOT has_table_privilege('anon', 'public.custom_formula_inventory_usage', 'SELECT') AS anon_formula_usage_blocked,
+  NOT has_table_privilege('authenticated', 'public.custom_formula_inventory_usage', 'SELECT') AS signed_in_formula_usage_blocked,
   NOT has_function_privilege('anon', 'public.zidu_create_order_atomic(jsonb)', 'EXECUTE') AS anon_order_rpc_blocked,
   NOT has_function_privilege('anon', 'public.zidu_adjust_inventory(integer,text,numeric,text)', 'EXECUTE') AS anon_inventory_rpc_blocked,
   has_function_privilege('authenticated', 'public.zidu_create_order_atomic(jsonb)', 'EXECUTE') AS signed_in_order_rpc_ready,
