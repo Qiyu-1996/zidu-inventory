@@ -234,7 +234,7 @@ export default function App() {
           {visiblePage === "purchaseDetail" && <PurchaseOrderDetail poId={subView} onBack={() => nav('purchase')} onEdit={() => nav('purchaseEdit', subView)} />}
           {visiblePage === "shipping" && canShip && <ShippingWorkbench />}
           {visiblePage === "analytics" && <Analytics />}
-          {visiblePage === "finance" && <Finance />}
+          {visiblePage === "finance" && <Finance nav={nav} />}
           {visiblePage === "settings" && <SettingsPage />}
         </div></main>
       </div>

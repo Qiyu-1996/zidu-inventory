@@ -329,7 +329,7 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
   const [savingItems, setSavingItems] = useState(false);
   const [savingUnpaidShipping, setSavingUnpaidShipping] = useState(false);
 
-  const order = orders.find(o => o.id === orderId);
+  const order = orders.find(o => String(o.id) === String(orderId));
   if (!order) return <div className="text-center py-12 text-gray-400">订单不存在</div>;
 
   const customer = customers.find(c => c.id === order.customerId);

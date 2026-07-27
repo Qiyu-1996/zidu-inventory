@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Download, RefreshCw, Wallet, FileText, Table2, ReceiptText, Boxes, BadgePercent, Save } from 'lucide-react';
+import { Download, RefreshCw, Wallet, FileText, Table2, ReceiptText, Boxes, BadgePercent, Save, ExternalLink } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 import { Card, StatCard, fmtY, exportCSV, today, STATUS_MAP, PAYMENT_STATUS_MAP } from '../components/ui';
 import { PAYMENT_METHODS } from '../lib/payment';
@@ -63,7 +63,7 @@ function businessTypeLabel(type) {
   return type || '院线';
 }
 
-export default function Finance() {
+export default function Finance({ nav }) {
   const { orders, customers, users, products, updateOrderDiscountResponsibility, reload } = useData();
   const [from, setFrom] = useState(() => today().slice(0, 7) + '-01');
   const [to, setTo] = useState(() => today());
@@ -126,6 +126,7 @@ export default function Finance() {
         const paidShare = roundMoney(netSales * paidRatio);
         rows.push({
           key: `${o.id}-${it.id || idx}`,
+          orderId: o.id,
           orderDate: day(o.createdAt),
           orderNo: o.orderNo,
           entrySource: entrySourceLabel(o),
@@ -234,6 +235,7 @@ export default function Finance() {
         if (method !== '全部' && p.method !== method) return;
         rows.push({
           key: `${o.id}-${p.id || idx}`,
+          orderId: o.id,
           paymentTime: dateTime(p.createdAt),
           paymentDate,
           orderDate: day(o.createdAt),
@@ -410,6 +412,17 @@ export default function Finance() {
     else exportCommission();
   };
 
+  const orderLink = (orderId, orderNo) => (
+    <button
+      type="button"
+      onClick={() => nav?.('orderDetail', orderId)}
+      className="inline-flex items-center gap-1 font-mono text-xs text-purple-700 hover:text-purple-900 hover:underline whitespace-nowrap"
+      title="查看订单详情"
+    >
+      {orderNo}<ExternalLink size={12} aria-hidden="true" />
+    </button>
+  );
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -470,7 +483,7 @@ export default function Finance() {
                 {orderRows.map(r => (
                   <tr key={r.id} className="border-b last:border-0 hover:bg-gray-50">
                     <td className="py-2 px-3 text-xs text-gray-600 whitespace-nowrap">{r.orderDate}</td>
-                    <td className="py-2 px-3 font-mono text-xs whitespace-nowrap">{r.orderNo}</td>
+                    <td className="py-2 px-3">{orderLink(r.id, r.orderNo)}</td>
                     <td className="py-2 px-3 min-w-36">{r.customer}<div className="text-xs text-gray-400">{r.businessType} · {r.entrySource} · {r.productSource}</div></td>
                     <td className="py-2 px-3 text-xs text-gray-500">{r.sales || '—'}</td>
                     <td className="py-2 px-3 text-xs text-gray-500">{r.status} · {r.paymentStatus}</td>
@@ -497,7 +510,7 @@ export default function Finance() {
                 {itemRows.map(r => (
                   <tr key={r.key} className="border-b last:border-0 hover:bg-gray-50">
                     <td className="py-2 px-3 text-xs text-gray-600 whitespace-nowrap">{r.orderDate}</td>
-                    <td className="py-2 px-3 font-mono text-xs whitespace-nowrap">{r.orderNo}</td>
+                    <td className="py-2 px-3">{orderLink(r.orderId, r.orderNo)}</td>
                     <td className="py-2 px-3 font-mono text-xs">{r.productCode || '—'}</td>
                     <td className="py-2 px-3 min-w-48"><div className="font-medium text-gray-800">{r.productName}</div><div className="text-xs text-gray-400">{r.spec} · 单价 {fmtY(r.unitPrice)} · 折扣 {fmtY(r.discountShare)}</div></td>
                     <td className="py-2 px-3 min-w-32">{r.customer}<div className="text-xs text-gray-400">{r.sales || '—'}</div></td>
@@ -553,7 +566,7 @@ export default function Finance() {
                 {paymentRows.map(r => (
                   <tr key={r.key} className="border-b last:border-0 hover:bg-gray-50">
                     <td className="py-2 px-3 text-xs text-gray-600 whitespace-nowrap">{r.paymentTime}</td>
-                    <td className="py-2 px-3 font-mono text-xs whitespace-nowrap">{r.orderNo}</td>
+                    <td className="py-2 px-3">{orderLink(r.orderId, r.orderNo)}</td>
                     <td className="py-2 px-3 text-xs text-gray-500">{r.orderDate}</td>
                     <td className="py-2 px-3 min-w-32">{r.customer}<div className="text-xs text-gray-400">{r.businessType} · {r.entrySource} · {r.productSource}</div></td>
                     <td className="py-2 px-3 text-xs text-gray-500">{r.sales || '—'}</td>
@@ -630,7 +643,7 @@ export default function Finance() {
                     const dirty = draftResponsibility !== row.responsibility || draftReason !== row.reason;
                     return (
                       <tr key={row.id} className="border-b last:border-0 align-top hover:bg-gray-50/60">
-                        <td className="py-3 px-3 whitespace-nowrap"><div className="text-xs text-gray-500">{row.orderDate}</div><div className="font-mono text-xs mt-1">{row.orderNo}</div><div className="text-[11px] text-gray-400 mt-1">{row.paymentStatus} · 收款 {row.settledRatio}%</div></td>
+                        <td className="py-3 px-3 whitespace-nowrap"><div className="text-xs text-gray-500">{row.orderDate}</div><div className="mt-1">{orderLink(row.id, row.orderNo)}</div><div className="text-[11px] text-gray-400 mt-1">{row.paymentStatus} · 收款 {row.settledRatio}%</div></td>
                         <td className="py-3 px-3 min-w-36"><div className="font-medium text-gray-800">{row.sales}</div><div className="text-xs text-gray-400 mt-1">{row.customer}</div></td>
                         <td className="py-3 px-3 text-right whitespace-nowrap">{fmtY(row.grossGoods)}</td>
                         <td className="py-3 px-3 text-right whitespace-nowrap"><div className={row.discount > 0 ? 'text-orange-700' : 'text-gray-400'}>{fmtY(row.discount)}</div><div className="text-xs text-gray-400 mt-1">{row.discountRate}%</div></td>
