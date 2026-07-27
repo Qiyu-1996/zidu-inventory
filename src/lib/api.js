@@ -219,12 +219,14 @@ function isMissingDiscountResponsibilityError(error) {
 }
 
 function customerRow(customer, includeMeta = true) {
+  const type = String(customer.type || '').trim();
+  if (!type) throw new Error('请选择客户类型');
   const row = {
     name: customer.name,
     contact: customer.contact,
     phone: customer.phone,
     address: customer.address,
-    type: customer.type,
+    type,
     sales_id: customer.salesId || null
   };
   if (includeMeta) {

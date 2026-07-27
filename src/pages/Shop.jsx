@@ -746,7 +746,7 @@ export function CustomerCreate({ onSave, onCancel, dealerMode = false }) {
   const [contact, setContact] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
-  const [type, setType] = useState(CUSTOMER_TYPES[0]);
+  const [type, setType] = useState('');
   const [province, setProvince] = useState('');
   const [distributorLevel, setDistributorLevel] = useState(dealerMode ? 1 : 0);
   const [salesId, setSalesId] = useState(user.role === "SALES" ? user.id : 0);
@@ -756,6 +756,10 @@ export function CustomerCreate({ onSave, onCancel, dealerMode = false }) {
 
   const handleSave = async () => {
     if (!name.trim() || saving) return;
+    if (!type) {
+      alert('请选择客户类型');
+      return;
+    }
     if (dealerMode && !salesId) {
       alert('请选择所属销售');
       return;
@@ -783,8 +787,9 @@ export function CustomerCreate({ onSave, onCancel, dealerMode = false }) {
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div><label className="block text-xs text-gray-500 mb-1">电话</label><input value={phone} onChange={e => setPhone(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-          <div><label className="block text-xs text-gray-500 mb-1">类型</label>
+          <div><label className="block text-xs text-gray-500 mb-1">客户类型 *</label>
             <select value={type} onChange={e => setType(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
+              <option value="" disabled>请选择客户类型</option>
               {CUSTOMER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
@@ -817,7 +822,7 @@ export function CustomerCreate({ onSave, onCancel, dealerMode = false }) {
         )}
         <div className="flex gap-2 pt-2">
           <button onClick={onCancel} className="px-4 py-2 text-sm border rounded-lg">取消</button>
-          <button onClick={handleSave} disabled={!name.trim() || saving || (dealerMode && !salesId)} className="px-6 py-2 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>
+          <button onClick={handleSave} disabled={!name.trim() || !type || saving || (dealerMode && !salesId)} className="px-6 py-2 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>
             {saving ? '保存中...' : '保存'}
           </button>
         </div>

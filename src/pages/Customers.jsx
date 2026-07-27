@@ -121,7 +121,7 @@ export function CustomerDetail({ customerId, onBack }) {
     if (!customer) return;
     setEditData({
       name: customer.name, contact: customer.contact || '', phone: customer.phone || '',
-      address: customer.address || '', type: customer.type || CUSTOMER_TYPES[0], salesId: customer.salesId,
+      address: customer.address || '', type: customer.type || '', salesId: customer.salesId,
       province: customer.province || '', distributorLevel: customer.distributorLevel || 0
     });
     setEditing(true);
@@ -139,6 +139,10 @@ export function CustomerDetail({ customerId, onBack }) {
 
   const handleSaveEdit = async () => {
     if (!customer) return;
+    if (!editData.type) {
+      alert('请选择客户类型');
+      return;
+    }
     setSavingEdit(true);
     try {
       await editCustomer(customer.id, editData);
@@ -207,8 +211,9 @@ export function CustomerDetail({ customerId, onBack }) {
             <div className="text-sm font-medium text-gray-700 mb-2">编辑客户信息</div>
             <div className="grid grid-cols-2 gap-3">
               <div><label className="block text-xs text-gray-500 mb-1">名称 *</label><input value={editData.name} onChange={e => setEditData({ ...editData, name: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-              <div><label className="block text-xs text-gray-500 mb-1">类型</label>
+              <div><label className="block text-xs text-gray-500 mb-1">客户类型 *</label>
                 <select value={editData.type} onChange={e => setEditData({ ...editData, type: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
+                  <option value="" disabled>请选择客户类型</option>
                   {CUSTOMER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
@@ -241,7 +246,7 @@ export function CustomerDetail({ customerId, onBack }) {
             )}
             <div className="flex gap-2">
               <button onClick={() => setEditing(false)} className="px-3 py-1.5 text-sm border rounded-lg">取消</button>
-              <button onClick={handleSaveEdit} disabled={savingEdit || !editData.name.trim()} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>
+              <button onClick={handleSaveEdit} disabled={savingEdit || !editData.name.trim() || !editData.type} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>
                 {savingEdit ? '保存中...' : '保存'}
               </button>
             </div>

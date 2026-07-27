@@ -50,7 +50,7 @@ CREATE TABLE customers (
   contact TEXT,
   phone TEXT,
   address TEXT,
-  type TEXT,
+  type TEXT NOT NULL,
   sales_id INTEGER REFERENCES users(id),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
