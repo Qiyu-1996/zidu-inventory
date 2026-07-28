@@ -792,13 +792,13 @@ function ConfigMgmt() {
   const [maxDisc, setMaxDisc] = useState('');
   const [savingDisc, setSavingDisc] = useState(false);
   useEffect(() => {
-    api.fetchAppSettings().then(s => setMaxDisc(s.max_discount_percent ?? '20')).catch(() => setMaxDisc('20'));
+    api.fetchAppSettings().then(s => setMaxDisc(s.max_discount_percent ?? '50')).catch(() => setMaxDisc('50'));
   }, []);
   const saveMaxDisc = async () => {
     const v = Number(maxDisc);
-    if (isNaN(v) || v < 0 || v > 100) { alert('请输入 0-100 之间的数字'); return; }
+    if (isNaN(v) || v < 0 || v > 50) { alert('请输入 0-50 之间的数字'); return; }
     setSavingDisc(true);
-    try { await api.updateAppSetting('max_discount_percent', String(v)); alert('已保存，销售下单折扣不能超过 ' + v + '%'); }
+    try { await api.updateAppSetting('max_discount_percent', String(v)); alert('已保存，销售下单最高优惠 ' + v + '%'); }
     catch (e) { alert(e.message); } finally { setSavingDisc(false); }
   };
 
@@ -870,11 +870,11 @@ function ConfigMgmt() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <div className="text-sm font-medium text-gray-800">销售折扣上限</div>
-            <div className="text-xs text-gray-500 mt-1">限制销售下单时可填写的最高折扣，管理员不受限制。</div>
+            <div className="text-xs text-gray-500 mt-1">限制销售下单时的最高优惠比例。50% 表示最低可到 5 折，管理员不受限制。</div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <div className="relative w-28">
-              <input type="number" min="0" max="100" value={maxDisc} onFocus={e => e.target.select()} onChange={e => setMaxDisc(e.target.value)} aria-label="销售折扣上限" className="w-full h-9 border rounded-lg pl-3 pr-8 text-sm tabular-nums" />
+              <input type="number" min="0" max="50" value={maxDisc} onFocus={e => e.target.select()} onChange={e => setMaxDisc(e.target.value)} aria-label="销售优惠上限" className="w-full h-9 border rounded-lg pl-3 pr-8 text-sm tabular-nums" />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">%</span>
             </div>
             <button onClick={saveMaxDisc} disabled={savingDisc} className="btn-primary !h-9 !py-0 text-sm">

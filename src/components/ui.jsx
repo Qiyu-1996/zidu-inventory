@@ -115,9 +115,9 @@ export function exportCSV(headers, rows, filename) {
 }
 
 export const PAYMENT_STATUS_MAP = {
-  UNPAID: { label: "未付", cls: "bg-gray-100 text-gray-600" },
-  PARTIAL: { label: "部分付", cls: "bg-yellow-100 text-yellow-700" },
-  PAID: { label: "已付", cls: "bg-green-100 text-green-700" }
+  UNPAID: { label: "未收款", cls: "bg-gray-100 text-gray-600" },
+  PARTIAL: { label: "部分收款", cls: "bg-yellow-100 text-yellow-700" },
+  PAID: { label: "已收齐", cls: "bg-green-100 text-green-700" }
 };
 
 export const PO_STATUS_MAP = {

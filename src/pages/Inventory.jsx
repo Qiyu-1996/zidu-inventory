@@ -22,6 +22,16 @@ function level(stock, safe) {
 function isRawProduct(product) {
   return product?.channel === 'RAW';
 }
+function rawInputToKg(value, unit, product) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return NaN;
+  if (unit !== 'ML') return amount;
+  return Math.round(amount * defaultDensityForProduct(product) / 1000 * 1e6) / 1e6;
+}
+function compact(value, digits = 3) {
+  if (!Number.isFinite(Number(value))) return '0';
+  return Number(value).toFixed(digits).replace(/0+$/, '').replace(/\.$/, '');
+}
 const STOCK_PILL = {
   ok: 'bg-green-50 text-green-700 border border-green-200',
   warn: 'bg-amber-50 text-amber-700 border border-amber-200',
@@ -46,6 +56,7 @@ export default function Inventory({ nav }) {
   const [adjType, setAdjType] = useState('IN');
   const [adjReason, setAdjReason] = useState('PURCHASE');
   const [adjQty, setAdjQty] = useState('');
+  const [adjUnit, setAdjUnit] = useState('KG');
   const [adjNote, setAdjNote] = useState('');
   const [adjBatchMode, setAdjBatchMode] = useState('FIFO');
   const [adjBatchId, setAdjBatchId] = useState('');
@@ -231,7 +242,7 @@ export default function Inventory({ nav }) {
     setAdjReason(type === 'IN' ? 'PURCHASE' : type === 'OUT' ? 'OTHER' : 'CORRECTION');
     setAdjBatchMode('FIFO');
     setAdjBatchId('');
-    setAdjQty(''); setAdjNote('');
+    setAdjQty(''); setAdjUnit('KG'); setAdjNote('');
   };
   const startBatchOutbound = (batch, product, spec, expired = false) => {
     setBatchFor(null);
@@ -241,11 +252,14 @@ export default function Inventory({ nav }) {
     setAdjBatchMode('SELECTED');
     setAdjBatchId(String(batch.id));
     setAdjQty('');
+    setAdjUnit('KG');
     setAdjNote('');
   };
   const handleAdjust = async () => {
-    const qty = Number(adjQty);
-    if (qty < 0 || (adjType !== 'CORRECTION' && !qty)) return;
+    const enteredQty = Number(adjQty);
+    const rawAdjustment = isRawProduct(adjustFor?.product);
+    const qty = rawAdjustment ? rawInputToKg(enteredQty, adjUnit, adjustFor.product) : enteredQty;
+    if (!Number.isFinite(qty) || qty < 0 || (adjType !== 'CORRECTION' && !qty)) return;
     if (adjType === 'OUT' && adjBatchMode === 'SELECTED') {
       if (!selectedAdjustmentBatch) { alert('请选择有库存的批次'); return; }
       if (qty > Number(selectedAdjustmentBatch.remainingQty || 0)) {
@@ -259,10 +273,13 @@ export default function Inventory({ nav }) {
     }
     setAdjusting(true);
     try {
+      const adjustmentNote = rawAdjustment && adjUnit === 'ML'
+        ? `原始输入 ${compact(enteredQty, 3)} ml${adjNote ? `；${adjNote}` : ''}`
+        : adjNote;
       if (adjType === 'OUT' && adjBatchMode === 'SELECTED') {
-        await adjustStockFromBatch(adjustFor.spec.id, Number(adjBatchId), qty, adjReason, adjNote);
+        await adjustStockFromBatch(adjustFor.spec.id, Number(adjBatchId), qty, adjReason, adjustmentNote);
       } else if (isRawProduct(adjustFor.product)) {
-        await adjustRawStock(adjustFor.product.id, adjType, adjReason, qty, adjNote, defaultDensityForProduct(adjustFor.product));
+        await adjustRawStock(adjustFor.product.id, adjType, adjReason, qty, adjustmentNote, defaultDensityForProduct(adjustFor.product));
       } else {
         await adjustStock(adjustFor.spec.id, adjustFor.product.id, adjType, adjReason, qty, adjNote);
       }
@@ -426,6 +443,12 @@ export default function Inventory({ nav }) {
     </div>
   );
 
+  const adjustmentConversion = adjustFor && isRawProduct(adjustFor.product) && adjQty !== '' && Number.isFinite(Number(adjQty))
+    ? (adjUnit === 'ML'
+      ? `${compact(rawInputToKg(adjQty, adjUnit, adjustFor.product), 6)} kg`
+      : `${compact(Number(adjQty) * 1000 / defaultDensityForProduct(adjustFor.product), 1)} ml`)
+    : '';
+
   const adjustmentEditor = adjustFor && (
     <div className="rounded-lg border border-purple-200 bg-[#FBF9FD] p-4">
       <div className="flex items-center justify-between mb-3">
@@ -443,7 +466,14 @@ export default function Inventory({ nav }) {
             {adjType === 'OUT' && <><option value="DAMAGE">损耗/报废</option><option value="OTHER">其他</option></>}
             {adjType === 'CORRECTION' && <option value="CORRECTION">盘点修正</option>}
           </select></div>
-        <div><label className="block text-xs text-gray-500 mb-1">{isRawProduct(adjustFor.product) ? (adjType === 'CORRECTION' ? '实际库存 kg' : '重量 kg') : (adjType === 'CORRECTION' ? '实际数量' : '数量')}</label><input type="number" min="0" step={isRawProduct(adjustFor.product) ? '0.001' : '1'} value={adjQty} onChange={e => setAdjQty(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">{isRawProduct(adjustFor.product) ? (adjType === 'CORRECTION' ? '实际库存' : adjUnit === 'ML' ? '体积' : '重量') : (adjType === 'CORRECTION' ? '实际数量' : '数量')}</label>
+          <div className="flex items-stretch gap-2">
+            <input type="number" inputMode={isRawProduct(adjustFor.product) ? 'decimal' : 'numeric'} min="0" step={isRawProduct(adjustFor.product) ? (adjUnit === 'ML' ? '0.1' : '0.001') : '1'} value={adjQty} onFocus={e => e.target.select()} onChange={e => setAdjQty(e.target.value)} placeholder={isRawProduct(adjustFor.product) ? (adjUnit === 'ML' ? '如 100' : '如 0.1') : '0'} className="min-w-0 flex-1 border rounded-lg px-3 py-2 text-sm" />
+            {isRawProduct(adjustFor.product) && <div className="zidu-segment shrink-0"><button type="button" onClick={() => { setAdjUnit('KG'); setAdjQty(''); }} className={adjUnit === 'KG' ? 'active' : ''}>kg</button><button type="button" onClick={() => { setAdjUnit('ML'); setAdjQty(''); }} className={adjUnit === 'ML' ? 'active' : ''}>ml</button></div>}
+          </div>
+          {adjustmentConversion && <div className="mt-1 text-[11px] text-purple-700">折算为 {adjustmentConversion} · 密度 {defaultDensityForProduct(adjustFor.product).toFixed(3)} g/ml</div>}
+        </div>
         <div><label className="block text-xs text-gray-500 mb-1">备注</label><input value={adjNote} onChange={e => setAdjNote(e.target.value)} placeholder="可选" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
       </div>
       {adjType === 'OUT' && (
@@ -491,7 +521,7 @@ export default function Inventory({ nav }) {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <div className="zidu-section-title">库存运营工作台</div>
-          <div className="zidu-section-sub mt-1">原料按 kg · 成品按瓶 / 个 · 批次与出入库全程追溯</div>
+          <div className="zidu-section-sub mt-1">原料按 kg 记账，可用 kg / ml 输入 · 成品按瓶 / 个 · 批次与出入库全程追溯</div>
         </div>
         <div className="flex items-center gap-2 overflow-x-auto max-w-full pb-1"><div className="zidu-segment">
         {[['list', '库存概览'], ['panorama', '库存全景'], ['batches', '批次 / GC-MS 追溯'], ['log', '出入库记录']].map(([k, l]) => (
@@ -515,7 +545,7 @@ export default function Inventory({ nav }) {
 
       {tab === 'list' && (
         <>
-          <div className="flex flex-col lg:flex-row gap-3 lg:items-center justify-between">
+          <div className="sticky top-0 z-20 -mx-2 px-2 py-2 flex flex-col lg:flex-row gap-3 lg:items-center justify-between bg-[#F3F0EA] border-b border-[#E8E1D6]">
             <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
             <div className="relative flex-1 sm:flex-none">
               <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />

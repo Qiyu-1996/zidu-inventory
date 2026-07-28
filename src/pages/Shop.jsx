@@ -162,7 +162,7 @@ export function Checkout({ cart, removeFromCart, initialCustomerId = null, onBac
   const [custSearch, setCustSearch] = useState('');
   const [showCustList, setShowCustList] = useState(!initialCustomerId);
   const [customerMode, setCustomerMode] = useState('ALL');
-  const [maxDiscount, setMaxDiscount] = useState(20);
+  const [maxDiscount, setMaxDiscount] = useState(50);
   const [orderSalesId, setOrderSalesId] = useState(user.role === 'ADMIN' ? String(user.id) : String(user.id));
 
   // 销售折扣上限（管理员在 基础设置 配置；管理员本人不限）
@@ -469,7 +469,7 @@ export function Checkout({ cart, removeFromCart, initialCustomerId = null, onBac
 
           <div>
           <label className="block text-xs text-gray-500 mb-1.5">
-            {dealerDiscount > 0 ? `经销商折扣（固定 ${distributorPriceLabel(selectedCustomer.distributorLevel)}）` : <>折扣 (%) {user.role !== 'ADMIN' && <span className="text-gray-300">上限 {maxDiscount}%</span>}</>}
+            {dealerDiscount > 0 ? `经销商折扣（固定 ${distributorPriceLabel(selectedCustomer.distributorLevel)}）` : <>优惠 (%) {user.role !== 'ADMIN' && <span className="text-gray-300">最高 {maxDiscount}%{maxDiscount === 50 ? ' · 最低5折' : ''}</span>}</>}
           </label>
           <input type="number" min="0" max={user.role === 'ADMIN' ? 100 : maxDiscount} value={dealerDiscount > 0 ? dealerDiscount : discount} disabled={dealerDiscount > 0}
             onFocus={e => { if (!dealerDiscount && Number(discount || 0) === 0) { setDiscount(''); e.target.select(); } }}

@@ -105,7 +105,7 @@ function stripAfterSaleNotePrefix(note) {
 // ═══ ORDER LIST ═══
 export function OrderList({ nav }) {
   const { user } = useAuth();
-  const { orders, customers, reload } = useData();
+  const { orders, customers, users, reload } = useData();
   const isWarehouse = user.role === 'WAREHOUSE';
   const [search, setSearch] = useState('');
   const [sf, setSf] = useState('ALL');
@@ -127,7 +127,8 @@ export function OrderList({ nav }) {
     if (cf !== 'ALL' && (o.source || 'sales_miniprogram') !== cf) return false;
     if (search) {
       const c = customers.find(c => c.id === o.customerId);
-      if (!`${o.orderNo} ${c?.name || ''}`.toLowerCase().includes(search.toLowerCase())) return false;
+      const seller = users.find(u => u.id === o.salesId);
+      if (!`${o.orderNo} ${c?.name || ''} ${seller?.name || ''}`.toLowerCase().includes(search.toLowerCase())) return false;
     }
     return true;
   });
@@ -264,6 +265,7 @@ export function OrderList({ nav }) {
       <div className="space-y-2">
         {filtered.map(o => {
           const c = customers.find(c => c.id === o.customerId);
+          const seller = users.find(u => u.id === o.salesId);
           const shippingFee = getOrderShippingFee(o);
           return (
             <Card key={o.id} className="p-4 cursor-pointer hover:shadow-md transition" onClick={() => nav("orderDetail", o.id)}>
@@ -277,6 +279,7 @@ export function OrderList({ nav }) {
                     {o.paymentStatus !== 'PAID' && UNPAID_SHIPPING_LABEL[o.unpaidShippingStatus] && <span className={`text-xs px-2 py-0.5 rounded-md ${UNPAID_SHIPPING_CLASS[o.unpaidShippingStatus]}`}>{UNPAID_SHIPPING_LABEL[o.unpaidShippingStatus]}</span>}
                   </div>
                   <div className="text-sm text-gray-800">{c?.name || (o.source === 'wechat_2c' ? '微信零售' : '—')}</div>
+                  {o.source === 'wechat_2c' && <div className={`text-xs mt-0.5 ${seller ? 'text-blue-600' : 'text-gray-400'}`}>归属销售：{seller?.name || '未归属'}</div>}
                   <div className="text-xs text-gray-400 mt-0.5">{o.createdAt} · {o.items.length} 项商品</div>
                 </div>
                 {!isWarehouse && <div className="text-right">
@@ -549,18 +552,19 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
       alert('请选择收款方式');
       return;
     }
-    const adjustment = roundMoney(Number(payAmount || 0));
-    const amount = roundMoney(Number(remaining || 0) + adjustment);
-    if (!amount || amount <= 0) {
-      alert('收款金额不能小于等于0');
+    const rawAmount = String(payAmount || '').trim();
+    const amount = roundMoney(Number(rawAmount));
+    if (!rawAmount || !Number.isFinite(amount) || amount <= 0) {
+      alert('请填写本次到账金额');
       return;
     }
-    const note = adjustment !== 0
-      ? `价格调整 ${adjustment > 0 ? '+' : ''}${adjustment}${payNote ? `；${payNote}` : ''}`
-      : payNote;
+    if (amount > roundMoney(remaining) + 0.009) {
+      alert('本次收款不能超过待付金额');
+      return;
+    }
     setSavingPay(true);
     try {
-      await recordPayment(order.id, amount, payMethod, note, user.name, adjustment);
+      await recordPayment(order.id, amount, payMethod, payNote, user.name, 0);
       setShowPayForm(false); setPayAmount(''); setPayMethod(''); setPayNote('');
     } catch (e) { alert('记录失败: ' + e.message); } finally { setSavingPay(false); }
   };
@@ -735,8 +739,8 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
             <div className="text-sm font-medium">{customer?.name || (order.source === 'wechat_2c' ? '微信零售' : '—')}</div>
           </div>
           <div className="bg-gray-50 rounded-lg p-3">
-            <div className="text-xs text-gray-400">{order.source === 'wechat_2c' ? '下单渠道' : '销售'}</div>
-            <div className="text-sm font-medium">{order.source === 'wechat_2c' ? '微信小程序' : (seller?.name || '—')}</div>
+            <div className="text-xs text-gray-400">{order.source === 'wechat_2c' ? '销售归属 / 渠道' : '销售'}</div>
+            <div className="text-sm font-medium">{order.source === 'wechat_2c' ? `${seller?.name || '未归属'} · 微信小程序` : (seller?.name || '—')}</div>
           </div>
           <div className="bg-gray-50 rounded-lg p-3">
             <div className="text-xs text-gray-400">地址</div>
@@ -874,28 +878,31 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
             <span className="text-sm font-semibold text-gray-700">收款记录</span>
             <PaymentBadge status={order.paymentStatus} />
           </div>
-          {canRecordPayment && <button onClick={() => setShowPayForm(!showPayForm)} className="text-sm text-purple-700">+ 记录收款</button>}
+          {canRecordPayment && <button onClick={() => setShowPayForm(!showPayForm)} className="text-sm text-purple-700">{showPayForm ? '取消' : '分笔收款'}</button>}
         </div>
         <div className="grid gap-3 mb-3 text-sm" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))' }}>
           <div className="bg-gray-50 rounded p-2"><div className="text-xs text-gray-400">应付</div><div className="font-medium">{fmtY(order.total)}</div></div>
           {shippingFee > 0 && <div className="bg-gray-50 rounded p-2"><div className="text-xs text-gray-400">运费</div><div className="font-medium text-green-700">{fmtY(shippingFee)}</div></div>}
-          <div className="bg-gray-50 rounded p-2"><div className="text-xs text-gray-400">已付</div><div className="font-medium text-green-600">{fmtY(order.paidAmount || 0)}</div></div>
-          <div className="bg-gray-50 rounded p-2"><div className="text-xs text-gray-400">未付</div><div className="font-medium text-orange-600">{fmtY(remaining)}</div></div>
+          <div className="bg-gray-50 rounded p-2"><div className="text-xs text-gray-400">已收</div><div className="font-medium text-green-600">{fmtY(order.paidAmount || 0)}</div></div>
+          <div className="bg-gray-50 rounded p-2"><div className="text-xs text-gray-400">待收</div><div className="font-medium text-orange-600">{fmtY(remaining)}</div></div>
         </div>
         {showPayForm && (
           <div className="bg-purple-50 rounded-lg p-3 mb-3 space-y-2">
             <div className="grid grid-cols-2 gap-2">
-              <input type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} placeholder="价格调整（可正可负，不填为0）" className="border rounded px-3 py-2 text-sm" />
+              <input type="number" min="0.01" max={remaining} step="0.01" value={payAmount} onFocus={e => e.target.select()} onChange={e => setPayAmount(e.target.value)} placeholder="本次到账金额 *" className="border rounded px-3 py-2 text-sm" />
               <select value={payMethod} onChange={e => setPayMethod(e.target.value)} className="border rounded px-3 py-2 text-sm bg-white">
                 <option value="">收款方式 *</option>
                 {PAYMENT_METHODS.map(method => <option key={method} value={method}>{method}</option>)}
               </select>
             </div>
-            <div className="border rounded-lg px-3 py-2 text-sm text-purple-700 bg-white">默认收款 {fmtY(remaining)}</div>
+            <div className="flex items-center justify-between gap-3 border rounded-lg px-3 py-2 text-sm text-purple-700 bg-white">
+              <span>本次最多可收 {fmtY(remaining)}</span>
+              <button type="button" onClick={() => setPayAmount(String(roundMoney(remaining)))} className="font-medium whitespace-nowrap hover:underline">填入剩余全款</button>
+            </div>
             <input value={payNote} onChange={e => setPayNote(e.target.value)} placeholder="备注（可选）" className="w-full border rounded px-3 py-2 text-sm" />
             <div className="flex gap-2">
-              <button onClick={() => setShowPayForm(false)} className="px-3 py-1.5 text-sm border rounded-lg">取消</button>
-              <button onClick={handleRecordPayment} disabled={savingPay || !payMethod} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>{savingPay ? '保存中...' : '确认收款'}</button>
+              <button onClick={() => { setShowPayForm(false); setPayAmount(''); setPayMethod(''); setPayNote(''); }} className="px-3 py-1.5 text-sm border rounded-lg">取消</button>
+              <button onClick={handleRecordPayment} disabled={savingPay || !payMethod || !payAmount} className="px-4 py-1.5 text-sm text-white rounded-lg disabled:opacity-40" style={{ background: "#5C4B73" }}>{savingPay ? '保存中...' : '登记本次收款'}</button>
             </div>
           </div>
         )}
