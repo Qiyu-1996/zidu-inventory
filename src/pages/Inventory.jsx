@@ -413,7 +413,7 @@ export default function Inventory({ nav }) {
   };
 
   const exportLog = () => exportCSV(
-    ['时间', '产品ID', '规格ID', '类型', '原因', '规格数量', '前库存', '后库存', '变动kg', '前kg', '后kg', '采购单号', '批次号', '供应商', '操作人', '备注'],
+    ['时间', '产品ID', '规格ID', '类型', '原因', '规格数量', '初始库存', '后库存', '变动数', '前kg', '最终库存', '采购单号', '批次号', '供应商', '操作人', '备注'],
     visibleStockLog.map(l => {
       const batch = stockLogBatch(l);
       return [l.created_at, l.product_id, l.spec_id, TYPE_LABEL[l.type], REASONS[l.reason] || l.reason, l.quantity, l.before_stock, l.after_stock, l.quantity_kg, l.before_stock_kg, l.after_stock_kg, purchaseOrderNo(batch.purchaseOrderId), batch.batchNo, batchSupplier(batch), l.operator_name, l.note];
