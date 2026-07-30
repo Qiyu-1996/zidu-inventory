@@ -395,6 +395,9 @@ export async function updateProductDensity(productId, densityGml) {
 // ═══ RECIPE LIBRARY ═══
 function recipeFeatureError(error) {
   const message = error?.message || '';
+  if (/zidu_recipe_ml_sales_ready/i.test(message)) {
+    return new Error('请先在 Supabase 依次运行 migration_v54、v55 和 v57 配方库迁移');
+  }
   if (/zidu_recipe_raw_only_ready/i.test(message)) {
     return new Error('请先在 Supabase 依次运行 migration_v54 和 migration_v55 配方库迁移');
   }
@@ -464,9 +467,9 @@ export async function archiveRecipe(recipeId) {
 }
 
 export async function ensureRecipeInventoryReady() {
-  const { data, error } = await supabase.rpc('zidu_recipe_raw_only_ready');
+  const { data, error } = await supabase.rpc('zidu_recipe_ml_sales_ready');
   if (error) throw recipeFeatureError(error);
-  if (data !== true) throw new Error('配方仍包含非原料或非 ml 用量，请运行 migration_v55');
+  if (data !== true) throw new Error('配方按 ml 销售的库存联动未完整启用，请运行 migration_v57');
   return true;
 }
 
@@ -558,6 +561,7 @@ function withoutCustomFormula(meta) {
   delete channelMeta.customFormulaVersion;
   delete channelMeta.recipeSelections;
   delete channelMeta.recipeVersion;
+  delete channelMeta.recipeSalesUnit;
   return channelMeta;
 }
 

@@ -1,11 +1,16 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Search, Plus, Minus, X, ShoppingCart, ArrowLeft, Package, FlaskConical, Sparkles, Trash2, Check, BookOpen } from 'lucide-react';
+import { Search, Plus, Minus, X, ShoppingCart, ArrowLeft, Package, FlaskConical, Sparkles, Trash2, Check } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, fmtY, PRODUCT_CATEGORY_OPTIONS, matchesProductCategory, CUSTOMER_TYPES, PROVINCES, DISTRIBUTOR_LEVELS, distributorDiscount, distributorLabel, distributorPriceLabel, unitPriceHint } from '../components/ui';
 import { createOrderNo, detectSourceFromCart, localDateKey, localMinuteKey } from '../lib/orderNo';
 import { activeRecipeCatalog } from '../lib/recipes';
 import * as api from '../lib/api';
+
+const RAW_CATEGORY_OPTIONS = [
+  ...PRODUCT_CATEGORY_OPTIONS,
+  { value: 'RECIPE', label: '配方' }
+];
 
 // ═══ SHOP CATALOG ═══
 function channelLabel(channel, recipeId = null) {
@@ -21,11 +26,16 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
   const [showCart, setShowCart] = useState(false);
 
   const recipeProducts = useMemo(() => activeRecipeCatalog(recipes, products), [recipes, products]);
-  const catalogProducts = catalogMode === 'RECIPE' ? recipeProducts : products;
+  const catalogProducts = catalogMode === 'RAW' ? [...products, ...recipeProducts] : products;
   const filtered = catalogProducts.filter(p => {
+    const isRecipe = Boolean(p.recipeId);
     const channel = p.channel || 'BOTH';
-    if (catalogMode !== 'RECIPE' && channel !== 'BOTH' && channel !== catalogMode) return false;
-    if (catalogMode !== 'RECIPE' && !matchesProductCategory(p.series, sf)) return false;
+    if (isRecipe) {
+      if (catalogMode !== 'RAW' || !['ALL', 'RECIPE'].includes(sf)) return false;
+    } else {
+      if (channel !== 'BOTH' && channel !== catalogMode) return false;
+      if (sf === 'RECIPE' || !matchesProductCategory(p.series, sf)) return false;
+    }
     if (search && !`${p.code} ${p.name}`.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
@@ -39,17 +49,14 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
           <div className="zidu-segment" aria-label="下单商品类型">
             <button type="button" onClick={() => { setCatalogMode('FINISHED'); setSf('ALL'); }} className={catalogMode === 'FINISHED' ? 'active' : ''}><Package size={14} className="inline mr-1" />成品</button>
             <button type="button" onClick={() => { setCatalogMode('RAW'); setSf('ALL'); }} className={catalogMode === 'RAW' ? 'active' : ''}><FlaskConical size={14} className="inline mr-1" />原料</button>
-            <button type="button" onClick={() => { setCatalogMode('RECIPE'); setSf('ALL'); }} className={catalogMode === 'RECIPE' ? 'active' : ''}><BookOpen size={14} className="inline mr-1" />配方</button>
           </div>
           <div className="relative">
             <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
             <input placeholder="搜索产品名 / 编号" value={search} onChange={e => setSearch(e.target.value)} className="pl-9 pr-3 py-2 text-sm border rounded-lg w-56 max-w-full" />
           </div>
-          {catalogMode !== 'RECIPE' && (
-            <select value={sf} onChange={e => setSf(e.target.value)} className="border rounded-lg px-3 py-2 text-sm bg-white">
-              {PRODUCT_CATEGORY_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
-          )}
+          <select value={sf} onChange={e => setSf(e.target.value)} className="border rounded-lg px-3 py-2 text-sm bg-white">
+            {(catalogMode === 'RAW' ? RAW_CATEGORY_OPTIONS : PRODUCT_CATEGORY_OPTIONS).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
         </div>
         <div className="flex gap-2 items-center shrink-0">
           {catalogMode === 'RAW' && <button onClick={onCustom} className="h-9 px-3 rounded-lg border border-purple-200 bg-white text-purple-700 text-sm inline-flex items-center gap-1.5"><Sparkles size={15} />定制业务</button>}
@@ -78,6 +85,7 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button onClick={() => updateCartQty(c.key, c.quantity - 1)} title="减少" className="zidu-icon-button !w-8 !h-8"><Minus size={13} /></button>
                   <input type="number" min="1" max={c.availableStock || undefined} value={c.quantity} onFocus={e => e.target.select()} onChange={e => updateCartQty(c.key, e.target.value)} aria-label={`${c.productName}数量`} className="w-16 h-8 border rounded-lg px-2 text-center text-sm tabular-nums" />
+                  {c.recipeId && <span className="text-xs text-gray-400">ml</span>}
                   <button onClick={() => updateCartQty(c.key, c.quantity + 1)} disabled={c.availableStock > 0 && c.quantity >= c.availableStock} title="增加" className="zidu-icon-button !w-8 !h-8"><Plus size={13} /></button>
                   <button onClick={() => removeFromCart(c.key)} title="移出购物车" className="zidu-icon-button !w-8 !h-8 text-gray-400 hover:text-red-500"><Trash2 size={13} /></button>
                 </div>
@@ -95,7 +103,7 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
       )}
 
       {/* Product grid */}
-      <div className="flex items-center justify-between"><div className="text-sm text-gray-600">{catalogMode === 'RAW' ? '原料' : catalogMode === 'RECIPE' ? '配方' : '成品'} · {filtered.length} 项</div><div className="text-xs text-gray-400">库存与价格来自云端</div></div>
+      <div className="flex items-center justify-between"><div className="text-sm text-gray-600">{catalogMode === 'RAW' ? '原料' : '成品'} · {filtered.length} 项</div><div className="text-xs text-gray-400">库存与价格来自云端</div></div>
       <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
         {filtered.map(p => (
           <Card key={p.id} className="p-4">
@@ -105,10 +113,16 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
                   <div className="font-medium text-gray-800 text-sm">{p.name}</div>
                   <div className="text-xs text-gray-400">{p.code} · {p.origin}</div>
                 </div>
-                {catalogMode === 'RAW' && (
+                {catalogMode === 'RAW' && !p.recipeId && (
                   <div className="text-right shrink-0 text-green-700">
                     <div className="text-sm font-medium tabular-nums">{Number(p.baseStockKg || 0).toFixed(3)} kg</div>
                     <div className="text-[10px]">原料余量</div>
+                  </div>
+                )}
+                {p.recipeId && (
+                  <div className="text-right shrink-0 text-green-700">
+                    <div className="text-sm font-medium tabular-nums">{Number(p.availableMl || 0)} ml</div>
+                    <div className="text-[10px]">可售余量</div>
                   </div>
                 )}
               </div>
@@ -117,6 +131,8 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
             <div className="space-y-1.5 mt-3">
               {p.specs.map(s => {
                 const inCart = cart.find(c => c.key === `${p.id}-${s.id}`);
+                const outOfStock = Number(s.stock || 0) <= 0
+                  || (catalogMode === 'RAW' && !p.recipeId && Number(p.baseStockKg || 0) <= 0);
                 return (
                   <div key={s.id} className="flex items-center justify-between text-sm py-1">
                     <div>
@@ -124,18 +140,19 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
                       <span className="text-gray-400 mx-1">·</span>
                       <span className="font-medium" style={{ color: "#5C4B73" }}>{fmtY(s.price)}</span>
                       {unitPriceHint(s.spec, s.price) && <span className="text-amber-700 text-xs ml-1 font-medium">{unitPriceHint(s.spec, s.price)}</span>}
-                      {catalogMode === 'RECIPE' && <span className={`text-xs ml-1 ${s.stock > 0 ? 'text-green-700' : 'text-red-500'}`}>可制作 {s.stock} 份</span>}
+                      {p.recipeId && <span className={`text-xs ml-1 ${s.stock > 0 ? 'text-green-700' : 'text-red-500'}`}>可售 {s.stock} ml</span>}
                       {catalogMode === 'FINISHED' && s.stock <= s.safeStock && <span className="text-red-500 text-xs ml-1">库存 {s.stock} 瓶 / 个</span>}
                     </div>
                     {inCart ? (
                       <div className="flex items-center gap-1">
                         <button onClick={() => updateCartQty(inCart.key, inCart.quantity - 1)} className="zidu-icon-button !w-7 !h-7"><Minus size={12} /></button>
                         <input type="number" min="1" max={s.stock || undefined} value={inCart.quantity} onFocus={e => e.target.select()} onChange={e => updateCartQty(inCart.key, e.target.value)} aria-label={`${p.name} ${s.spec}数量`} className="w-12 h-7 border rounded-md text-center text-xs tabular-nums" />
+                        {p.recipeId && <span className="text-[10px] text-gray-400">ml</span>}
                         <button onClick={() => updateCartQty(inCart.key, inCart.quantity + 1)} disabled={inCart.quantity >= Number(s.stock || 0)} className="zidu-icon-button !w-7 !h-7"><Plus size={12} /></button>
                       </div>
                     ) : (
-                      <button disabled={Number(s.stock || 0) <= 0 || (catalogMode === 'RAW' && Number(p.baseStockKg || 0) <= 0)} onClick={() => addToCart(p, s, 1, catalogMode)} className="text-xs px-2.5 py-1 rounded-lg border border-purple-200 text-purple-700 hover:bg-purple-50 disabled:border-gray-200 disabled:text-gray-400 disabled:bg-gray-50">
-                        {Number(s.stock || 0) <= 0 || (catalogMode === 'RAW' && Number(p.baseStockKg || 0) <= 0) ? '缺货' : <><Plus size={12} className="inline -mt-0.5" /> 加购</>}
+                      <button disabled={outOfStock} onClick={() => addToCart(p, s, 1, catalogMode)} className="text-xs px-2.5 py-1 rounded-lg border border-purple-200 text-purple-700 hover:bg-purple-50 disabled:border-gray-200 disabled:text-gray-400 disabled:bg-gray-50">
+                        {outOfStock ? '缺货' : <><Plus size={12} className="inline -mt-0.5" /> 加购</>}
                       </button>
                     )}
                   </div>

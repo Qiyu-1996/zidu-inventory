@@ -195,7 +195,7 @@ export default function Recipes({ onOrder }) {
   const handleSave = async () => {
     const specMl = Number(form.spec);
     if (!form.name.trim() || !(specMl > 0) || !(Number(form.price) > 0)) {
-      alert('请填写配方名称、成品规格和售价');
+      alert('请填写配方名称、配方基准量和每 ml 售价');
       return;
     }
     const validComponents = form.components.filter(component => component.productId && component.specId && Number(component.quantity) > 0);
@@ -273,7 +273,7 @@ export default function Recipes({ onOrder }) {
                 <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center shrink-0"><BookOpen size={15} /></div>
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium text-gray-800 truncate">{recipe.name}</div>
-                  <div className="text-xs text-gray-400 truncate">{recipe.skuCode} · {recipe.spec} · {fmtY(recipe.price)}</div>
+                  <div className="text-xs text-gray-400 truncate">{recipe.skuCode} · {recipe.spec} 基准 · {fmtY(recipe.price)}/ml</div>
                   {user.isSuperAdmin && <div className="text-[11px] text-gray-400 mt-0.5">{recipe.ownerName}</div>}
                 </div>
                 {recipe.status === 'ARCHIVED' ? <Archive size={14} className="text-gray-300" /> : <ChevronRight size={15} className="text-gray-300" />}
@@ -299,14 +299,14 @@ export default function Recipes({ onOrder }) {
                 <input value={form.name} onChange={event => setForm(current => ({ ...current, name: event.target.value }))} placeholder="如：安眠舒缓复方" className="w-full h-10 border rounded-lg px-3 text-sm" />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1.5">成品规格 *</label>
+                <label className="block text-xs text-gray-500 mb-1.5">配方基准量 *</label>
                 <div className="relative">
                   <input type="number" min="0.1" step="0.1" value={form.spec} onFocus={event => event.target.select()} onChange={event => setForm(current => ({ ...current, spec: event.target.value }))} placeholder="10" className="w-full h-10 border rounded-lg pl-3 pr-12 text-sm" />
                   <span className="absolute right-3 top-2.5 text-xs text-gray-400">ml</span>
                 </div>
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1.5">售价 *</label>
+                <label className="block text-xs text-gray-500 mb-1.5">每 ml 售价 *</label>
                 <div className="relative">
                   <span className="absolute left-3 top-2 text-sm text-gray-400">¥</span>
                   <input type="number" min="0.01" step="0.01" value={form.price} onFocus={event => event.target.select()} onChange={event => setForm(current => ({ ...current, price: event.target.value }))} placeholder="0.00" className="w-full h-10 border rounded-lg pl-7 pr-3 text-sm" />
@@ -323,7 +323,7 @@ export default function Recipes({ onOrder }) {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
                 <div>
                   <div className="text-sm font-semibold text-gray-800">组成原料</div>
-                  <div className="text-xs text-gray-400 mt-0.5">当前可制作 {availableQuantity} 份</div>
+                  <div className="text-xs text-gray-400 mt-0.5">当前可销售 {availableQuantity} ml</div>
                 </div>
                 <button type="button" onClick={() => setForm(current => ({ ...current, components: [...current.components, blankComponent()] }))} className="h-9 px-3 border rounded-lg text-sm text-purple-700 inline-flex items-center gap-1.5 self-start sm:self-auto">
                   <PackagePlus size={15} />添加原料

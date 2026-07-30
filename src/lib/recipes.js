@@ -3,9 +3,15 @@ function finiteNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+export function recipeYieldMl(recipe) {
+  const match = String(recipe?.spec || '').trim().match(/^([0-9]+(?:\.[0-9]+)?)\s*ml$/i);
+  return match ? finiteNumber(match[1]) : 0;
+}
+
 export function recipeAvailableQuantity(recipe, products) {
   const components = Array.isArray(recipe?.components) ? recipe.components : [];
-  if (components.length === 0) return 0;
+  const yieldMl = recipeYieldMl(recipe);
+  if (components.length === 0 || yieldMl <= 0) return 0;
 
   let available = Number.MAX_SAFE_INTEGER;
   for (const component of components) {
@@ -19,7 +25,8 @@ export function recipeAvailableQuantity(recipe, products) {
     const stockKg = Math.max(0, finiteNumber(product.baseStockKg));
     if (density <= 0) return 0;
     const availableMl = stockKg * 1000 / density;
-    available = Math.min(available, Math.floor((availableMl + 1e-9) / required));
+    const finishedMl = availableMl * yieldMl / required;
+    available = Math.min(available, Math.floor(finishedMl + 1e-9));
   }
 
   return Number.isFinite(available) ? Math.max(0, available) : 0;
@@ -32,14 +39,15 @@ export function recipeCatalogProduct(recipe, products) {
     recipeId: Number(recipe.id),
     code: recipe.skuCode,
     name: recipe.name,
-    series: '配方库',
+    series: '配方',
     origin: recipe.ownerName || '自建配方',
-    channel: 'FINISHED',
+    channel: 'RAW',
     inventoryMode: 'RECIPE',
+    availableMl: stock,
     specs: [{
       id: `recipe-spec-${recipe.id}`,
       recipeId: Number(recipe.id),
-      spec: recipe.spec,
+      spec: '1ml',
       price: finiteNumber(recipe.price),
       cost: 0,
       stock,

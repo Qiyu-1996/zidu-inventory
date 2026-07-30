@@ -1,5 +1,5 @@
 -- ZIDU 上线前数据完整性检查（只读，不修改任何数据）。
--- 请在 migration_v34 至 migration_v56 全部成功后运行。
+-- 请在 migration_v34 至 migration_v57 全部成功后运行。
 
 SELECT
   to_regprocedure('public.zidu_create_order_atomic(jsonb)') IS NOT NULL AS create_order_ready,
@@ -15,6 +15,7 @@ SELECT
   public.zidu_custom_formula_inventory_ready() AS custom_formula_inventory_ready,
   public.zidu_recipe_inventory_ready() AS recipe_inventory_ready,
   public.zidu_recipe_raw_only_ready() AS recipe_raw_materials_only_ready,
+  public.zidu_recipe_ml_sales_ready() AS recipe_sales_by_ml_ready,
   to_regclass('public.batch_stock_movements') IS NOT NULL AS batch_movements_ready,
   to_regprocedure('public.zidu_fifo_consume_batches(integer,integer,numeric,text)') IS NOT NULL AS fifo_ready,
   to_regprocedure('public.zidu_adjust_inventory_from_batch(integer,integer,numeric,text,text,text)') IS NOT NULL AS manual_batch_out_ready,
@@ -112,6 +113,7 @@ FROM public.recipe_library recipe
 WHERE recipe.status = 'ACTIVE'
   AND (
     recipe.spec !~* '^[0-9]+([.][0-9]+)?ml$'
+    OR recipe.price_unit <> 'ML'
     OR NOT EXISTS (
       SELECT 1 FROM public.recipe_components component
       WHERE component.recipe_id = recipe.id
@@ -157,6 +159,23 @@ SELECT order_row.id, order_row.order_no, usage.id AS usage_id
 FROM public.orders order_row
 JOIN public.recipe_inventory_usage usage ON usage.order_id = order_row.id
 WHERE order_row.status = 'CANCELLED' AND usage.returned_at IS NULL;
+
+-- v57 以后的配方订单必须按 ml 销售，订单明细规格固定为 1ml。
+SELECT order_row.id, order_row.order_no, item.spec, item.quantity,
+       order_row.channel_meta->>'recipeSalesUnit' AS recipe_sales_unit
+FROM public.orders order_row
+JOIN public.order_items item ON item.order_id = order_row.id
+JOIN public.recipe_library recipe ON recipe.sku_code = item.product_code
+WHERE CASE
+        WHEN coalesce(order_row.channel_meta->>'recipeVersion', '') ~ '^[0-9]+$'
+          THEN (order_row.channel_meta->>'recipeVersion')::INTEGER
+        ELSE 0
+      END >= 2
+  AND (
+    order_row.channel_meta->>'recipeSalesUnit' <> 'ML'
+    OR item.spec <> '1ml'
+    OR item.quantity <= 0
+  );
 
 -- 采购已收数量必须等于仍有效的采购收货批次累计数量。
 WITH receipt_totals AS (
