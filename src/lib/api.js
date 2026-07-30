@@ -392,6 +392,80 @@ export async function updateProductDensity(productId, densityGml) {
   };
 }
 
+// ═══ RECIPE LIBRARY ═══
+function recipeFeatureError(error) {
+  const message = error?.message || '';
+  if (/zidu_(recipe_list|save_recipe|archive_recipe|recipe_inventory_ready)|recipe_library|schema cache|could not find the function/i.test(message)) {
+    return new Error('请先在 Supabase 运行 supabase/migration_v54_recipe_library.sql');
+  }
+  return new Error(message || '配方库操作失败');
+}
+
+function mapRecipe(recipe) {
+  return {
+    id: Number(recipe.id),
+    ownerUserId: Number(recipe.ownerUserId),
+    ownerName: recipe.ownerName || '',
+    skuCode: recipe.skuCode || '',
+    name: recipe.name || '',
+    spec: recipe.spec || '',
+    price: Number(recipe.price || 0),
+    notes: recipe.notes || '',
+    status: recipe.status || 'ACTIVE',
+    createdAt: recipe.createdAt || null,
+    updatedAt: recipe.updatedAt || null,
+    components: (recipe.components || []).map(component => ({
+      id: Number(component.id),
+      productId: Number(component.productId),
+      specId: Number(component.specId),
+      quantity: Number(component.quantity || 0),
+      unit: component.unit === 'ML' ? 'ML' : 'SPEC',
+      productCode: component.productCode || '',
+      productName: component.productName || '',
+      specName: component.specName || ''
+    }))
+  };
+}
+
+export async function fetchRecipes() {
+  const { data, error } = await supabase.rpc('zidu_recipe_list');
+  if (error) throw recipeFeatureError(error);
+  const rows = Array.isArray(data) ? data : [];
+  return rows.map(mapRecipe);
+}
+
+export async function saveRecipe(recipe) {
+  const payload = {
+    ...(recipe.id ? { id: Number(recipe.id) } : {}),
+    name: String(recipe.name || '').trim(),
+    spec: String(recipe.spec || '').trim(),
+    price: Number(recipe.price),
+    notes: String(recipe.notes || '').trim(),
+    components: (recipe.components || []).map(component => ({
+      specId: Number(component.specId),
+      quantity: Number(component.quantity)
+    }))
+  };
+  const { data, error } = await supabase.rpc('zidu_save_recipe', { p_recipe: payload });
+  if (error) throw recipeFeatureError(error);
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+export async function archiveRecipe(recipeId) {
+  const { data, error } = await supabase.rpc('zidu_archive_recipe', { p_recipe_id: Number(recipeId) });
+  if (error) throw recipeFeatureError(error);
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+export async function ensureRecipeInventoryReady() {
+  const { data, error } = await supabase.rpc('zidu_recipe_inventory_ready');
+  if (error) throw recipeFeatureError(error);
+  if (data !== true) throw new Error('配方 SKU 库存联动未完整启用，请重新运行 migration_v54');
+  return true;
+}
+
 export async function deleteProduct(productId) {
   const { error } = await supabase.from('products').delete().eq('id', productId);
   if (error) throw new Error(error.message);
@@ -478,6 +552,8 @@ function withoutCustomFormula(meta) {
   const channelMeta = { ...(meta || {}) };
   delete channelMeta.customFormula;
   delete channelMeta.customFormulaVersion;
+  delete channelMeta.recipeSelections;
+  delete channelMeta.recipeVersion;
   return channelMeta;
 }
 

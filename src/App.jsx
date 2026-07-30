@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { Home, ShoppingBag, ShoppingCart, Users, Package, Truck, TrendingUp, Settings, LogOut, X, Menu, ClipboardList, ClipboardCheck, Wallet, RefreshCw } from 'lucide-react';
+import { Home, ShoppingBag, ShoppingCart, Users, Package, Truck, TrendingUp, Settings, LogOut, X, Menu, ClipboardList, ClipboardCheck, Wallet, RefreshCw, BookOpen } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import { useData } from './contexts/DataContext';
 import { LoadingScreen, unitPriceHint } from './components/ui';
@@ -15,15 +15,16 @@ import SettingsPage from './pages/Settings';
 import { PurchaseOrderList, PurchaseOrderCreate, PurchaseOrderDetail } from './pages/PurchaseOrders';
 import Tasks from './pages/Tasks';
 import Finance from './pages/Finance';
+import Recipes from './pages/Recipes';
 import ziduLogo from './assets/zidu-logo.png';
 
 const ROLE_LABEL = { SUPER_ADMIN: "超级管理员", ADMIN: "管理员", SALES: "销售", WAREHOUSE: "仓库", FINANCE: "财务" };
-const WAREHOUSE_PAGES = new Set(['dashboard', 'orders', 'orderDetail', 'inventory', 'purchase', 'purchaseDetail', 'shipping']);
+const WAREHOUSE_PAGES = new Set(['dashboard', 'orders', 'orderDetail', 'inventory', 'recipes', 'purchase', 'purchaseDetail', 'shipping']);
 const PAGE_TITLE = {
   dashboard: '工作台', shop: '销售下单', orders: '订单管理', orderDetail: '订单详情',
   customers: '客户管理', customerDetail: '客户详情', tasks: '跟进任务', inventory: '库存管理',
   purchase: '采购管理', purchaseCreate: '新建采购单', purchaseEdit: '编辑采购单', purchaseDetail: '采购单详情',
-  shipping: '发货管理', analytics: '数据分析', finance: '财务报表', settings: '系统管理'
+  shipping: '发货管理', recipes: '配方库', analytics: '数据分析', finance: '财务报表', settings: '系统管理'
 };
 
 export default function App() {
@@ -80,12 +81,13 @@ export default function App() {
   const addToCart = useCallback((product, specObj, qty = 1, catalogMode = null) => {
     const key = `${product.id}-${specObj.id}`;
     const availableStock = Math.max(0, Math.floor(Number(specObj.stock || 0)));
+    const recipeId = Number(product.recipeId || specObj.recipeId || 0) || null;
     if (availableStock <= 0) return;
     setCart(prev => {
       const e = prev.find(c => c.key === key);
       if (e) return prev.map(c => c.key === key ? { ...c, quantity: Math.min(c.quantity + qty, availableStock), availableStock } : c);
       const channel = product.channel === 'BOTH' && catalogMode ? catalogMode : (product.channel || catalogMode || 'FINISHED');
-      return [...prev, { key, productId: product.id, specId: specObj.id, spec: specObj.spec, quantity: Math.min(Math.max(1, Math.floor(Number(qty) || 1)), availableStock), unitPrice: specObj.price, unitPriceHint: unitPriceHint(specObj.spec, specObj.price), unitCost: specObj.cost || 0, productName: product.name, productCode: product.code, channel, availableStock }];
+      return [...prev, { key, recipeId, productId: recipeId ? null : product.id, specId: recipeId ? null : specObj.id, spec: specObj.spec, quantity: Math.min(Math.max(1, Math.floor(Number(qty) || 1)), availableStock), unitPrice: specObj.price, unitPriceHint: unitPriceHint(specObj.spec, specObj.price), unitCost: recipeId ? 0 : (specObj.cost || 0), productName: product.name, productCode: product.code, channel, availableStock }];
     });
   }, []);
   const updateCartQty = useCallback((key, qty) => {
@@ -107,6 +109,7 @@ export default function App() {
     // 财务：只看订单 + 收款流水
     { key: "dashboard", icon: Home, label: "工作台" },
     { key: "orders", icon: ShoppingCart, label: "订单查看", badge: unreadOrders || null },
+    { key: "recipes", icon: BookOpen, label: "配方库" },
     { key: "finance", icon: Wallet, label: "财务报表" },
   ] : [
     { key: "dashboard", icon: Home, label: "工作台" },
@@ -115,6 +118,7 @@ export default function App() {
     ...(user.role !== "WAREHOUSE" ? [{ key: "customers", icon: Users, label: "客户管理" }] : []),
     ...(user.role !== "WAREHOUSE" ? [{ key: "tasks", icon: ClipboardCheck, label: "跟进任务" }] : []),
     { key: "inventory", icon: Package, label: "库存查看" },
+    { key: "recipes", icon: BookOpen, label: "配方库" },
     ...(user.role === "ADMIN" || user.role === "WAREHOUSE" ? [{ key: "purchase", icon: ClipboardList, label: "采购管理" }] : []),
     ...(canShip ? [{ key: "shipping", icon: Truck, label: "发货管理", badge: unreadOrders || null }] : []),
     ...(user.role !== "WAREHOUSE" ? [{ key: "analytics", icon: TrendingUp, label: "数据分析" }] : []),
@@ -228,6 +232,7 @@ export default function App() {
           {visiblePage === "customerDetail" && <CustomerDetail customerId={subView} onBack={() => nav("customers")} />}
           {visiblePage === "tasks" && <Tasks />}
           {visiblePage === "inventory" && <Inventory nav={nav} />}
+          {visiblePage === "recipes" && <Recipes onOrder={() => nav("shop")} />}
           {visiblePage === "purchase" && !subView && <PurchaseOrderList nav={nav} />}
           {visiblePage === "purchaseCreate" && <PurchaseOrderCreate initialSuggestion={subView?.suggestion || null} onBack={() => nav('purchase')} />}
           {visiblePage === "purchaseEdit" && <PurchaseOrderCreate editPo={purchaseOrders.find(po => po.id === subView)} onBack={() => nav('purchaseDetail', subView)} />}

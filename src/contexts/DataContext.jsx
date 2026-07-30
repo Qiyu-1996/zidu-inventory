@@ -85,6 +85,7 @@ export function DataProvider({ children }) {
   const [suppliers, setSuppliers] = useState([]);
   const [salesTasks, setSalesTasks] = useState([]);
   const [salesTargets, setSalesTargets] = useState([]);
+  const [recipes, setRecipes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -94,7 +95,7 @@ export function DataProvider({ children }) {
     if (!silent) setLoading(true);
     setError('');
     try {
-      const [p, c, o, u, po, tiers, scenarios, configs, sup, tasks, targets] = await Promise.all([
+      const [p, c, o, u, po, tiers, scenarios, configs, sup, tasks, targets, recipeRows] = await Promise.all([
         api.fetchProducts(isWarehouse).catch(() => null), api.fetchCustomers().catch(() => null),
         api.fetchOrders(isWarehouse).catch(() => null), api.fetchUsers().catch(() => null),
         api.fetchPurchaseOrders(isWarehouse).catch(() => null),
@@ -103,7 +104,8 @@ export function DataProvider({ children }) {
         api.fetchConfigOptions().catch(() => null),
         api.fetchSuppliers(isWarehouse).catch(() => null),
         isWarehouse ? Promise.resolve([]) : api.fetchSalesTasks().catch(() => null),
-        isWarehouse ? Promise.resolve([]) : api.fetchSalesTargets().catch(() => null)
+        isWarehouse ? Promise.resolve([]) : api.fetchSalesTargets().catch(() => null),
+        api.fetchRecipes().catch(() => null)
       ]);
       // 仅当成功取到数据时才覆盖；失败返回 null 则保留现有数据，避免清零
       if (p) setProducts(isWarehouse ? redactWarehouseProducts(p) : p);
@@ -117,6 +119,7 @@ export function DataProvider({ children }) {
       if (sup) setSuppliers(sup);
       if (tasks) setSalesTasks(tasks);
       if (targets) setSalesTargets(targets);
+      if (recipeRows) setRecipes(recipeRows);
     } catch (e) { setError(e.message); } finally { if (!silent) setLoading(false); }
   }, [user, isWarehouse]);
 
@@ -131,6 +134,23 @@ export function DataProvider({ children }) {
     return density;
   }, []);
   const removeProduct = useCallback(async (id) => { await api.deleteProduct(id); setProducts(p => p.filter(x => x.id !== id)); }, []);
+
+  // Recipe library
+  const reloadRecipes = useCallback(async () => {
+    const rows = await api.fetchRecipes();
+    setRecipes(rows);
+    return rows;
+  }, []);
+  const saveRecipe = useCallback(async (recipe) => {
+    const result = await api.saveRecipe(recipe);
+    await reloadRecipes();
+    return result;
+  }, [reloadRecipes]);
+  const archiveRecipe = useCallback(async (recipeId) => {
+    const result = await api.archiveRecipe(recipeId);
+    await reloadRecipes();
+    return result;
+  }, [reloadRecipes]);
 
   // Customers
   const addCustomer = useCallback(async (c) => { const r = await api.createCustomer(c); setCustomers(p => [...p, r]); return r; }, []);
@@ -374,9 +394,10 @@ export function DataProvider({ children }) {
   return (
     <DataContext.Provider value={{
       products, customers, orders, users, purchaseOrders, pricingTiers, scenarioPackages, stockLog, configOptions,
-      suppliers, salesTasks, salesTargets,
+      suppliers, salesTasks, salesTargets, recipes,
       loading, error,
       addProduct, editProduct, editProductDensity, removeProduct,
+      saveRecipe, archiveRecipe, reloadRecipes,
       addCustomer, editCustomer, removeCustomer, addCustomerNote,
       addOrder, updateOrderStatus, requestUnpaidShipping, reviewUnpaidShipping, removeOrder, editOrderItems, updateOrderDiscountResponsibility, recordPayment,
       createAfterSale, processAfterSaleWarehouse, completeAfterSaleFinance, cancelAfterSale,

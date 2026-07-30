@@ -1,5 +1,5 @@
 -- ZIDU 上线前数据完整性检查（只读，不修改任何数据）。
--- 请在 migration_v34 至 migration_v50 全部成功后运行。
+-- 请在 migration_v34 至 migration_v54 全部成功后运行。
 
 SELECT
   to_regprocedure('public.zidu_create_order_atomic(jsonb)') IS NOT NULL AS create_order_ready,
@@ -13,6 +13,7 @@ SELECT
   to_regprocedure('public.zidu_cancel_after_sale(integer,text,text)') IS NOT NULL AS after_sale_cancel_ready,
   to_regprocedure('public.zidu_delete_order_atomic(integer,boolean,text)') IS NOT NULL AS delete_ready,
   public.zidu_custom_formula_inventory_ready() AS custom_formula_inventory_ready,
+  public.zidu_recipe_inventory_ready() AS recipe_inventory_ready,
   to_regclass('public.batch_stock_movements') IS NOT NULL AS batch_movements_ready,
   to_regprocedure('public.zidu_fifo_consume_batches(integer,integer,numeric,text)') IS NOT NULL AS fifo_ready,
   to_regprocedure('public.zidu_adjust_inventory_from_batch(integer,integer,numeric,text,text,text)') IS NOT NULL AS manual_batch_out_ready,
@@ -30,6 +31,10 @@ SELECT
   NOT has_table_privilege('anon', 'public.products', 'SELECT') AS anon_products_blocked,
   NOT has_table_privilege('anon', 'public.custom_formula_inventory_usage', 'SELECT') AS anon_formula_usage_blocked,
   NOT has_table_privilege('authenticated', 'public.custom_formula_inventory_usage', 'SELECT') AS signed_in_formula_usage_blocked,
+  NOT has_table_privilege('anon', 'public.recipe_library', 'SELECT') AS anon_recipe_table_blocked,
+  NOT has_table_privilege('authenticated', 'public.recipe_inventory_usage', 'SELECT') AS signed_in_recipe_usage_blocked,
+  NOT has_function_privilege('anon', 'public.zidu_recipe_list()', 'EXECUTE') AS anon_recipe_rpc_blocked,
+  has_function_privilege('authenticated', 'public.zidu_recipe_list()', 'EXECUTE') AS signed_in_recipe_rpc_ready,
   NOT has_function_privilege('anon', 'public.zidu_create_order_atomic(jsonb)', 'EXECUTE') AS anon_order_rpc_blocked,
   NOT has_function_privilege('anon', 'public.zidu_adjust_inventory(integer,text,numeric,text)', 'EXECUTE') AS anon_inventory_rpc_blocked,
   has_function_privilege('authenticated', 'public.zidu_create_order_atomic(jsonb)', 'EXECUTE') AS signed_in_order_rpc_ready,
@@ -92,6 +97,42 @@ SELECT id, order_id, status, warehouse_at, finance_at
 FROM public.after_sales
 WHERE status = 'CANCELLED'
   AND (warehouse_at IS NOT NULL OR finance_at IS NOT NULL);
+
+-- 启用中配方必须有组成 SKU，且用量单位必须与库存模式一致。
+SELECT recipe.id, recipe.sku_code, recipe.name
+FROM public.recipe_library recipe
+WHERE recipe.status = 'ACTIVE'
+  AND NOT EXISTS (
+    SELECT 1 FROM public.recipe_components component
+    WHERE component.recipe_id = recipe.id
+  );
+
+SELECT recipe.sku_code, component.id AS component_id,
+       product.code AS product_code, product.name AS product_name,
+       product.inventory_mode, component.quantity_unit, product.density_g_ml
+FROM public.recipe_components component
+JOIN public.recipe_library recipe ON recipe.id = component.recipe_id
+JOIN public.products product ON product.id = component.component_product_id
+WHERE (product.inventory_mode = 'MASS' AND (
+         component.quantity_unit <> 'ML' OR coalesce(product.density_g_ml, 0) <= 0
+       ))
+   OR (product.inventory_mode <> 'MASS' AND component.quantity_unit <> 'SPEC');
+
+-- 配方订单必须有对应的扣库快照；已取消订单不得留有未归还的配方用量。
+SELECT order_row.id, order_row.order_no, order_row.status
+FROM public.orders order_row
+WHERE jsonb_typeof(order_row.channel_meta->'recipeSelections') = 'array'
+  AND jsonb_array_length(order_row.channel_meta->'recipeSelections') > 0
+  AND order_row.status <> 'CANCELLED'
+  AND NOT EXISTS (
+    SELECT 1 FROM public.recipe_inventory_usage usage
+    WHERE usage.order_id = order_row.id AND usage.returned_at IS NULL
+  );
+
+SELECT order_row.id, order_row.order_no, usage.id AS usage_id
+FROM public.orders order_row
+JOIN public.recipe_inventory_usage usage ON usage.order_id = order_row.id
+WHERE order_row.status = 'CANCELLED' AND usage.returned_at IS NULL;
 
 -- 采购已收数量必须等于仍有效的采购收货批次累计数量。
 WITH receipt_totals AS (

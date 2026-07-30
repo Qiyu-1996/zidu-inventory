@@ -1,27 +1,31 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Search, Plus, Minus, X, ShoppingCart, ArrowLeft, Package, FlaskConical, Sparkles, Trash2, Check } from 'lucide-react';
+import { Search, Plus, Minus, X, ShoppingCart, ArrowLeft, Package, FlaskConical, Sparkles, Trash2, Check, BookOpen } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { Card, fmtY, PRODUCT_CATEGORY_OPTIONS, matchesProductCategory, CUSTOMER_TYPES, PROVINCES, DISTRIBUTOR_LEVELS, distributorDiscount, distributorLabel, distributorPriceLabel, unitPriceHint } from '../components/ui';
 import { createOrderNo, detectSourceFromCart, localDateKey, localMinuteKey } from '../lib/orderNo';
+import { activeRecipeCatalog } from '../lib/recipes';
 import * as api from '../lib/api';
 
 // ═══ SHOP CATALOG ═══
-function channelLabel(channel) {
+function channelLabel(channel, recipeId = null) {
+  if (recipeId) return '配方';
   return channel === 'RAW' ? '原料' : '成品';
 }
 
 export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, onCheckout, onCustom }) {
-  const { products } = useData();
+  const { products, recipes } = useData();
   const [search, setSearch] = useState('');
   const [sf, setSf] = useState('ALL');
   const [catalogMode, setCatalogMode] = useState('FINISHED');
   const [showCart, setShowCart] = useState(false);
 
-  const filtered = products.filter(p => {
+  const recipeProducts = useMemo(() => activeRecipeCatalog(recipes, products), [recipes, products]);
+  const catalogProducts = catalogMode === 'RECIPE' ? recipeProducts : products;
+  const filtered = catalogProducts.filter(p => {
     const channel = p.channel || 'BOTH';
-    if (channel !== 'BOTH' && channel !== catalogMode) return false;
-    if (!matchesProductCategory(p.series, sf)) return false;
+    if (catalogMode !== 'RECIPE' && channel !== 'BOTH' && channel !== catalogMode) return false;
+    if (catalogMode !== 'RECIPE' && !matchesProductCategory(p.series, sf)) return false;
     if (search && !`${p.code} ${p.name}`.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
@@ -35,14 +39,17 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
           <div className="zidu-segment" aria-label="下单商品类型">
             <button type="button" onClick={() => { setCatalogMode('FINISHED'); setSf('ALL'); }} className={catalogMode === 'FINISHED' ? 'active' : ''}><Package size={14} className="inline mr-1" />成品</button>
             <button type="button" onClick={() => { setCatalogMode('RAW'); setSf('ALL'); }} className={catalogMode === 'RAW' ? 'active' : ''}><FlaskConical size={14} className="inline mr-1" />原料</button>
+            <button type="button" onClick={() => { setCatalogMode('RECIPE'); setSf('ALL'); }} className={catalogMode === 'RECIPE' ? 'active' : ''}><BookOpen size={14} className="inline mr-1" />配方</button>
           </div>
           <div className="relative">
             <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
             <input placeholder="搜索产品名 / 编号" value={search} onChange={e => setSearch(e.target.value)} className="pl-9 pr-3 py-2 text-sm border rounded-lg w-56 max-w-full" />
           </div>
-          <select value={sf} onChange={e => setSf(e.target.value)} className="border rounded-lg px-3 py-2 text-sm bg-white">
-            {PRODUCT_CATEGORY_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
+          {catalogMode !== 'RECIPE' && (
+            <select value={sf} onChange={e => setSf(e.target.value)} className="border rounded-lg px-3 py-2 text-sm bg-white">
+              {PRODUCT_CATEGORY_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          )}
         </div>
         <div className="flex gap-2 items-center shrink-0">
           {catalogMode === 'RAW' && <button onClick={onCustom} className="h-9 px-3 rounded-lg border border-purple-200 bg-white text-purple-700 text-sm inline-flex items-center gap-1.5"><Sparkles size={15} />定制业务</button>}
@@ -65,7 +72,7 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
             {cart.map(c => (
               <div key={c.key} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 py-2 border-b last:border-0">
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2"><span className="text-sm text-gray-800 truncate">{c.productName}</span><span className={`text-[10px] px-1.5 py-0.5 rounded ${c.channel === 'RAW' ? 'bg-green-50 text-green-700' : 'bg-purple-50 text-purple-700'}`}>{channelLabel(c.channel)}</span></div>
+                  <div className="flex items-center gap-2"><span className="text-sm text-gray-800 truncate">{c.productName}</span><span className={`text-[10px] px-1.5 py-0.5 rounded ${c.channel === 'RAW' ? 'bg-green-50 text-green-700' : 'bg-purple-50 text-purple-700'}`}>{channelLabel(c.channel, c.recipeId)}</span></div>
                   <div className="text-xs text-gray-400">{c.productCode} · {c.spec} · {fmtY(c.unitPrice)}{(c.unitPriceHint || unitPriceHint(c.spec, c.unitPrice)) && <span className="ml-1 text-amber-700 font-medium">{c.unitPriceHint || unitPriceHint(c.spec, c.unitPrice)}</span>}</div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
@@ -88,7 +95,7 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
       )}
 
       {/* Product grid */}
-      <div className="flex items-center justify-between"><div className="text-sm text-gray-600">{catalogMode === 'RAW' ? '原料' : '成品'} · {filtered.length} 项</div><div className="text-xs text-gray-400">库存与价格来自云端</div></div>
+      <div className="flex items-center justify-between"><div className="text-sm text-gray-600">{catalogMode === 'RAW' ? '原料' : catalogMode === 'RECIPE' ? '配方' : '成品'} · {filtered.length} 项</div><div className="text-xs text-gray-400">库存与价格来自云端</div></div>
       <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
         {filtered.map(p => (
           <Card key={p.id} className="p-4">
@@ -117,7 +124,8 @@ export function ShopCatalog({ cart, addToCart, updateCartQty, removeFromCart, on
                       <span className="text-gray-400 mx-1">·</span>
                       <span className="font-medium" style={{ color: "#5C4B73" }}>{fmtY(s.price)}</span>
                       {unitPriceHint(s.spec, s.price) && <span className="text-amber-700 text-xs ml-1 font-medium">{unitPriceHint(s.spec, s.price)}</span>}
-                      {catalogMode !== 'RAW' && s.stock <= s.safeStock && <span className="text-red-500 text-xs ml-1">库存 {s.stock} 瓶 / 个</span>}
+                      {catalogMode === 'RECIPE' && <span className={`text-xs ml-1 ${s.stock > 0 ? 'text-green-700' : 'text-red-500'}`}>可制作 {s.stock} 份</span>}
+                      {catalogMode === 'FINISHED' && s.stock <= s.safeStock && <span className="text-red-500 text-xs ml-1">库存 {s.stock} 瓶 / 个</span>}
                     </div>
                     {inCart ? (
                       <div className="flex items-center gap-1">
@@ -282,6 +290,7 @@ export function Checkout({ cart, removeFromCart, initialCustomerId = null, onBac
 		    if (!customerId || cart.length === 0 || !orderSalesId || submitting) return;
 	    setSubmitting(true);
 	    try {
+	      if (cart.some(item => item.recipeId)) await api.ensureRecipeInventoryReady();
 	      const now = new Date();
 	      const productSource = detectSourceFromCart(cart, 'FINISHED');
 	      const orderNo = createOrderNo({
@@ -308,6 +317,7 @@ export function Checkout({ cart, removeFromCart, initialCustomerId = null, onBac
         notes,
 	        createdAt: localDateKey(now),
         items: cart.map(c => ({
+          recipeId: c.recipeId || null,
           productId: c.productId,
           specId: c.specId,
           productName: c.productName,
@@ -341,7 +351,7 @@ export function Checkout({ cart, removeFromCart, initialCustomerId = null, onBac
           {cart.map(c => (
             <div key={c.key} className="flex justify-between items-center gap-3 text-sm py-2 border-b last:border-0">
               <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap"><span className="text-gray-800">{c.productName}</span><span className={`text-[10px] px-1.5 py-0.5 rounded ${c.channel === 'RAW' ? 'bg-green-50 text-green-700' : 'bg-purple-50 text-purple-700'}`}>{channelLabel(c.channel)}</span></div>
+                <div className="flex items-center gap-2 flex-wrap"><span className="text-gray-800">{c.productName}</span><span className={`text-[10px] px-1.5 py-0.5 rounded ${c.channel === 'RAW' ? 'bg-green-50 text-green-700' : 'bg-purple-50 text-purple-700'}`}>{channelLabel(c.channel, c.recipeId)}</span></div>
                 <span className="text-gray-400 text-xs">{c.productCode} · {c.spec} · {fmtY(c.unitPrice)} × {c.quantity}</span>
                 {(c.unitPriceHint || unitPriceHint(c.spec, c.unitPrice)) && <span className="text-amber-700 text-xs ml-1 font-medium">{c.unitPriceHint || unitPriceHint(c.spec, c.unitPrice)}</span>}
               </div>
