@@ -395,6 +395,9 @@ export async function updateProductDensity(productId, densityGml) {
 // ═══ RECIPE LIBRARY ═══
 function recipeFeatureError(error) {
   const message = error?.message || '';
+  if (/zidu_recipe_raw_only_ready/i.test(message)) {
+    return new Error('请先在 Supabase 依次运行 migration_v54 和 migration_v55 配方库迁移');
+  }
   if (/zidu_(recipe_list|save_recipe|archive_recipe|recipe_inventory_ready)|recipe_library|schema cache|could not find the function/i.test(message)) {
     return new Error('请先在 Supabase 运行 supabase/migration_v54_recipe_library.sql');
   }
@@ -435,6 +438,7 @@ export async function fetchRecipes() {
 }
 
 export async function saveRecipe(recipe) {
+  await ensureRecipeInventoryReady();
   const payload = {
     ...(recipe.id ? { id: Number(recipe.id) } : {}),
     name: String(recipe.name || '').trim(),
@@ -460,9 +464,9 @@ export async function archiveRecipe(recipeId) {
 }
 
 export async function ensureRecipeInventoryReady() {
-  const { data, error } = await supabase.rpc('zidu_recipe_inventory_ready');
+  const { data, error } = await supabase.rpc('zidu_recipe_raw_only_ready');
   if (error) throw recipeFeatureError(error);
-  if (data !== true) throw new Error('配方 SKU 库存联动未完整启用，请重新运行 migration_v54');
+  if (data !== true) throw new Error('配方仍包含非原料或非 ml 用量，请运行 migration_v55');
   return true;
 }
 
@@ -1041,8 +1045,11 @@ export async function updateOrderStatus(orderId, newStatus, logEntry, shipmentDa
 
 function unpaidShippingError(error, data) {
   const message = data?.error || error?.message || '';
+  if (/只有管理员可审核|只有在职销售或管理员/.test(message)) {
+    return new Error('请先在 Supabase 运行 migration_v56_super_admin_shipping_approval.sql');
+  }
   if (/request_unpaid_shipping|review_unpaid_shipping|unpaid_shipping_|schema cache|could not find the function/i.test(message)) {
-    return new Error('请先在 Supabase 依次运行 migration_v31_unpaid_shipping_approval.sql 和 migration_v33_admin_unpaid_shipping_override.sql');
+    return new Error('请先在 Supabase 依次运行 migration_v31、v33 和 v56 发货审批迁移');
   }
   return new Error(message || '未收款发货申请处理失败');
 }
@@ -1054,7 +1061,7 @@ export async function requestUnpaidShipping(orderId, salesId, reason) {
     p_reason: String(reason || '').trim()
   });
   if (error) throw unpaidShippingError(error, data);
-  if (data?.error) throw new Error(data.error);
+  if (data?.error) throw unpaidShippingError(null, data);
   return data;
 }
 
@@ -1066,7 +1073,7 @@ export async function reviewUnpaidShipping(orderId, adminId, approved, note = ''
     p_note: String(note || '').trim()
   });
   if (error) throw unpaidShippingError(error, data);
-  if (data?.error) throw new Error(data.error);
+  if (data?.error) throw unpaidShippingError(null, data);
   return data;
 }
 

@@ -1,5 +1,5 @@
 -- ZIDU 上线前数据完整性检查（只读，不修改任何数据）。
--- 请在 migration_v34 至 migration_v54 全部成功后运行。
+-- 请在 migration_v34 至 migration_v56 全部成功后运行。
 
 SELECT
   to_regprocedure('public.zidu_create_order_atomic(jsonb)') IS NOT NULL AS create_order_ready,
@@ -14,6 +14,7 @@ SELECT
   to_regprocedure('public.zidu_delete_order_atomic(integer,boolean,text)') IS NOT NULL AS delete_ready,
   public.zidu_custom_formula_inventory_ready() AS custom_formula_inventory_ready,
   public.zidu_recipe_inventory_ready() AS recipe_inventory_ready,
+  public.zidu_recipe_raw_only_ready() AS recipe_raw_materials_only_ready,
   to_regclass('public.batch_stock_movements') IS NOT NULL AS batch_movements_ready,
   to_regprocedure('public.zidu_fifo_consume_batches(integer,integer,numeric,text)') IS NOT NULL AS fifo_ready,
   to_regprocedure('public.zidu_adjust_inventory_from_batch(integer,integer,numeric,text,text,text)') IS NOT NULL AS manual_batch_out_ready,
@@ -35,6 +36,13 @@ SELECT
   NOT has_table_privilege('authenticated', 'public.recipe_inventory_usage', 'SELECT') AS signed_in_recipe_usage_blocked,
   NOT has_function_privilege('anon', 'public.zidu_recipe_list()', 'EXECUTE') AS anon_recipe_rpc_blocked,
   has_function_privilege('authenticated', 'public.zidu_recipe_list()', 'EXECUTE') AS signed_in_recipe_rpc_ready,
+  NOT has_function_privilege('anon', 'public.review_unpaid_shipping(integer,integer,boolean,text)', 'EXECUTE') AS anon_shipping_review_blocked,
+  has_function_privilege('authenticated', 'public.review_unpaid_shipping(integer,integer,boolean,text)', 'EXECUTE') AS signed_in_shipping_review_ready,
+  position(
+    'zidu_require_actor' IN pg_get_functiondef(
+      'public.review_unpaid_shipping(integer,integer,boolean,text)'::regprocedure
+    )
+  ) > 0 AS secure_shipping_reviewer_ready,
   NOT has_function_privilege('anon', 'public.zidu_create_order_atomic(jsonb)', 'EXECUTE') AS anon_order_rpc_blocked,
   NOT has_function_privilege('anon', 'public.zidu_adjust_inventory(integer,text,numeric,text)', 'EXECUTE') AS anon_inventory_rpc_blocked,
   has_function_privilege('authenticated', 'public.zidu_create_order_atomic(jsonb)', 'EXECUTE') AS signed_in_order_rpc_ready,
@@ -98,13 +106,16 @@ FROM public.after_sales
 WHERE status = 'CANCELLED'
   AND (warehouse_at IS NOT NULL OR finance_at IS NOT NULL);
 
--- 启用中配方必须有组成 SKU，且用量单位必须与库存模式一致。
+-- 启用中配方必须有组成原料，成品规格和原料用量均为 ml。
 SELECT recipe.id, recipe.sku_code, recipe.name
 FROM public.recipe_library recipe
 WHERE recipe.status = 'ACTIVE'
-  AND NOT EXISTS (
-    SELECT 1 FROM public.recipe_components component
-    WHERE component.recipe_id = recipe.id
+  AND (
+    recipe.spec !~* '^[0-9]+([.][0-9]+)?ml$'
+    OR NOT EXISTS (
+      SELECT 1 FROM public.recipe_components component
+      WHERE component.recipe_id = recipe.id
+    )
   );
 
 SELECT recipe.sku_code, component.id AS component_id,
@@ -113,10 +124,23 @@ SELECT recipe.sku_code, component.id AS component_id,
 FROM public.recipe_components component
 JOIN public.recipe_library recipe ON recipe.id = component.recipe_id
 JOIN public.products product ON product.id = component.component_product_id
-WHERE (product.inventory_mode = 'MASS' AND (
-         component.quantity_unit <> 'ML' OR coalesce(product.density_g_ml, 0) <= 0
-       ))
-   OR (product.inventory_mode <> 'MASS' AND component.quantity_unit <> 'SPEC');
+JOIN public.product_specs spec ON spec.id = component.component_spec_id
+WHERE recipe.status = 'ACTIVE'
+  AND (
+    spec.product_id <> product.id
+    OR coalesce(product.channel, '') NOT IN ('RAW', 'BOTH')
+    OR coalesce(product.inventory_mode, '') <> 'MASS'
+    OR component.quantity_unit <> 'ML'
+    OR coalesce(product.density_g_ml, 0) <= 0
+  );
+
+SELECT recipe.sku_code, product.code AS duplicated_raw_material, count(*) AS component_count
+FROM public.recipe_components component
+JOIN public.recipe_library recipe ON recipe.id = component.recipe_id
+JOIN public.products product ON product.id = component.component_product_id
+WHERE recipe.status = 'ACTIVE'
+GROUP BY recipe.sku_code, product.id, product.code
+HAVING count(*) > 1;
 
 -- 配方订单必须有对应的扣库快照；已取消订单不得留有未归还的配方用量。
 SELECT order_row.id, order_row.order_no, order_row.status

@@ -13,17 +13,13 @@ export function recipeAvailableQuantity(recipe, products) {
     const spec = product?.specs?.find(item => Number(item.id) === Number(component.specId));
     const required = finiteNumber(component.quantity);
     if (!product || !spec || required <= 0) return 0;
+    if (!['RAW', 'BOTH'].includes(product.channel) || product.inventoryMode !== 'MASS') return 0;
 
-    if (product.inventoryMode === 'MASS') {
-      const density = finiteNumber(product.densityGml);
-      const stockKg = Math.max(0, finiteNumber(product.baseStockKg));
-      if (density <= 0) return 0;
-      const availableMl = stockKg * 1000 / density;
-      available = Math.min(available, Math.floor((availableMl + 1e-9) / required));
-    } else {
-      const stock = Math.max(0, finiteNumber(spec.stock));
-      available = Math.min(available, Math.floor((stock + 1e-9) / required));
-    }
+    const density = finiteNumber(product.densityGml);
+    const stockKg = Math.max(0, finiteNumber(product.baseStockKg));
+    if (density <= 0) return 0;
+    const availableMl = stockKg * 1000 / density;
+    available = Math.min(available, Math.floor((availableMl + 1e-9) / required));
   }
 
   return Number.isFinite(available) ? Math.max(0, available) : 0;

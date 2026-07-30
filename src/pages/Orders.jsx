@@ -350,17 +350,18 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
   const canDelete = user.role === 'ADMIN' && !hasFinancialHistory;
   const hasOpenAfterSale = (order.afterSales || []).some(a => ['WAREHOUSE_PENDING', 'FINANCE_PENDING'].includes(a.status));
   const canEditItems = user.role === 'ADMIN' && order.status !== 'CANCELLED' && !hasOpenAfterSale;
+  const isAdminUser = user.role === 'ADMIN' || user.isSuperAdmin === true;
   const unpaidShippingStatus = order.unpaidShippingStatus || 'NONE';
   const unpaidShippingApproved = order.paymentStatus !== 'PAID' && unpaidShippingStatus === 'APPROVED';
   const canRequestUnpaidShipping = (
-    user.role === 'ADMIN'
+    isAdminUser
     || (user.role === 'SALES' && String(order.salesId) === String(user.id))
   )
     && order.paymentStatus !== 'PAID'
     && ['DRAFT', 'SUBMITTED', 'CONFIRMED', 'PREPARING'].includes(order.status)
     && !['PENDING', 'APPROVED'].includes(unpaidShippingStatus)
     && !isWalkInCustomer(customer);
-  const canReviewUnpaidShipping = user.role === 'ADMIN'
+  const canReviewUnpaidShipping = isAdminUser
     && order.paymentStatus !== 'PAID'
     && unpaidShippingStatus === 'PENDING';
   const needsShipping = ['CONFIRMED', 'PREPARING'].includes(order.status)
@@ -485,7 +486,7 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
   };
   const handleRequestUnpaidShipping = async () => {
     if (!canRequestUnpaidShipping || savingUnpaidShipping) return;
-    const isAdminOverride = user.role === 'ADMIN';
+    const isAdminOverride = isAdminUser;
     const input = prompt(`${isAdminOverride ? '管理员将直接批准。' : ''}请填写未收款仍需发货的原因（如客户账期、公司特殊安排）`);
     if (input == null) return;
     const reason = input.trim();

@@ -27,12 +27,17 @@ function blankRecipe() {
   };
 }
 
+function recipeSpecMl(spec) {
+  const match = String(spec || '').trim().match(/^([0-9]+(?:\.[0-9]+)?)/);
+  return match ? match[1] : '';
+}
+
 function recipeForm(recipe) {
   return {
     id: recipe.id,
     skuCode: recipe.skuCode,
     name: recipe.name,
-    spec: recipe.spec,
+    spec: recipeSpecMl(recipe.spec),
     price: recipe.price === 0 ? '' : String(recipe.price),
     notes: recipe.notes || '',
     status: recipe.status,
@@ -46,18 +51,18 @@ function recipeForm(recipe) {
   };
 }
 
-function ComponentPicker({ value, options, excludedSpecIds, onSelect }) {
-  const selected = options.find(option => String(option.specId) === String(value));
+function ComponentPicker({ value, options, excludedProductIds, onSelect }) {
+  const selected = options.find(option => String(option.productId) === String(value));
   const [query, setQuery] = useState(selected?.label || '');
   const [open, setOpen] = useState(false);
 
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     return options
-      .filter(option => !excludedSpecIds.has(String(option.specId)) || String(option.specId) === String(value))
+      .filter(option => !excludedProductIds.has(String(option.productId)) || String(option.productId) === String(value))
       .filter(option => !keyword || option.searchText.includes(keyword))
       .slice(0, 24);
-  }, [excludedSpecIds, options, query, value]);
+  }, [excludedProductIds, options, query, value]);
 
   return (
     <div className="relative min-w-0">
@@ -67,7 +72,7 @@ function ComponentPicker({ value, options, excludedSpecIds, onSelect }) {
         onFocus={event => { event.target.select(); setOpen(true); }}
         onChange={event => { setQuery(event.target.value); setOpen(true); }}
         onBlur={() => window.setTimeout(() => setOpen(false), 120)}
-        placeholder="搜索编号 / 商品 / 规格"
+        placeholder="搜索原料编号 / 名称"
         className="w-full h-10 pl-9 pr-9 border rounded-lg text-sm bg-white"
       />
       {value && (
@@ -85,20 +90,20 @@ function ComponentPicker({ value, options, excludedSpecIds, onSelect }) {
         <div className="absolute left-0 right-0 top-11 z-30 max-h-64 overflow-y-auto rounded-lg border bg-white shadow-lg">
           {filtered.map(option => (
             <button
-              key={option.specId}
+              key={option.productId}
               type="button"
               onMouseDown={event => event.preventDefault()}
               onClick={() => { onSelect(option); setQuery(option.label); setOpen(false); }}
               className="w-full px-3 py-2.5 text-left border-b last:border-0 hover:bg-purple-50"
             >
-              <div className="text-sm text-gray-800">{option.productName} · {option.specName}</div>
+              <div className="text-sm text-gray-800">{option.productName}</div>
               <div className="mt-0.5 flex items-center justify-between gap-3 text-xs text-gray-400">
                 <span>{option.productCode}</span>
                 <span>{option.stockLabel}</span>
               </div>
             </button>
           ))}
-          {filtered.length === 0 && <div className="px-3 py-6 text-center text-sm text-gray-400">没有匹配的 SKU</div>}
+          {filtered.length === 0 && <div className="px-3 py-6 text-center text-sm text-gray-400">没有匹配的原料</div>}
         </div>
       )}
     </div>
@@ -119,26 +124,26 @@ export default function Recipes({ onOrder }) {
     reloadRecipes().catch(error => setLoadingError(error.message));
   }, [reloadRecipes]);
 
-  const componentOptions = useMemo(() => products.flatMap(product =>
-    (product.specs || []).map(spec => {
-      const mass = product.inventoryMode === 'MASS';
-      const density = Number(product.densityGml || 0);
-      const stockMl = mass && density > 0 ? Number(product.baseStockKg || 0) * 1000 / density : 0;
-      const label = `${product.code} · ${product.name} · ${spec.spec}`;
+  const componentOptions = useMemo(() => products
+    .filter(product => ['RAW', 'BOTH'].includes(product.channel))
+    .filter(product => product.inventoryMode === 'MASS' && Number(product.densityGml || 0) > 0)
+    .map(product => {
+      const spec = (product.specs || [])[0];
+      if (!spec) return null;
+      const density = Number(product.densityGml);
+      const stockMl = Number(product.baseStockKg || 0) * 1000 / density;
+      const label = `${product.code} · ${product.name}`;
       return {
         productId: product.id,
         specId: spec.id,
         productCode: product.code,
         productName: product.name,
-        specName: spec.spec,
-        inventoryMode: mass ? 'MASS' : 'SKU',
-        unit: mass ? 'ML' : 'SPEC',
         label,
         searchText: label.toLowerCase(),
-        stockLabel: mass ? `${stockMl.toFixed(1)} ml` : `${Number(spec.stock || 0)} 瓶 / 个`
+        stockLabel: `${stockMl.toFixed(1)} ml`
       };
     })
-  ), [products]);
+    .filter(Boolean), [products]);
 
   const filteredRecipes = useMemo(() => {
     const keyword = search.trim().toLowerCase();
@@ -188,18 +193,19 @@ export default function Recipes({ onOrder }) {
   };
 
   const handleSave = async () => {
-    if (!form.name.trim() || !form.spec.trim() || !(Number(form.price) > 0)) {
-      alert('请填写配方名称、销售规格和售价');
+    const specMl = Number(form.spec);
+    if (!form.name.trim() || !(specMl > 0) || !(Number(form.price) > 0)) {
+      alert('请填写配方名称、成品规格和售价');
       return;
     }
-    const validComponents = form.components.filter(component => component.specId && Number(component.quantity) > 0);
+    const validComponents = form.components.filter(component => component.productId && component.specId && Number(component.quantity) > 0);
     if (!validComponents.length || validComponents.length !== form.components.length) {
-      alert('请完整选择组成 SKU 并填写用量');
+      alert('请完整选择组成原料并填写 ml 用量');
       return;
     }
     setSaving(true);
     try {
-      const result = await saveRecipe({ ...form, components: validComponents });
+      const result = await saveRecipe({ ...form, spec: `${specMl}ml`, components: validComponents });
       setSelectedId(Number(result.id));
       const rows = await reloadRecipes();
       const saved = rows.find(recipe => recipe.id === Number(result.id));
@@ -293,8 +299,11 @@ export default function Recipes({ onOrder }) {
                 <input value={form.name} onChange={event => setForm(current => ({ ...current, name: event.target.value }))} placeholder="如：安眠舒缓复方" className="w-full h-10 border rounded-lg px-3 text-sm" />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1.5">销售规格 *</label>
-                <input value={form.spec} onChange={event => setForm(current => ({ ...current, spec: event.target.value }))} placeholder="如：10ml / 瓶" className="w-full h-10 border rounded-lg px-3 text-sm" />
+                <label className="block text-xs text-gray-500 mb-1.5">成品规格 *</label>
+                <div className="relative">
+                  <input type="number" min="0.1" step="0.1" value={form.spec} onFocus={event => event.target.select()} onChange={event => setForm(current => ({ ...current, spec: event.target.value }))} placeholder="10" className="w-full h-10 border rounded-lg pl-3 pr-12 text-sm" />
+                  <span className="absolute right-3 top-2.5 text-xs text-gray-400">ml</span>
+                </div>
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1.5">售价 *</label>
@@ -313,25 +322,24 @@ export default function Recipes({ onOrder }) {
             <div className="border-t pt-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
                 <div>
-                  <div className="text-sm font-semibold text-gray-800">组成 SKU</div>
+                  <div className="text-sm font-semibold text-gray-800">组成原料</div>
                   <div className="text-xs text-gray-400 mt-0.5">当前可制作 {availableQuantity} 份</div>
                 </div>
                 <button type="button" onClick={() => setForm(current => ({ ...current, components: [...current.components, blankComponent()] }))} className="h-9 px-3 border rounded-lg text-sm text-purple-700 inline-flex items-center gap-1.5 self-start sm:self-auto">
-                  <PackagePlus size={15} />添加 SKU
+                  <PackagePlus size={15} />添加原料
                 </button>
               </div>
 
               <div className="space-y-2">
                 {form.components.map((component, index) => {
-                  const selectedOption = componentOptions.find(option => String(option.specId) === String(component.specId));
-                  const excludedSpecIds = new Set(form.components.filter(item => item.rowKey !== component.rowKey && item.specId).map(item => String(item.specId)));
+                  const excludedProductIds = new Set(form.components.filter(item => item.rowKey !== component.rowKey && item.productId).map(item => String(item.productId)));
                   return (
                     <div key={component.rowKey} className="grid grid-cols-1 md:grid-cols-[34px_minmax(0,1fr)_160px_36px] gap-2 md:items-center rounded-lg border p-2.5 bg-gray-50/50">
                       <div className="w-7 h-7 rounded-md bg-white border flex items-center justify-center text-xs text-gray-500">{index + 1}</div>
                       <ComponentPicker
-                        value={component.specId}
+                        value={component.productId}
                         options={componentOptions}
-                        excludedSpecIds={excludedSpecIds}
+                        excludedProductIds={excludedProductIds}
                         onSelect={option => updateComponent(component.rowKey, option ? {
                           productId: String(option.productId),
                           specId: String(option.specId),
@@ -341,17 +349,17 @@ export default function Recipes({ onOrder }) {
                       <div className="relative">
                         <input
                           type="number"
-                          min={selectedOption?.unit === 'SPEC' ? '1' : '0.001'}
-                          step={selectedOption?.unit === 'SPEC' ? '1' : '0.1'}
+                          min="0.001"
+                          step="0.1"
                           value={component.quantity}
                           onFocus={event => event.target.select()}
                           onChange={event => updateComponent(component.rowKey, { quantity: event.target.value })}
                           placeholder="用量"
                           className="w-full h-10 border rounded-lg pl-3 pr-16 text-sm bg-white"
                         />
-                        <span className="absolute right-3 top-2.5 text-xs text-gray-400">{selectedOption?.unit === 'ML' ? 'ml' : '瓶 / 个'}</span>
+                        <span className="absolute right-3 top-2.5 text-xs text-gray-400">ml</span>
                       </div>
-                      <button type="button" onClick={() => removeComponent(component.rowKey)} title="删除组成 SKU" className="zidu-icon-button !w-9 !h-9 text-gray-400 hover:text-red-500">
+                      <button type="button" onClick={() => removeComponent(component.rowKey)} title="删除组成原料" className="zidu-icon-button !w-9 !h-9 text-gray-400 hover:text-red-500">
                         <Trash2 size={14} />
                       </button>
                     </div>
