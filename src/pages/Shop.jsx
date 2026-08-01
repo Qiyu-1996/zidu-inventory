@@ -920,7 +920,7 @@ export function CustomerCreate({ onSave, onCancel, dealerMode = false }) {
   const [salesId, setSalesId] = useState(user.role === "SALES" ? user.id : 0);
   const [saving, setSaving] = useState(false);
 
-  const salesList = users.filter(u => u.role === "SALES" && u.status === 'active');
+  const salesList = users.filter(u => u.salesCapable && u.status === 'active');
 
   const handleSave = async () => {
     if (!name.trim() || saving) return;

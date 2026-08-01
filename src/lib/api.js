@@ -22,13 +22,20 @@ export function normalizeUserAccess(user) {
   const accessRole = user.accessRole || user.role;
   const isSuperAdmin = accessRole === 'SUPER_ADMIN';
   const role = isSuperAdmin ? 'ADMIN' : accessRole;
+  const referralEnabled = Boolean(user.referralEnabled ?? user.referral_enabled);
+  const miniprogramCommissionRate = Number(user.miniprogramCommissionRate ?? user.miniprogram_commission_rate ?? 0);
   const labels = { ADMIN: '管理员', SALES: '销售', WAREHOUSE: '仓库', FINANCE: '财务' };
   return {
     ...user,
     role,
     accessRole,
     isSuperAdmin,
-    roleLabel: isSuperAdmin ? '超级管理员' : (labels[role] || role)
+    roleLabel: isSuperAdmin ? '超级管理员' : (labels[role] || role),
+    referralCode: user.referralCode ?? user.referral_code ?? '',
+    referralEnabled,
+    // 权限角色和业务能力分开：超级管理员可叠加销售归属能力，不必降级角色。
+    salesCapable: role === 'SALES' || referralEnabled,
+    miniprogramCommissionRate
   };
 }
 
@@ -126,6 +133,35 @@ export async function archiveUser(adminId, targetUserId) {
     p_admin_id: adminId, p_target_user_id: targetUserId
   });
   if (error) throw new Error(/gen_salt|crypt\(|admin_archive_user|schema cache|could not find/i.test(error.message || '') ? '请先在 Supabase 运行 migration_v26_admin_user_management.sql' : error.message);
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+export async function fetchMiniProgramSalesDashboard() {
+  const { data, error } = await supabase.rpc('get_miniprogram_sales_dashboard');
+  if (error) {
+    if (/get_miniprogram_sales_dashboard|schema cache|could not find/i.test(error.message || '')) {
+      throw new Error('请先在 Supabase 运行 migration_v58_sales_capability.sql');
+    }
+    throw new Error(error.message);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data || { success: true, scope: 'SELF', accounts: [], orders: [] };
+}
+
+export async function updateMiniProgramSales(targetUserId, config) {
+  const { data, error } = await supabase.rpc('superadmin_update_miniprogram_sales', {
+    p_target_user_id: targetUserId,
+    p_referral_enabled: Boolean(config.referralEnabled),
+    p_commission_rate: Number(config.commissionRate || 0),
+    p_referral_code: config.referralCode || ''
+  });
+  if (error) {
+    if (/superadmin_update_miniprogram_sales|schema cache|could not find/i.test(error.message || '')) {
+      throw new Error('请先在 Supabase 运行 migration_v58_sales_capability.sql');
+    }
+    throw new Error(error.message);
+  }
   if (data?.error) throw new Error(data.error);
   return data;
 }

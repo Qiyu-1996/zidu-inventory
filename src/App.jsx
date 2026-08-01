@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { Home, ShoppingBag, ShoppingCart, Users, Package, Truck, TrendingUp, Settings, LogOut, X, Menu, ClipboardList, ClipboardCheck, Wallet, RefreshCw, BookOpen } from 'lucide-react';
+import { Home, ShoppingBag, ShoppingCart, Users, Package, Truck, TrendingUp, Settings, LogOut, X, Menu, ClipboardList, ClipboardCheck, Wallet, RefreshCw, BookOpen, Smartphone } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import { useData } from './contexts/DataContext';
 import { LoadingScreen, unitPriceHint } from './components/ui';
@@ -16,15 +16,17 @@ import { PurchaseOrderList, PurchaseOrderCreate, PurchaseOrderDetail } from './p
 import Tasks from './pages/Tasks';
 import Finance from './pages/Finance';
 import Recipes from './pages/Recipes';
+import MiniProgramSales from './pages/MiniProgramSales';
 import ziduLogo from './assets/zidu-logo.png';
 
 const ROLE_LABEL = { SUPER_ADMIN: "超级管理员", ADMIN: "管理员", SALES: "销售", WAREHOUSE: "仓库", FINANCE: "财务" };
-const WAREHOUSE_PAGES = new Set(['dashboard', 'orders', 'orderDetail', 'inventory', 'recipes', 'purchase', 'purchaseDetail', 'shipping']);
+const WAREHOUSE_PAGES = new Set(['dashboard', 'orders', 'orderDetail', 'inventory', 'recipes', 'purchase', 'purchaseDetail', 'shipping', 'miniprogram']);
 const PAGE_TITLE = {
   dashboard: '工作台', shop: '销售下单', orders: '订单管理', orderDetail: '订单详情',
   customers: '客户管理', customerDetail: '客户详情', tasks: '跟进任务', inventory: '库存管理',
   purchase: '采购管理', purchaseCreate: '新建采购单', purchaseEdit: '编辑采购单', purchaseDetail: '采购单详情',
-  shipping: '发货管理', recipes: '配方库', analytics: '数据分析', finance: '财务报表', settings: '系统管理'
+  shipping: '发货管理', recipes: '配方库', analytics: '数据分析', finance: '财务报表', settings: '系统管理',
+  miniprogram: '小程序销售'
 };
 
 export default function App() {
@@ -102,6 +104,7 @@ export default function App() {
   if (loading) return <LoadingScreen />;
 
   const isFinance = user.role === "FINANCE";
+  const canSeeMiniProgramSales = user.isSuperAdmin || user.referralEnabled;
   const visiblePage = user.role === 'WAREHOUSE' && !WAREHOUSE_PAGES.has(page) ? 'dashboard' : page;
   const canOrder = user.role === "ADMIN" || user.role === "SALES";
   const canShip = ['ADMIN', 'SALES', 'WAREHOUSE'].includes(user.role);
@@ -110,6 +113,7 @@ export default function App() {
     { key: "dashboard", icon: Home, label: "工作台" },
     { key: "orders", icon: ShoppingCart, label: "订单查看", badge: unreadOrders || null },
     { key: "recipes", icon: BookOpen, label: "配方库" },
+    ...(canSeeMiniProgramSales ? [{ key: "miniprogram", icon: Smartphone, label: user.isSuperAdmin ? "小程序管理" : "我的小程序销售" }] : []),
     { key: "finance", icon: Wallet, label: "财务报表" },
   ] : [
     { key: "dashboard", icon: Home, label: "工作台" },
@@ -119,6 +123,7 @@ export default function App() {
     ...(user.role !== "WAREHOUSE" ? [{ key: "tasks", icon: ClipboardCheck, label: "跟进任务" }] : []),
     { key: "inventory", icon: Package, label: "库存查看" },
     { key: "recipes", icon: BookOpen, label: "配方库" },
+    ...(canSeeMiniProgramSales ? [{ key: "miniprogram", icon: Smartphone, label: user.isSuperAdmin ? "小程序管理" : "我的小程序销售" }] : []),
     ...(user.role === "ADMIN" || user.role === "WAREHOUSE" ? [{ key: "purchase", icon: ClipboardList, label: "采购管理" }] : []),
     ...(canShip ? [{ key: "shipping", icon: Truck, label: "发货管理", badge: unreadOrders || null }] : []),
     ...(user.role !== "WAREHOUSE" ? [{ key: "analytics", icon: TrendingUp, label: "数据分析" }] : []),
@@ -240,6 +245,7 @@ export default function App() {
           {visiblePage === "shipping" && canShip && <ShippingWorkbench />}
           {visiblePage === "analytics" && <Analytics />}
           {visiblePage === "finance" && <Finance nav={nav} />}
+          {visiblePage === "miniprogram" && canSeeMiniProgramSales && <MiniProgramSales />}
           {visiblePage === "settings" && <SettingsPage />}
         </div></main>
       </div>

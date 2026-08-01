@@ -258,7 +258,7 @@ export default function Finance({ nav }) {
 
   const salesUsers = useMemo(() => (
     users
-      .filter(u => u.role === 'SALES')
+      .filter(u => u.salesCapable)
       .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'zh-CN'))
   ), [users]);
 

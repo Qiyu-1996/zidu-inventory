@@ -591,7 +591,7 @@ function TargetMgmt() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [editing, setEditing] = useState({});
-  const salesUsers = users.filter(u => u.role === 'SALES' && u.status === 'active');
+  const salesUsers = users.filter(u => u.salesCapable && u.status === 'active');
 
   const monthPrefix = `${year}-${String(month).padStart(2, '0')}`;
 

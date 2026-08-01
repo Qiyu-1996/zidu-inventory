@@ -270,7 +270,7 @@ export default function Analytics() {
 
   const salesComp = useMemo(() => {
     if (user.role !== "ADMIN") return [];
-    return users.filter(u => u.role === "SALES" && u.status === 'active').map(su => {
+    return users.filter(u => u.salesCapable && u.status === 'active').map(su => {
       const so = vo.filter(o => sameId(o.salesId, su.id));
       const sales = so.reduce((s, o) => s + o.total, 0);
       const disc = so.reduce((s, o) => s + (o.discountAmount || 0), 0);

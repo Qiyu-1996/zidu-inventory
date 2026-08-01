@@ -234,7 +234,7 @@ export function CustomerDetail({ customerId, onBack }) {
                 <div><label className="block text-xs text-gray-500 mb-1">所属销售</label>
                   <select value={editData.salesId || ''} onChange={e => setEditData({ ...editData, salesId: Number(e.target.value) || null })} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
                     <option value="">未分配</option>
-                    {users.filter(u => u.role === 'SALES' && u.status === 'active').map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                    {users.filter(u => u.salesCapable && u.status === 'active').map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                   </select>
                 </div>
                 <div><label className="block text-xs text-gray-500 mb-1">经销商等级</label>
