@@ -231,6 +231,74 @@ export async function updateMiniProgramCatalogProduct(productId, payload) {
   return data;
 }
 
+export async function fetchMiniProgramContentAdmin() {
+  const { data, error } = await supabase.rpc('get_miniprogram_content_admin');
+  if (error) {
+    if (/get_miniprogram_content_admin|schema cache|could not find/i.test(error.message || '')) {
+      throw new Error('请先在 Supabase 运行 migration_v62_miniprogram_home_content.sql');
+    }
+    throw new Error(error.message);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data || { success: true, banners: [], summary: {} };
+}
+
+export async function saveMiniProgramHomeBanner(bannerId, payload) {
+  const { data, error } = await supabase.rpc('superadmin_save_miniprogram_home_banner', {
+    p_banner_id: bannerId == null ? null : Number(bannerId),
+    p_payload: payload || {}
+  });
+  if (error) {
+    if (/superadmin_save_miniprogram_home_banner|schema cache|could not find/i.test(error.message || '')) {
+      throw new Error('请先在 Supabase 运行 migration_v62_miniprogram_home_content.sql');
+    }
+    throw new Error(error.message);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+export async function deleteMiniProgramHomeBanner(bannerId) {
+  const { data, error } = await supabase.rpc('superadmin_delete_miniprogram_home_banner', {
+    p_banner_id: Number(bannerId)
+  });
+  if (error) {
+    if (/superadmin_delete_miniprogram_home_banner|schema cache|could not find/i.test(error.message || '')) {
+      throw new Error('请先在 Supabase 运行 migration_v62_miniprogram_home_content.sql');
+    }
+    throw new Error(error.message);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+export async function uploadMiniProgramContentImage(file, section = 'home') {
+  const allowed = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+  if (!file || !allowed.has(file.type)) throw new Error('请选择 JPG、PNG、WebP 或 GIF 图片');
+  if (file.size > 10 * 1024 * 1024) throw new Error('单张图片不能超过 10MB');
+
+  const extensions = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' };
+  const folder = String(section || 'home').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 30) || 'home';
+  const random = typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID().replace(/-/g, '')
+    : Math.random().toString(36).slice(2);
+  const path = `content/${folder}/${Date.now()}-${random}.${extensions[file.type]}`;
+  const { error } = await supabase.storage.from('miniprogram-catalog').upload(path, file, {
+    cacheControl: '31536000',
+    contentType: file.type,
+    upsert: false
+  });
+  if (error) {
+    if (/bucket|policy|row-level security|not found/i.test(error.message || '')) {
+      throw new Error('图片空间尚未启用，请先运行最新的小程序商品管理升级包');
+    }
+    throw new Error(error.message);
+  }
+  const { data } = supabase.storage.from('miniprogram-catalog').getPublicUrl(path);
+  if (!data?.publicUrl) throw new Error('图片上传成功，但未能取得公开地址');
+  return data.publicUrl;
+}
+
 export async function updateMiniProgramSales(targetUserId, config) {
   const { data, error } = await supabase.rpc('superadmin_update_miniprogram_sales', {
     p_target_user_id: targetUserId,

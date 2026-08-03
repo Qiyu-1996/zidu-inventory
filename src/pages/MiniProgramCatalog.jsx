@@ -207,7 +207,7 @@ export default function MiniProgramCatalog() {
       </Card> : selected && draft ? <div className="space-y-4">
         <Card className="p-5">
           <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-            <div><div className="flex items-center gap-2 font-semibold text-gray-800"><ShoppingBag size={18} className="text-purple-600" />{selected.code}</div><div className="text-xs text-gray-400 mt-1">保存后自动进入发布队列，通常 5 分钟内同步到微信商城。</div></div>
+            <div><div className="flex items-center gap-2 font-semibold text-gray-800"><ShoppingBag size={18} className="text-purple-600" />{selected.code}</div><div className="text-xs text-gray-400 mt-1">保存后自动进入发布队列；发布完成后，用户下次进入小程序时读取新版本。</div></div>
             <div className="flex items-center gap-2"><button type="button" onClick={() => setField('onSale', !draft.onSale)} className={`px-3 py-2 rounded-lg text-sm border ${draft.onSale ? 'bg-green-50 border-green-300 text-green-700' : 'bg-white border-gray-200 text-gray-500'}`}>{draft.onSale ? '整件已上架' : '整件已下架'}</button><button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-purple-600 text-white text-sm disabled:opacity-40"><Save size={14} />{saving ? '保存中' : '保存并发布'}</button></div>
           </div>
         </Card>

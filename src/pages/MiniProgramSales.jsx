@@ -7,6 +7,7 @@ import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YA
 import { useAuth } from '../contexts/AuthContext';
 import { Card, fmtY } from '../components/ui';
 import MiniProgramCatalog from './MiniProgramCatalog';
+import MiniProgramContent from './MiniProgramContent';
 import * as api from '../lib/api';
 
 const amount = value => Number(value || 0);
@@ -185,6 +186,7 @@ export default function MiniProgramSales() {
   const tabs = [
     ['overview', '经营概览'],
     ['customers', `商城客户 ${customers.length || ''}`],
+    ['content', '首页内容'],
     ['catalog', '商品管理'],
     ['attribution', '销售归属']
   ];
@@ -195,7 +197,7 @@ export default function MiniProgramSales() {
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-lg font-semibold text-gray-800"><Smartphone size={20} className="text-purple-600" />{isSuperAdmin ? '小程序经营' : '我的小程序销售'}</div>
-            <div className="text-sm text-gray-500 mt-1">{isSuperAdmin ? '经营数据、商城客户、商品发布与销售归属集中管理。' : '分享归属保留 30 天，只有已支付订单计入销售额。'}</div>
+            <div className="text-sm text-gray-500 mt-1">{isSuperAdmin ? '经营数据、商城客户、首页内容、商品发布与销售归属集中管理。' : '分享归属保留 30 天，只有已支付订单计入销售额。'}</div>
           </div>
           <button onClick={load} disabled={loading} className="flex items-center gap-1.5 px-3 py-2 text-sm border rounded-lg text-gray-600 disabled:opacity-40"><RefreshCw size={14} className={loading ? 'animate-spin' : ''} />刷新</button>
         </div>
@@ -294,6 +296,8 @@ export default function MiniProgramSales() {
       </>}
 
       {isSuperAdmin && tab === 'catalog' && <MiniProgramCatalog />}
+
+      {isSuperAdmin && tab === 'content' && <MiniProgramContent />}
 
       {isSuperAdmin && tab === 'attribution' && <>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
