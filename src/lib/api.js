@@ -175,6 +175,47 @@ export async function fetchMiniProgramCatalogAdmin() {
   return data || { success: true, products: [], summary: {} };
 }
 
+export async function createMiniProgramCatalogProduct(payload) {
+  const { data, error } = await supabase.rpc('superadmin_create_miniprogram_product', {
+    p_payload: payload || {}
+  });
+  if (error) {
+    if (/superadmin_create_miniprogram_product|schema cache|could not find/i.test(error.message || '')) {
+      throw new Error('请先在 Supabase 运行最新的小程序商品管理升级包');
+    }
+    throw new Error(error.message);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+export async function uploadMiniProgramCatalogImage(file, productCode = 'draft') {
+  const allowed = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+  if (!file || !allowed.has(file.type)) throw new Error('请选择 JPG、PNG、WebP 或 GIF 图片');
+  if (file.size > 10 * 1024 * 1024) throw new Error('单张图片不能超过 10MB');
+
+  const extensions = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' };
+  const code = String(productCode || 'draft').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 40) || 'DRAFT';
+  const random = typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID().replace(/-/g, '')
+    : Math.random().toString(36).slice(2);
+  const path = `products/${code}/${Date.now()}-${random}.${extensions[file.type]}`;
+  const { error } = await supabase.storage.from('miniprogram-catalog').upload(path, file, {
+    cacheControl: '31536000',
+    contentType: file.type,
+    upsert: false
+  });
+  if (error) {
+    if (/bucket|policy|row-level security|not found/i.test(error.message || '')) {
+      throw new Error('图片空间尚未启用，请先运行最新的小程序商品管理升级包');
+    }
+    throw new Error(error.message);
+  }
+  const { data } = supabase.storage.from('miniprogram-catalog').getPublicUrl(path);
+  if (!data?.publicUrl) throw new Error('图片上传成功，但未能取得公开地址');
+  return data.publicUrl;
+}
+
 export async function updateMiniProgramCatalogProduct(productId, payload) {
   const { data, error } = await supabase.rpc('superadmin_update_miniprogram_product', {
     p_product_id: Number(productId),
@@ -182,7 +223,7 @@ export async function updateMiniProgramCatalogProduct(productId, payload) {
   });
   if (error) {
     if (/superadmin_update_miniprogram_product|schema cache|could not find/i.test(error.message || '')) {
-      throw new Error('请先在 Supabase 运行 migration_v60_miniprogram_catalog_admin.sql');
+      throw new Error('请先在 Supabase 运行最新的小程序商品管理升级包');
     }
     throw new Error(error.message);
   }
