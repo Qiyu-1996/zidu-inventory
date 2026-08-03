@@ -141,12 +141,53 @@ export async function fetchMiniProgramSalesDashboard() {
   const { data, error } = await supabase.rpc('get_miniprogram_sales_dashboard');
   if (error) {
     if (/get_miniprogram_sales_dashboard|schema cache|could not find/i.test(error.message || '')) {
-      throw new Error('请先在 Supabase 运行 migration_v58_sales_capability.sql');
+      throw new Error('请先在 Supabase 运行 migration_v58 和 migration_v59');
     }
     throw new Error(error.message);
   }
   if (data?.error) throw new Error(data.error);
   return data || { success: true, scope: 'SELF', accounts: [], orders: [] };
+}
+
+export async function fetchMiniProgramCustomerOrders(memberKey) {
+  const { data, error } = await supabase.rpc('get_miniprogram_customer_orders', {
+    p_member_key: String(memberKey || '').trim()
+  });
+  if (error) {
+    if (/get_miniprogram_customer_orders|schema cache|could not find/i.test(error.message || '')) {
+      throw new Error('请先在 Supabase 运行 migration_v59_miniprogram_customer_dashboard.sql');
+    }
+    throw new Error(error.message);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data || { success: true, customer: null, orders: [] };
+}
+
+export async function fetchMiniProgramCatalogAdmin() {
+  const { data, error } = await supabase.rpc('get_miniprogram_catalog_admin');
+  if (error) {
+    if (/get_miniprogram_catalog_admin|schema cache|could not find/i.test(error.message || '')) {
+      throw new Error('请先在 Supabase 运行 migration_v60_miniprogram_catalog_admin.sql');
+    }
+    throw new Error(error.message);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data || { success: true, products: [], summary: {} };
+}
+
+export async function updateMiniProgramCatalogProduct(productId, payload) {
+  const { data, error } = await supabase.rpc('superadmin_update_miniprogram_product', {
+    p_product_id: Number(productId),
+    p_payload: payload || {}
+  });
+  if (error) {
+    if (/superadmin_update_miniprogram_product|schema cache|could not find/i.test(error.message || '')) {
+      throw new Error('请先在 Supabase 运行 migration_v60_miniprogram_catalog_admin.sql');
+    }
+    throw new Error(error.message);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
 }
 
 export async function updateMiniProgramSales(targetUserId, config) {

@@ -26,7 +26,7 @@ const PAGE_TITLE = {
   customers: '客户管理', customerDetail: '客户详情', tasks: '跟进任务', inventory: '库存管理',
   purchase: '采购管理', purchaseCreate: '新建采购单', purchaseEdit: '编辑采购单', purchaseDetail: '采购单详情',
   shipping: '发货管理', recipes: '配方库', analytics: '数据分析', finance: '财务报表', settings: '系统管理',
-  miniprogram: '小程序销售'
+  miniprogram: '小程序经营'
 };
 
 export default function App() {
@@ -113,7 +113,7 @@ export default function App() {
     { key: "dashboard", icon: Home, label: "工作台" },
     { key: "orders", icon: ShoppingCart, label: "订单查看", badge: unreadOrders || null },
     { key: "recipes", icon: BookOpen, label: "配方库" },
-    ...(canSeeMiniProgramSales ? [{ key: "miniprogram", icon: Smartphone, label: user.isSuperAdmin ? "小程序管理" : "我的小程序销售" }] : []),
+    ...(canSeeMiniProgramSales ? [{ key: "miniprogram", icon: Smartphone, label: user.isSuperAdmin ? "小程序经营" : "我的小程序销售" }] : []),
     { key: "finance", icon: Wallet, label: "财务报表" },
   ] : [
     { key: "dashboard", icon: Home, label: "工作台" },
@@ -123,7 +123,7 @@ export default function App() {
     ...(user.role !== "WAREHOUSE" ? [{ key: "tasks", icon: ClipboardCheck, label: "跟进任务" }] : []),
     { key: "inventory", icon: Package, label: "库存查看" },
     { key: "recipes", icon: BookOpen, label: "配方库" },
-    ...(canSeeMiniProgramSales ? [{ key: "miniprogram", icon: Smartphone, label: user.isSuperAdmin ? "小程序管理" : "我的小程序销售" }] : []),
+    ...(canSeeMiniProgramSales ? [{ key: "miniprogram", icon: Smartphone, label: user.isSuperAdmin ? "小程序经营" : "我的小程序销售" }] : []),
     ...(user.role === "ADMIN" || user.role === "WAREHOUSE" ? [{ key: "purchase", icon: ClipboardList, label: "采购管理" }] : []),
     ...(canShip ? [{ key: "shipping", icon: Truck, label: "发货管理", badge: unreadOrders || null }] : []),
     ...(user.role !== "WAREHOUSE" ? [{ key: "analytics", icon: TrendingUp, label: "数据分析" }] : []),

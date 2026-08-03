@@ -6,6 +6,7 @@ import { Card, Badge, PaymentBadge, fmtY, now16, STATUS_MAP, PAYMENT_STATUS_MAP,
 import { printOrder, printShipment } from '../lib/printOrder';
 import { PAYMENT_METHODS } from '../lib/payment';
 import * as api from '../lib/api';
+import { resolveOrderRecipient } from '../lib/orderRecipient';
 
 // 订单录入来源标签：展示订单从哪里创建；原料/成品来源由订单号/明细识别。
 const SOURCE_MAP = {
@@ -127,8 +128,9 @@ export function OrderList({ nav }) {
     if (cf !== 'ALL' && (o.source || 'sales_miniprogram') !== cf) return false;
     if (search) {
       const c = customers.find(c => c.id === o.customerId);
+      const recipient = resolveOrderRecipient(o, c);
       const seller = users.find(u => u.id === o.salesId);
-      if (!`${o.orderNo} ${c?.name || ''} ${seller?.name || ''}`.toLowerCase().includes(search.toLowerCase())) return false;
+      if (!`${o.orderNo} ${recipient.name} ${recipient.contact} ${recipient.phone} ${seller?.name || ''}`.toLowerCase().includes(search.toLowerCase())) return false;
     }
     return true;
   });
@@ -137,7 +139,8 @@ export function OrderList({ nav }) {
     ["订单号","来源","客户","日期","小计","折扣","运费","应付","状态"],
     filtered.map(o => {
       const c = customers.find(c => c.id === o.customerId);
-      return [o.orderNo, sourceLabel(o.source), c?.name || (o.source === 'wechat_2c' ? '微信零售' : ''), o.createdAt, o.subtotal, o.discountAmount || 0, getOrderShippingFee(o), o.total, STATUS_MAP[o.status]?.label];
+      const recipient = resolveOrderRecipient(o, c);
+      return [o.orderNo, sourceLabel(o.source), recipient.name, o.createdAt, o.subtotal, o.discountAmount || 0, getOrderShippingFee(o), o.total, STATUS_MAP[o.status]?.label];
     }),
     "订单列表.csv"
   );
@@ -265,6 +268,7 @@ export function OrderList({ nav }) {
       <div className="space-y-2">
         {filtered.map(o => {
           const c = customers.find(c => c.id === o.customerId);
+          const recipient = resolveOrderRecipient(o, c);
           const seller = users.find(u => u.id === o.salesId);
           const shippingFee = getOrderShippingFee(o);
           return (
@@ -278,7 +282,8 @@ export function OrderList({ nav }) {
                     <PaymentBadge status={o.paymentStatus} />
                     {o.paymentStatus !== 'PAID' && UNPAID_SHIPPING_LABEL[o.unpaidShippingStatus] && <span className={`text-xs px-2 py-0.5 rounded-md ${UNPAID_SHIPPING_CLASS[o.unpaidShippingStatus]}`}>{UNPAID_SHIPPING_LABEL[o.unpaidShippingStatus]}</span>}
                   </div>
-                  <div className="text-sm text-gray-800">{c?.name || (o.source === 'wechat_2c' ? '微信零售' : '—')}</div>
+                  <div className="text-sm text-gray-800">{recipient.name || '—'}</div>
+                  {o.source === 'wechat_2c' && recipient.contact && <div className="text-xs text-gray-500 mt-0.5">{recipient.contact}{recipient.phone ? ` · ${recipient.phone}` : ''}</div>}
                   {o.source === 'wechat_2c' && <div className={`text-xs mt-0.5 ${seller ? 'text-blue-600' : 'text-gray-400'}`}>归属销售：{seller?.name || '未归属'}</div>}
                   <div className="text-xs text-gray-400 mt-0.5">{o.createdAt} · {o.items.length} 项商品</div>
                 </div>
@@ -336,6 +341,7 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
   if (!order) return <div className="text-center py-12 text-gray-400">订单不存在</div>;
 
   const customer = customers.find(c => c.id === order.customerId);
+  const recipient = resolveOrderRecipient(order, customer);
   const seller = users.find(u => u.id === order.salesId);
   const unpaidShippingRequester = users.find(u => String(u.id) === String(order.unpaidShippingRequestedBy));
   const unpaidShippingReviewer = users.find(u => String(u.id) === String(order.unpaidShippingReviewedBy));
@@ -717,7 +723,7 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
           </div>
           <div className="text-right">
             <div className="flex items-center gap-2 justify-end">
-              {!isWarehouse && <button onClick={() => printOrder(order, customer, seller)} title="打印订单" className="p-2 rounded hover:bg-gray-100 text-gray-500"><Printer size={16} /></button>}
+              {!isWarehouse && <button onClick={() => printOrder(order, recipient, seller)} title="打印订单" className="p-2 rounded hover:bg-gray-100 text-gray-500"><Printer size={16} /></button>}
               {canDelete && (
                 <button onClick={handleDelete} title="删除订单" className="p-2 rounded hover:bg-red-50 text-red-500"><Trash2 size={16} /></button>
               )}
@@ -737,7 +743,7 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
           <div className="bg-gray-50 rounded-lg p-3">
             <div className="text-xs text-gray-400">客户</div>
-            <div className="text-sm font-medium">{customer?.name || (order.source === 'wechat_2c' ? '微信零售' : '—')}</div>
+            <div className="text-sm font-medium">{recipient.name || '—'}</div>
           </div>
           <div className="bg-gray-50 rounded-lg p-3">
             <div className="text-xs text-gray-400">{order.source === 'wechat_2c' ? '销售归属 / 渠道' : '销售'}</div>
@@ -745,7 +751,8 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
           </div>
           <div className="bg-gray-50 rounded-lg p-3">
             <div className="text-xs text-gray-400">地址</div>
-            <div className="text-sm font-medium truncate">{customer?.address || order.channelMeta?.address || '—'}</div>
+            <div className="text-sm font-medium">{recipient.fullAddress || '—'}</div>
+            {recipient.phone && <div className="text-xs text-gray-500 mt-1">{recipient.contact} · {recipient.phone}</div>}
           </div>
         </div>
 
@@ -787,7 +794,7 @@ export function OrderDetail({ orderId, onBack, onShipping }) {
           <div className="pt-3 border-t bg-orange-50 -mx-5 -mb-5 px-5 py-3 rounded-b-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="text-sm text-orange-700">{unpaidShippingApproved ? '管理员已批准未收款发货，可前往“发货管理”填写快递信息。' : '订单已收款待发货，可前往“发货管理”填写快递公司和快递单号。'}</div>
             <div className="flex gap-2 shrink-0">
-              <button type="button" onClick={() => printShipment(order, customer, seller)} className="flex items-center gap-1 px-3 py-1.5 text-sm border border-purple-200 bg-white text-purple-700 rounded-lg"><Printer size={14} />打印发货单</button>
+              <button type="button" onClick={() => printShipment(order, recipient, seller)} className="flex items-center gap-1 px-3 py-1.5 text-sm border border-purple-200 bg-white text-purple-700 rounded-lg"><Printer size={14} />打印发货单</button>
               <button type="button" onClick={onShipping} className="px-3 py-1.5 text-sm text-white rounded-lg" style={{ background: '#5C4B73' }}>去发货</button>
             </div>
           </div>

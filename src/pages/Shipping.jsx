@@ -4,6 +4,7 @@ import { useData } from '../contexts/DataContext';
 import { Card, Badge, now16, today, STATUS_MAP } from '../components/ui';
 import * as api from '../lib/api';
 import { printShipment } from '../lib/printOrder';
+import { resolveOrderRecipient } from '../lib/orderRecipient';
 
 const ALL_CARRIERS = ['顺丰','韵达','加运美','德邦','壹米滴答快运','中通快递','圆通速递','申通快递','京东物流','极兔速递','邮政EMS','跨越速运','其他'];
 
@@ -129,6 +130,7 @@ export default function ShippingWorkbench() {
       <div className="space-y-3">
         {filtered.sort((a, b) => b.id - a.id).map(o => {
           const c = customers.find(c => c.id === o.customerId);
+          const recipient = resolveOrderRecipient(o, c);
           const seller = users.find(u => u.id === o.salesId);
           return (
             <Card key={o.id} className="p-4">
@@ -139,20 +141,20 @@ export default function ShippingWorkbench() {
                     <Badge status={o.status} />
                     {o.paymentStatus !== 'PAID' && o.unpaidShippingStatus === 'APPROVED' && <span className="text-xs rounded-md bg-amber-100 px-2 py-0.5 text-amber-800">未收款特批</span>}
                   </div>
-                  <div className="text-sm font-medium text-gray-800">{c?.name}</div>
-                  {c?.phone && (
+                  <div className="text-sm font-medium text-gray-800">{recipient.name || '—'}</div>
+                  {recipient.phone && (
                     <div className="text-xs mt-0.5">
-	                      <span className="text-gray-700 font-medium">{c.contact ? `${c.contact} · ` : ''}{c.phone}</span>
-	                      <button onClick={() => { navigator.clipboard.writeText(`${c.contact || c.name} ${c.phone}\n${(c.province ? c.province + ' ' : '') + (c.address || '')}`); alert('已复制收件信息'); }} className="text-purple-700 underline ml-1.5">复制收件信息</button>
+	                      <span className="text-gray-700 font-medium">{recipient.contact ? `${recipient.contact} · ` : ''}{recipient.phone}</span>
+	                      <button onClick={() => { navigator.clipboard.writeText(`${recipient.contact || recipient.name} ${recipient.phone}\n${recipient.fullAddress}`); alert('已复制收件信息'); }} className="text-purple-700 underline ml-1.5">复制收件信息</button>
                     </div>
                   )}
-                  <div className="text-xs text-gray-400">📍 {(c?.province ? c.province + ' ' : '') + (c?.address || '')}</div>
+                  <div className="text-xs text-gray-400">📍 {recipient.fullAddress || '—'}</div>
                   <div className="text-xs text-gray-400 mt-1">{o.items.map(it => `${it.productName}(${it.spec})x${it.quantity}`).join("，")}</div>
                 </div>
                 <div className="flex gap-2 shrink-0">
                   {["CONFIRMED","PREPARING"].includes(o.status) && (
                     <>
-                      <button onClick={() => printShipment(o, c, seller)} className="px-3 py-1.5 text-sm rounded-lg border border-purple-200 bg-white text-purple-700">打印发货单</button>
+                      <button onClick={() => printShipment(o, recipient, seller)} className="px-3 py-1.5 text-sm rounded-lg border border-purple-200 bg-white text-purple-700">打印发货单</button>
                       <button onClick={() => doAdvance(o, "SHIPPED")} disabled={updating} className="px-3 py-1.5 text-sm rounded-lg text-white bg-green-600 disabled:opacity-40">填写快递并发货</button>
                     </>
                   )}

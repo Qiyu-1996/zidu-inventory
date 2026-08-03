@@ -69,7 +69,7 @@ export function printOrder(order, customer, seller) {
 <div class="info-grid">
   <div><span class="label">客户名称：</span>${customer?.name || '—'}</div>
   <div><span class="label">联系人：</span>${customer?.contact || '—'} ${customer?.phone || ''}</div>
-  <div><span class="label">地址：</span>${customer?.address || '—'}</div>
+  <div><span class="label">地址：</span>${customer?.fullAddress || customer?.address || '—'}</div>
   <div><span class="label">销售：</span>${seller?.name || '—'}</div>
 </div>
 	<table><thead><tr><th>产品</th><th>编码</th><th>规格</th><th style="text-align:right">单价</th><th style="text-align:right">数量</th><th style="text-align:right">小计</th></tr></thead><tbody>${itemRows}</tbody></table>
